@@ -105,6 +105,13 @@
   resolved "https://registry.npmjs.org/@google-cloud/promisify/-/promisify-4.0.0.tgz#a906e533ebdd0f754dca2509933334ce58b8c8b1"
   integrity sha512-Orxzlfb9c67A15cq2JQEyVc7wEsmFBmHjZWZYQMUyJ1qivXyMwdyNOs9odi79hze+2zqdTtu1E19IM/FtqZ10g==
 
+"@google-cloud/recaptcha-enterprise@^5.9.0":
+  version "5.9.0"
+  resolved "https://registry.npmjs.org/@google-cloud/recaptcha-enterprise/-/recaptcha-enterprise-5.9.0.tgz#6e2023f0fc70c0b6889f461e78cb26c3a574e432"
+  integrity sha512-pc0t1CzJ/Hrb+ooqHcBOfAY0Kvc2yjEErBe06WHdW+e8svTPhkS1CCU98BFNoxNcb1dhi7q4o7ZQ7XSh08eqDA==
+  dependencies:
+    google-gax "^4.0.3"
+
 "@google-cloud/storage@^7.7.0":
   version "7.11.2"
   resolved "https://registry.npmjs.org/@google-cloud/storage/-/storage-7.11.2.tgz#a8942d9a4a75634186d262b82c5b41e90649f11c"
@@ -857,7 +864,7 @@ google-auth-library@^9.3.0, google-auth-library@^9.6.3:
     gtoken "^7.0.0"
     jws "^4.0.0"
 
-google-gax@^4.3.3:
+google-gax@^4.0.3, google-gax@^4.3.3:
   version "4.3.6"
   resolved "https://registry.npmjs.org/google-gax/-/google-gax-4.3.6.tgz#aed8cb1ffc8072615c7ec0cf557ade7343136413"
   integrity sha512-z3MR+pE6WqU+tnKtkJl4c723EYY7Il4fcSNgEbehzUJpcNWkca9AyoC2pdBWmEa0cda21VRpUBb4s6VSATiUKg==
