@@ -1,4 +1,3 @@
-// backend/server.js
 const express = require('express');
 const path = require('path');
 const Joi = require('joi');
@@ -10,16 +9,14 @@ app.use(express.json());
 app.use('/.well-known/acme-challenge/', express.static(path.join(__dirname, 'acme-challenge')));
 
 // Função para criar o schema de validação de registro dinamicamente
-const createRegisterSchema = (email) => {
-  const emailLocalPart = email.split('@')[0].replace(/[-[\]/{}()*+?.\\^$|]/g, "\\$&"); // Escapa caracteres especiais na parte local do email
+const createRegisterSchema = () => {
   return Joi.object({
     username: Joi.string().min(3).required(),
     email: Joi.string().email().required(),
     password: Joi.string().min(8).required()
-      .pattern(new RegExp('^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\\$%\\^&\\*])(?=.{8,})'))
-      .not().pattern(new RegExp(emailLocalPart, 'i')), // Adiciona o escape correto e usa regex case insensitive
+      .pattern(new RegExp('^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\\$%\\^&\\*]).{8,}$')),
     confirmPassword: Joi.string().valid(Joi.ref('password')).required()
-  });
+  }).with('password', 'confirmPassword');
 };
 
 const updateProfileSchema = Joi.object({
@@ -34,7 +31,7 @@ const updateProfileSchema = Joi.object({
 
 // Rota de Registro
 app.post('/register', (req, res) => {
-  const registerSchema = createRegisterSchema(req.body.email);
+  const registerSchema = createRegisterSchema();
   const { error } = registerSchema.validate(req.body);
   if (error) {
     return res.status(400).json({ errors: error.details });
