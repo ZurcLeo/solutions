@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 
 // Serve arquivos estáticos para a verificação do Certbot
-app.use('/.well-known/acme-challenge', express.static(path.join(__dirname, 'acme-challenge')));
+app.use('/.well-known/acme-challenge/', express.static(path.join(__dirname, 'acme-challenge')));
 
 // Função para criar o schema de validação de registro dinamicamente
 const createRegisterSchema = (email) => {
