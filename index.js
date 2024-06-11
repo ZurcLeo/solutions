@@ -11,7 +11,10 @@ const app = express();
 
 // Configurar CORS para permitir requisições de localhost:3001
 app.use(cors({
-    origin: 'http://localhost:3001'
+    origin: 'http://localhost:3001',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 }));
 
 app.use(express.json());
