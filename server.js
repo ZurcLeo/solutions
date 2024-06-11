@@ -1,19 +1,22 @@
-// server.js
+// backend/server.js
 const express = require('express');
 const Joi = require('joi');
 
 const app = express();
 app.use(express.json());
 
-// Define os schemas de validação
-const registerSchema = Joi.object({
-  username: Joi.string().min(3).required(),
-  email: Joi.string().email().required(),
-  password: Joi.string().min(8).required()
-    .pattern(new RegExp('^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})'))
-    .not().pattern(new RegExp(req.body.email.split('@')[0])),
-  confirmPassword: Joi.string().valid(Joi.ref('password')).required()
-});
+// Função para criar o schema de validação de registro dinamicamente
+const createRegisterSchema = (email) => {
+  const emailLocalPart = email.split('@')[0].replace(/[-[\]/{}()*+?.\\^$|]/g, "\\$&"); // Escapa caracteres especiais na parte local do email
+  return Joi.object({
+    username: Joi.string().min(3).required(),
+    email: Joi.string().email().required(),
+    password: Joi.string().min(8).required()
+      .pattern(new RegExp('^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\\$%\\^&\\*])(?=.{8,})'))
+      .not().pattern(new RegExp(emailLocalPart, 'i')), // Adiciona o escape correto e usa regex case insensitive
+    confirmPassword: Joi.string().valid(Joi.ref('password')).required()
+  });
+};
 
 const updateProfileSchema = Joi.object({
   name: Joi.string().min(3).required(),
@@ -27,6 +30,7 @@ const updateProfileSchema = Joi.object({
 
 // Rota de Registro
 app.post('/register', (req, res) => {
+  const registerSchema = createRegisterSchema(req.body.email);
   const { error } = registerSchema.validate(req.body);
   if (error) {
     return res.status(400).json({ errors: error.details });
