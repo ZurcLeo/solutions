@@ -1,9 +1,13 @@
 // backend/server.js
 const express = require('express');
+const path = require('path');
 const Joi = require('joi');
 
 const app = express();
 app.use(express.json());
+
+// Serve arquivos estáticos para a verificação do Certbot
+app.use('/.well-known/acme-challenge', express.static(path.join(__dirname, 'acme-challenge')));
 
 // Função para criar o schema de validação de registro dinamicamente
 const createRegisterSchema = (email) => {
