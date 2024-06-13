@@ -35,4 +35,5 @@ const createPaymentIntent = async ({ quantidade, valor, userId, description, ema
 
 module.exports = {
     createPaymentIntent,
+    stripe,
 };
