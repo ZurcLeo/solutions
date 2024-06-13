@@ -18,7 +18,8 @@ const createPaymentIntent = async ({ quantidade, valor, userId, description, ema
             quantidade: quantidade,
             valorPago: valor,
             dataCompra: admin.firestore.FieldValue.serverTimestamp(),
-            meioPagamento: 'stripe'
+            meioPagamento: 'stripe',
+            nomeDoProduto: description
         });
 
         // Atualiza o saldo de ElosCoins do usuário

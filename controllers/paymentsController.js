@@ -49,27 +49,21 @@ exports.createPaymentIntent = async (req, res) => {
 exports.sessionStatus = async (req, res) => {
     const paymentIntentId = req.query.payment_intent;
     try {
-        if (!paymentIntentId) {
-            throw new Error('Payment Intent ID não fornecido');
-        }
-
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-        if (!paymentIntent) {
-            throw new Error('Payment Intent não encontrado');
-        }
-
+        // Verificar se o pagamento foi concluído com sucesso antes de enviar o email
         if (paymentIntent.status === 'succeeded') {
-            // Envia o email de confirmação apenas se o pagamento foi concluído com sucesso
-            const email = paymentIntent.receipt_email;
-            const quantidade = paymentIntent.metadata.quantidade;
-            await sendEmail(email, 'Confirmação de Compra', `Sua compra de ${quantidade} ElosCoins foi realizada com sucesso!`);
+            const decodedToken = await admin.auth().verifyIdToken(req.headers.authorization.split('Bearer ')[1]);
+            const email = decodedToken.email;
+
+            // Envia um email de confirmação
+            await sendEmail(email, 'Confirmação de Compra', `Sua compra de ${paymentIntent.metadata.quantidade} ElosCoins foi realizada com sucesso!`);
         }
 
         res.json({ status: paymentIntent.status, customer_email: paymentIntent.receipt_email });
     } catch (error) {
-        console.error('Erro ao recuperar o estado da sessão:', error.message);
-        res.status(500).send({ error: 'Erro ao recuperar o estado da sessão', details: error.message });
+        console.error('Erro ao recuperar o estado da sessão:', error);
+        res.status(500).send('Erro ao recuperar o estado da sessão');
     }
 };
 
