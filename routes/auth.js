@@ -1,3 +1,4 @@
+//routes/auth.js
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
@@ -13,5 +14,12 @@ router.options('*', (req, res) => {
 
 router.post('/facebook-login', authController.facebookLogin);
 router.get('/facebook-friends', authController.getFacebookFriends);
+router.post('/register', authController.registerWithEmail);
+router.post('/login', authController.signInWithEmail);
+router.post('/logout', authController.logout);
+router.post('/login-with-provider', authController.signInWithProvider);
+router.post('/register-with-provider', authController.registerWithProvider);
+router.post('/resend-verification-email', authController.resendVerificationEmail);
+
 
 module.exports = router;
