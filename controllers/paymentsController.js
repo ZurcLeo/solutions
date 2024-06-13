@@ -1,7 +1,7 @@
 const admin = require('firebase-admin');
 const { createAssessment } = require('../services/recaptchaService');
 const { createPaymentIntent } = require('../services/stripeService');
-const { sendEmail } = require('../sendEmail');
+const { sendEmail } = require('../utils/emailUtils');
 
 exports.createPaymentIntent = async (req, res) => {
     res.set('Access-Control-Allow-Origin', 'https://eloscloud.com');
