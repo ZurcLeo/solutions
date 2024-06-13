@@ -5,7 +5,7 @@ const admin = require('firebase-admin');
 
 // Rota OPTIONS para lidar com requisições preflight
 router.options('/create-payment-intent', (req, res) => {
-    res.set('Access-Control-Allow-Origin', 'http://localhost:3001');
+    res.set('Access-Control-Allow-Origin', 'https://eloscloud.com');
     res.set('Access-Control-Allow-Methods', 'GET, POST');
     res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.set('Access-Control-Max-Age', '3600');
@@ -13,7 +13,7 @@ router.options('/create-payment-intent', (req, res) => {
 });
 
 router.post('/create-payment-intent', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', 'http://localhost:3001');
+    res.set('Access-Control-Allow-Origin', 'https://eloscloud.com');
 
     const { quantidade, valor, userId, description, recaptchaToken } = req.body;
 
