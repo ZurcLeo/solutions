@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "@google-cloud/recaptcha-enterprise": "^5.9.0",
+    "@videosdk.live/react-sdk": "^0.1.92",
     "axios": "^1.7.2",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",

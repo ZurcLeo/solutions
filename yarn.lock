@@ -354,6 +354,19 @@
   resolved "https://registry.npmjs.org/@types/tough-cookie/-/tough-cookie-4.0.5.tgz"
   integrity sha512-/Ad8+nIOV7Rl++6f1BdKxFSMgmoqEoYbHRpPcx3JEfv8VRsQe9Z4mCXeJBzxs7mbHY/XOZZuXlRNfhpVPbs6ZA==
 
+"@videosdk.live/js-sdk@0.0.88":
+  version "0.0.88"
+  resolved "https://registry.npmjs.org/@videosdk.live/js-sdk/-/js-sdk-0.0.88.tgz#c4642e4fbce6bb115c5f42c03e0458595185e821"
+  integrity sha512-Mv6JtJhh0gN+VK23RRrJU4m/F8CXJP7FXBEr2nHBJuq2AQ8KOaGcevFKcZxIL73H56FHP3oG7NA/XHttbYrGOA==
+
+"@videosdk.live/react-sdk@^0.1.92":
+  version "0.1.92"
+  resolved "https://registry.npmjs.org/@videosdk.live/react-sdk/-/react-sdk-0.1.92.tgz#61030c89deba2b67e45f7878e3577a98b5554fc6"
+  integrity sha512-gwckbVzyXVCww14bbEpDLzPS0EVDmUz0VmtNjeVyBGlDLrVHnvnHSxoGybwg+ihVKARec/D8F0p558fMNTIRCQ==
+  dependencies:
+    "@videosdk.live/js-sdk" "0.0.88"
+    events "^3.3.0"
+
 abort-controller@^3.0.0:
   version "3.0.0"
   resolved "https://registry.npmjs.org/abort-controller/-/abort-controller-3.0.0.tgz"
@@ -456,7 +469,7 @@ aws4@^1.8.0:
 
 axios@^1.7.2:
   version "1.7.2"
-  resolved "https://registry.npmjs.org/axios/-/axios-1.7.2.tgz"
+  resolved "https://registry.npmjs.org/axios/-/axios-1.7.2.tgz#b625db8a7051fbea61c35a3cbb3a1daa7b9c7621"
   integrity sha512-2A8QhOMrbomlDuiLeK9XibIBzuHeRcqqNOHp0Cyp5EoJ1IFDh+XZH3A6BkXtv0K4gFGCI0Y4BM7B1wOEi0Rmgw==
   dependencies:
     follow-redirects "^1.15.6"
@@ -772,6 +785,11 @@ event-target-shim@^5.0.0:
   version "5.0.1"
   resolved "https://registry.npmjs.org/event-target-shim/-/event-target-shim-5.0.1.tgz"
   integrity sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==
+
+events@^3.3.0:
+  version "3.3.0"
+  resolved "https://registry.npmjs.org/events/-/events-3.3.0.tgz#31a95ad0a924e2d2c419a813aeb2c4e878ea7400"
+  integrity sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==
 
 expand-template@^2.0.3:
   version "2.0.3"
