@@ -4,6 +4,9 @@ const bodyParser = require('body-parser');
 const cors = require('./middlewares/cors');
 const paymentsRoutes = require('./routes/payments');
 const authRoutes = require('./routes/auth');  // Nova rota para autenticação
+const recaptchaRoutes = require('./routes/recaptcha');
+const emailRoutes = require('./routes/email');
+const userRoutes = require('./routes/users');
 const admin = require('firebase-admin');
 
 // Inicialize o Firebase Admin SDK usando credenciais das variáveis de ambiente
@@ -21,7 +24,10 @@ app.use(bodyParser.json());
 
 // Use rotas
 app.use('/api/payments', paymentsRoutes);
-app.use('/api/auth', authRoutes);  // Nova rota para autenticação
+app.use('/api/auth', authRoutes); 
+app.use('/api/recaptcha', recaptchaRoutes);
+app.use('/api/email', emailRoutes);
+app.use('/api/users', userRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
