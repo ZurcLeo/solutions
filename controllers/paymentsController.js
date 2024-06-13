@@ -72,3 +72,20 @@ exports.sessionStatus = async (req, res) => {
         res.status(500).send({ error: 'Erro ao recuperar o estado da sessão', details: error.message });
     }
 };
+
+exports.getPurchases = async (req, res) => {
+    const idToken = req.headers.authorization.split('Bearer ')[1];
+
+    try {
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const userId = decodedToken.uid;
+
+        const purchasesSnapshot = await admin.firestore().collection('usuario').doc(userId).collection('compras').get();
+        const purchases = purchasesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        res.status(200).json(purchases);
+    } catch (error) {
+        console.error('Erro ao buscar compras:', error);
+        res.status(500).send({ error: 'Erro ao buscar compras', details: error.message });
+    }
+};

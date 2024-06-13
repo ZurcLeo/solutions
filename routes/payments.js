@@ -15,4 +15,6 @@ router.post('/create-payment-intent', paymentsController.createPaymentIntent);
 
 router.get('/session-status', paymentsController.sessionStatus);
 
+router.get('/purchases', paymentsController.getPurchases);
+
 module.exports = router;
