@@ -47,3 +47,14 @@ exports.createPaymentIntent = async (req, res) => {
         return res.status(500).send({ error: 'Erro ao criar a intenção de pagamento', details: error.message });
     }
 };
+
+exports.sessionStatus = async (req, res) => {
+    const paymentIntentId = req.query.payment_intent;
+    try {
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        res.json({ status: paymentIntent.status, customer_email: paymentIntent.receipt_email });
+    } catch (error) {
+        console.error('Erro ao recuperar o estado da sessão:', error);
+        res.status(500).send('Erro ao recuperar o estado da sessão');
+    }
+};
