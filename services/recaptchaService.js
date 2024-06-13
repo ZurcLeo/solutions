@@ -1,6 +1,6 @@
 const { RecaptchaEnterpriseServiceClient } = require('@google-cloud/recaptcha-enterprise');
 
-exports.createAssessment = async ({ projectID, recaptchaKey, token, recaptchaAction, userAgent, userIpAddress }) => {
+const createAssessment = async ({ projectID, recaptchaKey, token, recaptchaAction, userAgent, userIpAddress }) => {
     const client = new RecaptchaEnterpriseServiceClient();
     const projectPath = client.projectPath(projectID);
 
@@ -34,4 +34,8 @@ exports.createAssessment = async ({ projectID, recaptchaKey, token, recaptchaAct
         console.log("The action attribute in your reCAPTCHA tag does not match the action you are expecting to score");
         return null;
     }
+};
+
+module.exports = {
+    createAssessment,
 };
