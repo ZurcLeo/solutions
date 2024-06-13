@@ -10,7 +10,7 @@ const userRoutes = require('./routes/users');
 const admin = require('firebase-admin');
 
 // Inicialize o Firebase Admin SDK usando credenciais das variáveis de ambiente
-const serviceAccount = require(process.env.FIREBASE_CREDENTIALS);
+const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
