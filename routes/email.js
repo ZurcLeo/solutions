@@ -1,17 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const authController = require('../controllers/authController');
+const emailController = require('../controllers/emailController');
 
 // Rota OPTIONS para lidar com requisições preflight
 router.options('*', (req, res) => {
     res.set('Access-Control-Allow-Origin', 'https://eloscloud.com');
-    res.set('Access-Control-Allow-Methods', 'GET, POST');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.set('Access-Control-Max-Age', '3600');
     res.status(204).send('');
 });
 
-router.post('/facebook-login', authController.facebookLogin);
-router.get('/facebook-friends', authController.getFacebookFriends);
+router.post('/send-invite', emailController.sendInviteEmail);
 
 module.exports = router;
