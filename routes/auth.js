@@ -25,6 +25,6 @@ router.post('/logout', authController.logout);
 router.post('/login-with-provider', authController.signInWithProvider);
 router.post('/register-with-provider', authController.registerWithProvider);
 router.post('/resend-verification-email', authController.resendVerificationEmail);
-router.get('/token', verifyToken, authController.getToken); // Nova rota para obter o token
+router.get('/token', verifyToken, authController.getToken);
 
 module.exports = router;

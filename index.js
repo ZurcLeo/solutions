@@ -1,7 +1,7 @@
 //index.js
 const express = require('express');
 const bodyParser = require('body-parser');
-const cors = require('cors');
+const cors = require('./middlewares/cors');
 const admin = require('firebase-admin');
 require('dotenv').config();
 
