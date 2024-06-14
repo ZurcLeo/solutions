@@ -1,4 +1,5 @@
 require('dotenv').config();
+const admin = require('firebase-admin');
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('./middlewares/cors');
@@ -9,7 +10,6 @@ const recaptchaRoutes = require('./routes/recaptcha');
 const emailRoutes = require('./routes/email');
 const userRoutes = require('./routes/users');
 const videoSdkRoutes = require('./routes/videosdk');
-const admin = require('firebase-admin');
 
 admin.initializeApp({
     credential: admin.credential.applicationDefault(),
