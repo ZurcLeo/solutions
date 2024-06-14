@@ -17,15 +17,24 @@ exports.getTurnCredentials = async (req, res) => {
 };
 
 exports.startSession = async (req, res) => {
-    const { userId, meetingId } = req.body;
+    const userId = req.user.uid;
     try {
+        // Create a new meeting ID
+        const response = await axios.post('https://api.videosdk.live/v1/meetings', {}, {
+            headers: {
+                authorization: `Bearer ${VIDEO_SDK_API_KEY}`,
+            }
+        });
+
+        const meetingId = response.data.meetingId;
+
         await admin.firestore().collection('sessions').doc(meetingId).set({
             userId,
             meetingId,
             startTime: admin.firestore.FieldValue.serverTimestamp(),
             active: true,
         });
-        res.status(200).json({ message: 'Session started' });
+        res.status(200).json({ message: 'Session started', meetingId });
     } catch (error) {
         res.status(500).json({ error: 'Failed to start session', details: error });
     }

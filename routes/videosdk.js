@@ -1,6 +1,7 @@
 const express = require('express');
 const { getTurnCredentials, startSession, endSession } = require('../controllers/videoSdkController');
 const router = express.Router();
+const verifyToken = require('../middlewares/auth');
 
 // Adicionar cabeçalhos CORS para todas as solicitações
 router.use((req, res, next) => {
@@ -14,8 +15,8 @@ router.use((req, res, next) => {
     next();
 });
 
-router.get('/turn-credentials', getTurnCredentials);
-router.post('/start-session', startSession);
-router.post('/end-session', endSession);
+router.post('/start-session', verifyToken, videoSdkController.startSession);
+router.post('/end-session', verifyToken, videoSdkController.endSession);
+router.get('/turn-credentials', verifyToken, videoSdkController.getTurnCredentials);
 
 module.exports = router;
