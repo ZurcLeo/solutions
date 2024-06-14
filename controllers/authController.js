@@ -2,7 +2,7 @@
 const admin = require('firebase-admin');
 const { getAuth } = require('firebase-admin/auth');
 const jwt = require('jsonwebtoken');
-const { getFacebookUserData, getFacebookFriends } = require('../services/facebookService');
+const { getFacebookUserData } = require('../services/facebookService');
 
 const auth = getAuth();
 
@@ -20,17 +20,6 @@ exports.facebookLogin = async (req, res) => {
     }
 };
 
-exports.getFacebookFriends = async (req, res) => {
-    const { accessToken } = req.query;
-
-    try {
-        const friendsData = await getFacebookFriends(accessToken);
-        res.status(200).json(friendsData);
-    } catch (error) {
-        console.error('Erro ao obter amigos do Facebook:', error);
-        res.status(500).json({ message: 'Erro ao obter amigos do Facebook' });
-    }
-};
 
 exports.registerWithEmail = async (req, res) => {
     const { email, password, inviteCode } = req.body;

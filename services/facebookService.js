@@ -1,4 +1,4 @@
-const axios = require('axios');
+
 const { FB } = require('fb');
 
 const getFacebookUserData = async (accessToken) => {
@@ -8,12 +8,7 @@ const getFacebookUserData = async (accessToken) => {
     return response;
 };
 
-const getFacebookFriends = async (accessToken) => {
-    const response = await axios.get(`https://graph.facebook.com/me/friends?access_token=${accessToken}`);
-    return response.data;
-};
-
 module.exports = {
     getFacebookUserData,
-    getFacebookFriends,
+    
 };
