@@ -1,3 +1,4 @@
+//middlewares/auth.js
 const admin = require('firebase-admin');
 
 // Middleware para verificar o token de autenticação

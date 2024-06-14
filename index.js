@@ -28,6 +28,8 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(bodyParser.json());
 
+app.options('*', cors(corsOptions));
+
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/recaptcha', recaptchaRoutes);

@@ -7,7 +7,7 @@ const { getFacebookUserData } = require('../services/facebookService');
 const auth = getAuth();
 
 exports.getToken = (req, res) => {
-    const user = req.user; // Certifique-se de que o usuário está autenticado
+    const user = req.user; 
     const token = jwt.sign({ uid: user.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ token });
 };
