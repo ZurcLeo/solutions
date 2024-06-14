@@ -1,17 +1,19 @@
-const jwt = require('jsonwebtoken');
+const admin = require('firebase-admin');
 
-const verifyToken = (req, res, next) => {
-    const token = req.header('Authorization').replace('Bearer ', '');
+// Middleware para verificar o token de autenticação
+const verifyToken = async (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1];
+
     if (!token) {
-        return res.status(401).json({ message: 'Acesso negado. Token não fornecido.' });
+        return res.status(401).json({ message: 'Token de autenticação ausente' });
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded;
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        req.user = decodedToken;
         next();
     } catch (error) {
-        res.status(400).json({ message: 'Token inválido.' });
+        return res.status(401).json({ message: 'Token de autenticação inválido' });
     }
 };
 
