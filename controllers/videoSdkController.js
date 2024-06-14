@@ -52,3 +52,18 @@ exports.endSession = async (req, res) => {
         res.status(500).json({ error: 'Failed to end session', details: error });
     }
 };
+
+exports.createMeeting = async (req, res) => {
+    try {
+        const response = await axios.post('https://api.videosdk.live/v1/meetings', {}, {
+            headers: {
+                authorization: `Bearer ${VIDEO_SDK_API_KEY}`,
+            }
+        });
+
+        const meetingId = response.data.meetingId;
+        res.status(200).json({ meetingId });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create meeting', details: error.message });
+    }
+};

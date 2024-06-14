@@ -1,5 +1,6 @@
+//routes/videosdk.js
 const express = require('express');
-const { getTurnCredentials, startSession, endSession } = require('../controllers/videoSdkController');
+const { getTurnCredentials, startSession, endSession, createMeeting } = require('../controllers/videoSdkController');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth');
 
@@ -18,5 +19,6 @@ router.use((req, res, next) => {
 router.post('/start-session', verifyToken, videoSdkController.startSession);
 router.post('/end-session', verifyToken, videoSdkController.endSession);
 router.get('/turn-credentials', verifyToken, videoSdkController.getTurnCredentials);
+router.post('/create-meeting', verifyToken, videoSdkController.createMeeting);
 
 module.exports = router;
