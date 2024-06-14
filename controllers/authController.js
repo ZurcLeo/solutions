@@ -81,20 +81,27 @@ exports.logout = async (req, res) => {
 };
 
 exports.signInWithProvider = async (req, res) => {
-    const { idToken } = req.body; 
-  
-    try {
-      const decodedToken = await auth.verifyIdToken(idToken);
-      const uid = decodedToken.uid; 
-      const userRecord = await auth.getUser(uid);
-  
-      const token = jwt.sign({ uid: userRecord.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
-      res.status(200).json({ message: 'Login com provedor bem-sucedido', token, user: userRecord });
-    } catch (error) {
-      console.error('Error during provider sign-in:', error);
-      res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    const { idToken } = req.body;
+
+    // Adiciona um log para verificar o idToken recebido
+    console.log('Received idToken:', idToken);
+
+    if (!idToken || typeof idToken !== 'string') {
+        return res.status(400).json({ message: 'Invalid ID token' });
     }
-  };
+
+    try {
+        const decodedToken = await auth.verifyIdToken(idToken);
+        const uid = decodedToken.uid;
+        const userRecord = await auth.getUser(uid);
+
+        const token = jwt.sign({ uid: userRecord.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        res.status(200).json({ message: 'Login com provedor bem-sucedido', token, user: userRecord });
+    } catch (error) {
+        console.error('Error during provider sign-in:', error);
+        res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    }
+};
 
 exports.registerWithProvider = async (req, res) => {
     const { provider, inviteCode } = req.body;
