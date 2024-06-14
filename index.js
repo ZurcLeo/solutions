@@ -11,10 +11,7 @@ const userRoutes = require('./routes/users');
 const videoSdkRoutes = require('./routes/videosdk');
 const admin = require('firebase-admin');
 
-admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
-  });
+admin.initializeApp();
 
 const app = express();
 app.use(cors); // Use CORS middleware here
