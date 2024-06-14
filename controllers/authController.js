@@ -81,27 +81,20 @@ exports.logout = async (req, res) => {
 };
 
 exports.signInWithProvider = async (req, res) => {
-    const { provider } = req.body;
-
+    const { idToken } = req.body; 
+  
     try {
-        let providerToUse;
-        if (provider === 'google') {
-            providerToUse = new GoogleAuthProvider();
-            providerToUse.setCustomParameters({ prompt: 'select_account' });
-        } else if (provider === 'microsoft') {
-            providerToUse = new OAuthProvider('microsoft.com');
-            providerToUse.setCustomParameters({ prompt: 'select_account' });
-        }
-
-        const userCredential = await signInWithPopup(auth, providerToUse);
-        await ensureUserProfileExists(userCredential);
-
-        const token = jwt.sign({ uid: userCredential.user.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
-        res.status(200).json({ message: 'Login com provedor bem-sucedido', token });
+      const decodedToken = await auth.verifyIdToken(idToken);
+      const uid = decodedToken.uid; 
+      const userRecord = await auth.getUser(uid);
+  
+      const token = jwt.sign({ uid: userRecord.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      res.status(200).json({ message: 'Login com provedor bem-sucedido', token, user: userRecord });
     } catch (error) {
-        res.status(500).json({ message: 'Erro no login com provedor', error: error.message });
+      console.error('Error during provider sign-in:', error);
+      res.status(500).json({ message: 'Internal Server Error', error: error.message });
     }
-};
+  };
 
 exports.registerWithProvider = async (req, res) => {
     const { provider, inviteCode } = req.body;
