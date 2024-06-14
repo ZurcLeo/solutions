@@ -18,6 +18,7 @@ const videoSdkRoutes = require('./routes/videosdk');
 const verifyToken = require('./middlewares/auth');
 
 const app = express();
+
 const corsOptions = {
     origin: 'https://eloscloud.com',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
@@ -26,7 +27,7 @@ const corsOptions = {
   };
 app.use(cors(corsOptions));
 app.use(express.json());
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
 app.options('*', cors(corsOptions));
 
@@ -38,6 +39,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/videosdk', verifyToken, videoSdkRoutes);
 
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
