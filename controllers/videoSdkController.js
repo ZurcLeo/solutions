@@ -1,5 +1,6 @@
 // controllers/videoSdkController.js
 const axios = require('axios');
+const admin = require('firebase-admin');
 const { VIDEO_SDK_API_KEY, VIDEO_SDK_SECRET_KEY } = process.env;
 
 exports.getTurnCredentials = async (req, res) => {
@@ -18,7 +19,7 @@ exports.getTurnCredentials = async (req, res) => {
 exports.startSession = async (req, res) => {
     const { userId, meetingId } = req.body;
     try {
-        await db.collection('sessions').doc(meetingId).set({
+        await admin.firestore().collection('sessions').doc(meetingId).set({
             userId,
             meetingId,
             startTime: admin.firestore.FieldValue.serverTimestamp(),
@@ -33,7 +34,7 @@ exports.startSession = async (req, res) => {
 exports.endSession = async (req, res) => {
     const { meetingId } = req.body;
     try {
-        await db.collection('sessions').doc(meetingId).update({
+        await admin.firestore().collection('sessions').doc(meetingId).update({
             endTime: admin.firestore.FieldValue.serverTimestamp(),
             active: false,
         });
