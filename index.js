@@ -27,10 +27,10 @@ const corsOptions = {
     allowedHeaders: ['Content-Type', 'Authorization'],
   };
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
-app.options('*', cors(corsOptions));
 
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/auth', authRoutes);
