@@ -1,7 +1,6 @@
-//index.js
 const express = require('express');
 const bodyParser = require('body-parser');
-const cors = require('./middlewares/cors');
+const cors = require('cors');
 const admin = require('firebase-admin');
 require('dotenv').config();
 
@@ -21,14 +20,14 @@ const verifyToken = require('./middlewares/auth');
 const app = express();
 
 const corsOptions = {
-    origin: 'https://eloscloud.com',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  };
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+  origin: 'https://eloscloud.com',
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  allowedHeaders: 'Content-Type, Authorization',
+  credentials: true,
+  optionsSuccessStatus: 204
+};
 
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
