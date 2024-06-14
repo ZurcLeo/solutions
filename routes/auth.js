@@ -1,19 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const verifyToken = require('../middlewares/auth'); // Middleware de autenticação
+const verifyToken = require('../middlewares/auth');
+const cors = require('cors');
 
-// Adicione os cabeçalhos CORS para todas as solicitações
-router.use((req, res, next) => {
-    res.set('Access-Control-Allow-Origin', 'https://eloscloud.com');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.set('Access-Control-Allow-Credentials', 'true');
-    if (req.method === 'OPTIONS') {
-        return res.status(204).end();
-    }
-    next();
-});
+const corsOptions = {
+  origin: 'https://eloscloud.com',
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+router.use(cors(corsOptions));
 
 router.post('/facebook-login', authController.facebookLogin);
 router.get('/facebook-friends', authController.getFacebookFriends);
@@ -23,6 +21,6 @@ router.post('/logout', authController.logout);
 router.post('/login-with-provider', authController.signInWithProvider);
 router.post('/register-with-provider', authController.registerWithProvider);
 router.post('/resend-verification-email', authController.resendVerificationEmail);
-router.get('/token', verifyToken, authController.getToken); // Nova rota para obter o token
+router.get('/token', verifyToken, authController.getToken);
 
 module.exports = router;

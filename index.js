@@ -1,8 +1,8 @@
-require('dotenv').config();
-const admin = require('firebase-admin');
 const express = require('express');
 const bodyParser = require('body-parser');
-const cors = require('./middlewares/cors');
+const cors = require('cors');
+const admin = require('firebase-admin');
+require('dotenv').config();
 
 admin.initializeApp({
   credential: admin.credential.applicationDefault(),
@@ -11,14 +11,20 @@ admin.initializeApp({
 
 const paymentsRoutes = require('./routes/payments');
 const authRoutes = require('./routes/auth');
-const verifyToken = require('./middlewares/auth');
 const recaptchaRoutes = require('./routes/recaptcha');
 const emailRoutes = require('./routes/email');
 const userRoutes = require('./routes/users');
 const videoSdkRoutes = require('./routes/videosdk');
+const verifyToken = require('./middlewares/auth');
 
 const app = express();
-app.use(cors); 
+const corsOptions = {
+    origin: 'https://eloscloud.com',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  };
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(bodyParser.json());
 
