@@ -19,7 +19,6 @@ exports.getTurnCredentials = async (req, res) => {
 exports.startSession = async (req, res) => {
     const userId = req.user.uid;
     try {
-        // Create a new meeting ID
         const response = await axios.post('https://api.videosdk.live/v1/meetings', {}, {
             headers: {
                 authorization: `Bearer ${VIDEO_SDK_API_KEY}`,
