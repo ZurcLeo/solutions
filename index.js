@@ -1,4 +1,3 @@
-//index.js
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -9,18 +8,20 @@ const verifyToken = require('./middlewares/auth');
 const recaptchaRoutes = require('./routes/recaptcha');
 const emailRoutes = require('./routes/email');
 const userRoutes = require('./routes/users');
-const videoSdkRoutes = require('./routes/videosdk')
+const videoSdkRoutes = require('./routes/videosdk');
 const admin = require('firebase-admin');
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 
-admin.initializeApp({
+if (!admin.apps.length) {
+  admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: process.env.FIREBASE_DATABASE_URL,
-});
+  });
+}
 
 const app = express();
-app.use(cors);
+app.use(cors); // Use CORS middleware here
 app.use(express.json());
 app.use(bodyParser.json());
 
@@ -29,9 +30,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/recaptcha', recaptchaRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/videosdk', verifyToken, videoSdkRoutes); 
+app.use('/api/videosdk', verifyToken, videoSdkRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
