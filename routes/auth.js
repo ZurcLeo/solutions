@@ -15,7 +15,6 @@ router.use((req, res, next) => {
 });
 
 router.post('/facebook-login', authController.facebookLogin);
-router.get('/facebook-friends', authController.getFacebookFriends);
 router.post('/register', authController.registerWithEmail);
 router.post('/login', authController.signInWithEmail);
 router.post('/logout', authController.logout);
