@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
 const SECRET = process.env.VIDEO_SDK_SECRET;
+const JWT = process.env.JWT_SECRET
 
 const generateToken = (userId) => {
     const payload = {
@@ -19,6 +20,25 @@ const generateToken = (userId) => {
     const token = jwt.sign(payload, SECRET, options);
     return token;
 };
+
+function generateVideoSdkToken(userId, roomId = null, participantId = null) {
+    const options = { 
+      expiresIn: '120m', 
+      algorithm: 'HS256' 
+    };
+  
+    const payload = {
+      apikey: API_KEY,
+      permissions: ['allow_join'], 
+      version: 2, 
+      roomId: roomId, 
+      participantId: participantId, 
+      roles: ['rtc'], 
+    };
+  
+    const token = jwt.sign(payload, SECRET, options);
+    return token;
+  }
 
 exports.getTurnCredentials = async (req, res) => {
     try {
@@ -38,23 +58,30 @@ exports.startSession = async (req, res) => {
     const userId = req.user.uid;
     console.log("Received startSession request with userId:", userId);
     try {
-        const token = generateToken();
+        // Extrai roomId e participantId do corpo da requisição se fornecidos
+        const { roomId, participantId } = req.body;
+
+        // Gera o token VideoSDK usando a função correta
+        const videoSdkToken = generateVideoSdkToken(userId, roomId, participantId);
+
+        // Chama a API VideoSDK para criar uma sala usando o token gerado
         const response = await axios.post('https://api.videosdk.live/v2/rooms', {}, {
             headers: {
-                Authorization: `Bearer ${token}`,
+                Authorization: `Bearer ${videoSdkToken}`,
             },
         });
         console.log("Video SDK API response:", response.data);
 
-        const roomId = response.data.roomId;
+        const newRoomId = response.data.roomId;
 
-        await admin.firestore().collection('sessions').doc(roomId).set({
+        // Salva a sessão no Firestore
+        await admin.firestore().collection('sessions').doc(newRoomId).set({
             userId,
-            roomId,
+            roomId: newRoomId,
             startTime: admin.firestore.FieldValue.serverTimestamp(),
             active: true,
         });
-        res.status(200).json({ message: 'Session started', roomId });
+        res.status(200).json({ message: 'Session started', roomId: newRoomId });
     } catch (error) {
         console.error('Error starting session:', error);
         res.status(500).json({ error: 'Failed to start session', details: error.message });
