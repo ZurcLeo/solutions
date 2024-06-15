@@ -18,12 +18,14 @@ exports.getTurnCredentials = async (req, res) => {
 
 exports.startSession = async (req, res) => {
     const userId = req.user.uid;
+    console.log("Received startSession request with userId:", userId);
     try {
         const response = await axios.post('https://api.videosdk.live/v1/meetings', {}, {
             headers: {
                 authorization: `Bearer ${VIDEO_SDK_API_KEY}`,
             }
         });
+        console.log("Video SDK API response:", response.data);
 
         const meetingId = response.data.meetingId;
 
@@ -35,7 +37,8 @@ exports.startSession = async (req, res) => {
         });
         res.status(200).json({ message: 'Session started', meetingId });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to start session', details: error });
+        console.error('Error starting session:', error);
+        res.status(500).json({ error: 'Failed to start session', details: error.message });
     }
 };
 
