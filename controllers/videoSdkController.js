@@ -12,7 +12,6 @@ if (!API_KEY || !SECRET) {
     process.exit(1); // Encerra a aplicação se as variáveis não estiverem configuradas
 }
 
-
 const generateVideoSdkToken = (userId, roomId = null, participantId = null) => {
     const payload = {
         apikey: API_KEY,
@@ -51,13 +50,10 @@ exports.startSession = async (req, res) => {
     const userId = req.user.uid;
     console.log("Received startSession request with userId:", userId);
     try {
-        // Extrai roomId e participantId do corpo da requisição se fornecidos
         const { roomId, participantId } = req.body;
 
-        // Gera o token VideoSDK usando a função correta
         const videoSdkToken = generateVideoSdkToken(userId, roomId, participantId);
 
-        // Chama a API VideoSDK para criar uma sala usando o token gerado
         const response = await axios.post('https://api.videosdk.live/v2/rooms', {}, {
             headers: {
                 Authorization: `Bearer ${videoSdkToken}`,
@@ -67,7 +63,6 @@ exports.startSession = async (req, res) => {
 
         const newRoomId = response.data.roomId;
 
-        // Salva a sessão no Firestore
         await admin.firestore().collection('sessions').doc(newRoomId).set({
             userId,
             roomId: newRoomId,
@@ -76,8 +71,8 @@ exports.startSession = async (req, res) => {
         });
         res.status(200).json({ message: 'Session started', roomId: newRoomId });
     } catch (error) {
-        console.error('Error starting session:', error);
-        res.status(500).json({ error: 'Failed to start session', details: error.message });
+        console.error('Error starting session:', error.response ? error.response.data : error.message);
+        res.status(500).json({ error: 'Failed to start session', details: error.response ? error.response.data : error.message });
     }
 };
 
