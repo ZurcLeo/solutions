@@ -13,18 +13,18 @@ if (!API_KEY || !SECRET) {
 }
 
 const generateVideoSdkToken = (userId, roomId = null, participantId = null) => {
+    const options = {
+        expiresIn: '120m',
+        algorithm: 'HS256',
+    };
+  
     const payload = {
         apikey: API_KEY,
         permissions: ['allow_join'], // 'ask_join' || 'allow_mod'
         version: 2, // Opcional
         roomId: roomId, // Opcional
         participantId: participantId, // Opcional
-        roles: ['rtc'], // Opcional
-    };
-
-    const options = {
-        expiresIn: '120m',
-        algorithm: 'HS256',
+        roles: ['crawler', 'rtc']
     };
 
     const token = jwt.sign(payload, SECRET, options);
