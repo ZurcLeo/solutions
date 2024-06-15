@@ -26,7 +26,7 @@ const generateVideoSdkToken = (userId, roomId = null, participantId = null) => {
         roles: ['crawler', 'rtc'], 
        };
        
-       const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0ZTgzZWUyNi0zZTc0LTQ1ZTItOGJjZS1mY2VmZDIxMTc2YjciLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTcxODQ3MDc4NCwiZXhwIjoxNzE5MDc1NTg0fQ.bY6AaCi-4uUn8HRmBgSapCxY_Mg0ltraNcoex-Cuu48'
+       const token = jwt.sign(payload, SECRET, options);
        console.log(token);
 };
 
