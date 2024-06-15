@@ -12,38 +12,26 @@ if (!API_KEY || !SECRET) {
     process.exit(1); // Encerra a aplicação se as variáveis não estiverem configuradas
 }
 
-const generateToken = (userId) => {
+
+const generateVideoSdkToken = (userId, roomId = null, participantId = null) => {
     const payload = {
         apikey: API_KEY,
-        permissions: ['allow_join'], 
-        version: 2,
+        permissions: ['allow_join'], // 'ask_join' || 'allow_mod'
+        version: 2, // Opcional
+        roomId: roomId, // Opcional
+        participantId: participantId, // Opcional
+        roles: ['rtc'], // Opcional
     };
+
     const options = {
         expiresIn: '120m',
         algorithm: 'HS256',
     };
+
     const token = jwt.sign(payload, SECRET, options);
+    console.log("Generated Video SDK Token:", token); // Adiciona log para verificar o token gerado
     return token;
 };
-
-function generateVideoSdkToken(userId, roomId = null, participantId = null) {
-    const options = { 
-      expiresIn: '120m', 
-      algorithm: 'HS256' 
-    };
-  
-    const payload = {
-      apikey: API_KEY,
-      permissions: ['allow_join'], 
-      version: 2, 
-      roomId: roomId, 
-      participantId: participantId, 
-      roles: ['rtc'], 
-    };
-  
-    const token = jwt.sign(payload, SECRET, options);
-    return token;
-  }
 
 exports.getTurnCredentials = async (req, res) => {
     try {
