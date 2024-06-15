@@ -2,11 +2,13 @@
 const axios = require('axios');
 const admin = require('firebase-admin');
 const jwt = require('jsonwebtoken');
-const { VIDEO_SDK_API_KEY, VIDEO_SDK_SECRET_KEY } = process.env;
+
+const API_KEY = process.env.VIDEO_SDK_API_KEY;
+const SECRET = process.env.VIDEO_SDK_SECRET;
 
 const generateToken = () => {
     const payload = {
-        apikey: VIDEO_SDK_API_KEY,
+        apikey: API_KEY,
         permissions: ['allow_join'], 
         version: 2,
     };
@@ -14,7 +16,7 @@ const generateToken = () => {
         expiresIn: '120m',
         algorithm: 'HS256',
     };
-    return jwt.sign(payload, VIDEO_SDK_SECRET_KEY, options);
+    return jwt.sign(payload, SECRET, options);
 };
 
 exports.getTurnCredentials = async (req, res) => {
@@ -43,15 +45,15 @@ exports.startSession = async (req, res) => {
         });
         console.log("Video SDK API response:", response.data);
 
-        const meetingId = response.data.roomId;
+        const roomId = response.data.roomId;
 
-        await admin.firestore().collection('sessions').doc(meetingId).set({
+        await admin.firestore().collection('sessions').doc(roomId).set({
             userId,
-            meetingId,
+            roomId,
             startTime: admin.firestore.FieldValue.serverTimestamp(),
             active: true,
         });
-        res.status(200).json({ message: 'Session started', meetingId });
+        res.status(200).json({ message: 'Session started', roomId });
     } catch (error) {
         console.error('Error starting session:', error);
         res.status(500).json({ error: 'Failed to start session', details: error.message });
@@ -59,10 +61,10 @@ exports.startSession = async (req, res) => {
 };
 
 exports.endSession = async (req, res) => {
-    const { meetingId } = req.body;
-    console.log("Received endSession request with meetingId:", meetingId);
+    const { roomId } = req.body;
+    console.log("Received endSession request with roomId:", roomId);
     try {
-        await admin.firestore().collection('sessions').doc(meetingId).update({
+        await admin.firestore().collection('sessions').doc(roomId).update({
             endTime: admin.firestore.FieldValue.serverTimestamp(),
             active: false,
         });
@@ -82,8 +84,8 @@ exports.createMeeting = async (req, res) => {
             },
         });
 
-        const meetingId = response.data.roomId;
-        res.status(200).json({ meetingId });
+        const roomId = response.data.roomId;
+        res.status(200).json({ roomId });
     } catch (error) {
         res.status(500).json({ error: 'Failed to create meeting', details: error.message });
     }
