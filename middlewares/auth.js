@@ -4,6 +4,7 @@ const verifyToken = async (req, res, next) => {
   const idToken = req.headers.authorization?.split(' ')[1];
 
   if (!idToken) {
+    console.log(idToken)
     return res.status(401).json({ message: 'No token provided' });
   }
 

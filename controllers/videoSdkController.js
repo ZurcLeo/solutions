@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
 const SECRET = process.env.VIDEO_SDK_SECRET;
 
-const generateToken = () => {
+const generateToken = (userId) => {
     const payload = {
         apikey: API_KEY,
         permissions: ['allow_join'], 
@@ -16,7 +16,8 @@ const generateToken = () => {
         expiresIn: '120m',
         algorithm: 'HS256',
     };
-    return jwt.sign(payload, SECRET, options);
+    const token = jwt.sign(payload, SECRET, options);
+    return token;
 };
 
 exports.getTurnCredentials = async (req, res) => {
