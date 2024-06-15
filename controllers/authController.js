@@ -3,6 +3,7 @@ const admin = require('firebase-admin');
 const { getAuth } = require('firebase-admin/auth');
 const jwt = require('jsonwebtoken');
 const { getFacebookUserData } = require('../services/facebookService');
+require('dotenv').config();
 
 const auth = getAuth();
 

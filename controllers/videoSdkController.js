@@ -2,6 +2,7 @@
 const axios = require('axios');
 const admin = require('firebase-admin');
 const jwt = require('jsonwebtoken');
+require('dotenv').config();
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
 const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
