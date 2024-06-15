@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 const jwt = require('jsonwebtoken');
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
-const SECRET = process.env.VIDEO_SDK_SECRET;
+const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
 const JWT = process.env.JWT_SECRET
 
 const generateToken = (userId) => {
