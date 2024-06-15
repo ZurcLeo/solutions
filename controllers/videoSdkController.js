@@ -6,7 +6,11 @@ require('dotenv').config();
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
 const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
-const JWT = process.env.JWT_SECRET
+
+if (!API_KEY || !SECRET) {
+    console.error('Uma ou mais variáveis de ambiente não estão configuradas corretamente.');
+    process.exit(1); // Encerra a aplicação se as variáveis não estiverem configuradas
+}
 
 const generateToken = (userId) => {
     const payload = {
