@@ -1,6 +1,6 @@
 const express = require('express');
-const videoSdkController = require('../controllers/videoSdkController');
 const router = express.Router();
+const videoSdkController = require('../controllers/videoSdkController');
 const verifyToken = require('../middlewares/auth');
 
 // Add CORS headers for all requests
