@@ -2,6 +2,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const morgan = require("morgan");
 const admin = require('firebase-admin');
 require('dotenv').config();
 
@@ -31,6 +32,11 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(morgan("dev"));
+
+app.get("/", (req, res) => {
+  res.send(`Server running on port ${PORT}`);
+});
 
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/auth', authRoutes);

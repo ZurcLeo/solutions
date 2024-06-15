@@ -12,91 +12,105 @@ if (!API_KEY || !SECRET) {
     process.exit(1); 
 }
 
-const generateVideoSdkToken = (userId, roomId = null, participantId = null) => {
-    const options = { 
-        expiresIn: '120m', 
-        algorithm: 'HS256' 
-       };
-       const payload = {
-        apikey: API_KEY,
-        permissions: [`allow_join`], // `ask_join` || `allow_mod` 
-        version: 2,
-        roomId: `2kyv-gzay-64pg`,
-        participantId: `lxvdplwt`, 
-        roles: ['crawler', 'rtc'], 
-       };
-       
-       const token = jwt.sign(payload, SECRET, options);
-       console.log(token);
-};
-
-exports.getTurnCredentials = async (req, res) => {
-    try {
-        const token = generateToken();
-        const response = await axios.post('https://api.videosdk.live/v2/rooms', {}, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
-        });
-        res.status(200).json({ iceServers: response.data.iceServers });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to get TURN credentials', details: error });
-    }
-};
-
-exports.startSession = async (req, res) => {
+const generateVideoSdkToken = (roomId = null, participantId = null) => {
+    const payload = {
+      apikey: API_KEY,
+      permissions: ["allow_join", "allow_mod"],
+      version: 2,
+      roles: ["rtc"],
+      roomId,
+      participantId
+    };
+  
+    const options = { expiresIn: "120m", algorithm: "HS256" };
+    return jwt.sign(payload, SECRET, options);
+  };
+  
+  exports.getToken = (req, res) => {
+    const { roomId, peerId } = req.body;
+    const token = generateVideoSdkToken(roomId, peerId);
+    res.json({ token });
+  };
+  
+  exports.createMeeting = (req, res) => {
+    const { token, region } = req.body;
+    const url = `${process.env.VIDEOSDK_API_ENDPOINT}/rooms`;
+    const options = {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ region }),
+    };
+  
+    fetch(url, options)
+      .then((response) => response.json())
+      .then((result) => res.json(result))
+      .catch((error) => console.error("error", error));
+  };
+  
+  exports.validateMeeting = (req, res) => {
+    const token = req.body.token;
+    const meetingId = req.params.meetingId;
+  
+    const url = `${process.env.VIDEOSDK_API_ENDPOINT}/rooms/validate/${meetingId}`;
+    const options = {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    };
+  
+    fetch(url, options)
+      .then((response) => response.json())
+      .then((result) => res.json(result))
+      .catch((error) => console.error("error", error));
+  };
+  
+  exports.startSession = async (req, res) => {
     const userId = req.user.uid;
-    console.log("Received startSession request with userId:", userId);
+    const { roomId, participantId } = req.body;
+  
+    const token = generateVideoSdkToken(roomId, participantId);
+  
+    const url = `${process.env.VIDEOSDK_API_ENDPOINT}/rooms`;
+    const fetchOptions = {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    };
+  
     try {
-        const { roomId, participantId } = req.body;
-        const videoSdkToken = generateVideoSdkToken(userId, roomId, participantId);
-        const response = await axios.post('https://api.videosdk.live/v2/rooms', {}, {
-            headers: {
-                Authorization: `Bearer ${videoSdkToken}`,
-            },
-        });
-        console.log("Video SDK API response:", response.data);
-        const newRoomId = response.data.roomId;
-        await admin.firestore().collection('sessions').doc(newRoomId).set({
-            userId,
-            roomId: newRoomId,
-            startTime: admin.firestore.FieldValue.serverTimestamp(),
-            active: true,
-        });
-        res.status(200).json({ message: 'Session started', roomId: newRoomId });
+      const response = await fetch(url, fetchOptions);
+      const result = await response.json();
+  
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to start session');
+      }
+  
+      const newRoomId = result.roomId;
+  
+      await admin.firestore().collection('sessions').doc(newRoomId).set({
+        userId,
+        roomId: newRoomId,
+        startTime: admin.firestore.FieldValue.serverTimestamp(),
+        active: true,
+      });
+  
+      res.status(200).json({ message: 'Session started', roomId: newRoomId });
     } catch (error) {
-        console.error('Error starting session:', error.response ? error.response.data : error.message);
-        res.status(500).json({ error: 'Failed to start session', details: error.response ? error.response.data : error.message });
+      console.error('Error starting session:', error);
+      res.status(500).json({ error: 'Failed to start session', details: error.message });
     }
-};
-
-exports.endSession = async (req, res) => {
+  };
+  
+  exports.endSession = async (req, res) => {
     const { roomId } = req.body;
-    console.log("Received endSession request with roomId:", roomId);
+  
     try {
-        await admin.firestore().collection('sessions').doc(roomId).update({
-            endTime: admin.firestore.FieldValue.serverTimestamp(),
-            active: false,
-        });
-        res.status(200).json({ message: 'Session ended' });
+      await admin.firestore().collection('sessions').doc(roomId).update({
+        endTime: admin.firestore.FieldValue.serverTimestamp(),
+        active: false,
+      });
+  
+      res.status(200).json({ message: 'Session ended' });
     } catch (error) {
-        console.error('Error ending session:', error);
-        res.status(500).json({ error: 'Failed to end session', details: error.message });
+      console.error('Error ending session:', error);
+      res.status(500).json({ error: 'Failed to end session', details: error.message });
     }
-};
-
-exports.createMeeting = async (req, res) => {
-    try {
-        const token = generateToken();
-        const response = await axios.post('https://api.videosdk.live/v2/rooms', {}, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
-        });
-
-        const roomId = response.data.roomId;
-        res.status(200).json({ roomId });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to create meeting', details: error.message });
-    }
-};
+  };

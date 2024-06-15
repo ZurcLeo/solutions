@@ -18,9 +18,12 @@ router.use((req, res, next) => {
   next();
 });
 
+router.post("/get-token", videoSdkController.getToken);
 router.post('/start-session', verifyToken, videoSdkController.startSession);
 router.post('/end-session', verifyToken, videoSdkController.endSession);
 router.get('/turn-credentials', verifyToken, videoSdkController.getTurnCredentials);
 router.post('/create-meeting', verifyToken, videoSdkController.createMeeting);
+router.post("/validate-meeting/:meetingId", videoSdkController.validateMeeting);
+
 
 module.exports = router;
