@@ -9,16 +9,16 @@ const ENDPOINT = process.env.VIDEO_SDK_API_ENDPOINT;
 
 if (!API_KEY || !SECRET || !ENDPOINT) {
     console.error('Uma ou mais variáveis de ambiente não estão configuradas corretamente.');
-    process.exit(1); 
+    process.exit(1);
 }
 
 const generateVideoSdkToken = (roomId = null, participantId = null) => {
     const payload = {
-      apikey: API_KEY,
-      permissions: ["allow_mod"],
-      version: 2,
-      roomId,
-      participantId
+        apikey: API_KEY,
+        permissions: ["allow_mod"],
+        version: 2,
+        roomId,
+        participantId
     };
 
     const options = { expiresIn: "120m", algorithm: "HS256" };
@@ -35,9 +35,9 @@ exports.createMeeting = async (req, res) => {
     const { token, region } = req.body;
     const url = `${ENDPOINT}/v2/rooms`;
     const options = {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      data: JSON.stringify({ region }),
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data: JSON.stringify({ region })
     };
 
     try {
@@ -55,8 +55,8 @@ exports.validateMeeting = async (req, res) => {
 
     const url = `${ENDPOINT}/v2/rooms/validate/${meetingId}`;
     const options = {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` }
     };
 
     try {
@@ -75,16 +75,16 @@ exports.startSession = async (req, res) => {
     const token = generateVideoSdkToken(roomId, participantId);
     const url = `${ENDPOINT}/v2/rooms`;
     const fetchOptions = {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      data: {}
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data: JSON.stringify({})
     };
 
     try {
         const response = await axios(url, fetchOptions);
         const result = response.data;
 
-        if (!response.status === 200) {
+        if (response.status !== 200) {
             throw new Error(result.error || 'Failed to start session');
         }
 
@@ -94,7 +94,7 @@ exports.startSession = async (req, res) => {
             userId,
             roomId: newRoomId,
             startTime: admin.firestore.FieldValue.serverTimestamp(),
-            active: true,
+            active: true
         });
 
         res.status(200).json({ message: 'Session started', roomId: newRoomId });
@@ -110,7 +110,7 @@ exports.endSession = async (req, res) => {
     try {
         await admin.firestore().collection('sessions').doc(roomId).update({
             endTime: admin.firestore.FieldValue.serverTimestamp(),
-            active: false,
+            active: false
         });
 
         res.status(200).json({ message: 'Session ended' });
