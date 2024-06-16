@@ -12,7 +12,9 @@ if (!API_KEY || !SECRET || !ENDPOINT) {
     process.exit(1);
 }
 
-const generateVideoSdkToken = (roomId = null, participantId = null) => {
+const generateVideoSdkToken = () => {
+    const options = { expiresIn: "120m", algorithm: "HS256" };
+   
     const payload = {
         apikey: API_KEY,
         permissions: ["allow_mod"],
@@ -20,15 +22,13 @@ const generateVideoSdkToken = (roomId = null, participantId = null) => {
         roles: ['crawler']
     };
 
-    const options = { expiresIn: "120m", algorithm: "HS256" };
     const token = jwt.sign(payload, SECRET, options);
     res.json({ token });
     return token
 };
 
 exports.getToken = (req, res) => {
-    const { roomId, peerId } = req.body;
-    const token = generateVideoSdkToken(roomId, peerId);
+    const token = generateVideoSdkToken();
     res.json({ token });
 };
 
