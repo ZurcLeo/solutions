@@ -23,6 +23,7 @@ const generateVideoSdkToken = (roomId = null, participantId = null) => {
     const options = { expiresIn: "120m", algorithm: "HS256" };
     const token = jwt.sign(payload, SECRET, options);
     res.json({ token });
+    return token
 };
 
 exports.getToken = (req, res) => {
