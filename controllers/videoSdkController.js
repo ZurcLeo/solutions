@@ -4,13 +4,10 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
-const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
+let SECRET = process.env.VIDEO_SDK_SECRET_KEY;
 const ENDPOINT = process.env.VIDEO_SDK_API_ENDPOINT;
 
-console.log('API Key:', process.env.VIDEO_SDK_API_KEY);
-console.log('Secret Key:', process.env.VIDEO_SDK_SECRET_KEY);
-console.log('API Endpoint:', process.env.VIDEO_SDK_API_ENDPOINT);
-
+// Decodifica a chave secreta Base64, se necessário
 try {
     SECRET = Buffer.from(SECRET, 'base64').toString('utf8');
 } catch (error) {
@@ -32,17 +29,7 @@ const generateVideoSdkToken = () => {
         roles: ['crawler']
     };
 
-    const token = jwt.sign(payload, SECRET, { algorithm: 'HS256' });
-    console.log('Generated Token:', token);
-
-    try {
-        const decoded = jwt.verify(token, SECRET);
-        console.log('Decoded Token:', decoded);
-    } catch (error) {
-        console.error('Erro ao verificar o token:', error.message);
-    }
-
-    return ({ token });
+    return jwt.sign(payload, SECRET, options);
 };
 
 exports.getToken = (req, res) => {
@@ -71,7 +58,9 @@ exports.createMeeting = async (req, res) => {
 exports.validateMeeting = async (req, res) => {
     const token = req.body.token;
     const meetingId = req.params.meetingId;
+
     const url = `${ENDPOINT}/v2/rooms/validate/${meetingId}`;
+
     const options = {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` }
