@@ -19,11 +19,13 @@ const generateVideoSdkToken = (roomId = null, participantId = null) => {
       version: 2,
       roles: ["rtc"],
       roomId,
-      participantId
+      participantId,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + (60 * 10)
     };
 
-    const options = { expiresIn: "10m", algorithm: "HS256" };
-    return jwt.sign(payload, SECRET, options);
+    const token = jwt.sign(payload, SECRET, { algorithm: "HS256" });
+    return token;
 };
 
 exports.getToken = (req, res) => {
