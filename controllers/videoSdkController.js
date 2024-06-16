@@ -15,17 +15,25 @@ if (!API_KEY || !SECRET || !ENDPOINT) {
 const generateVideoSdkToken = (roomId = null, participantId = null) => {
     const payload = {
       apikey: API_KEY,
-      permissions: ["allow_join", "allow_mod"],
+      permissions: ["allow_mod"],
       version: 2,
-      roles: ["rtc"],
       roomId,
-      participantId,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (60 * 10)
+      participantId
     };
 
-    const token = jwt.sign(payload, SECRET, { algorithm: "HS256" });
-    return token;
+    if (roomId || peerId) {
+        payload.version = 2;
+        payload.roles = ["rtc"];
+      }
+      if (roomId) {
+        payload.roomId = roomId;
+      }
+      if (peerId) {
+        payload.participantId = peerId;
+      }
+
+    const options = { expiresIn: "120m", algorithm: "HS256" };
+    return jwt.sign(payload, SECRET, options);
 };
 
 exports.getToken = (req, res) => {
@@ -36,7 +44,7 @@ exports.getToken = (req, res) => {
 
 exports.createMeeting = async (req, res) => {
     const { token, region } = req.body;
-    const url = `${ENDPOINT}/rooms`;
+    const url = `${ENDPOINT}/v2/rooms`;
     const options = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -56,7 +64,7 @@ exports.validateMeeting = async (req, res) => {
     const token = req.body.token;
     const meetingId = req.params.meetingId;
 
-    const url = `${ENDPOINT}/rooms/validate/${meetingId}`;
+    const url = `${ENDPOINT}/v2/rooms/validate/${meetingId}`;
     const options = {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
@@ -76,7 +84,7 @@ exports.startSession = async (req, res) => {
     const { roomId, participantId } = req.body;
 
     const token = generateVideoSdkToken(roomId, participantId);
-    const url = `${ENDPOINT}/rooms`;
+    const url = `${ENDPOINT}/v2/rooms`;
     const fetchOptions = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
