@@ -17,8 +17,7 @@ const generateVideoSdkToken = (roomId = null, participantId = null) => {
         apikey: API_KEY,
         permissions: ["allow_mod"],
         version: 2,
-        roomId,
-        participantId
+        roles: ['crawler']
     };
 
     const options = { expiresIn: "120m", algorithm: "HS256" };
