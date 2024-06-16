@@ -2,7 +2,6 @@ const admin = require('firebase-admin');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 
-// Função para decodificar a chave secreta base64
 const decodeBase64Secret = (secret) => Buffer.from(secret, 'base64');
 
 const verifyToken = async (req, res, next) => {
@@ -18,13 +17,17 @@ const verifyToken = async (req, res, next) => {
             req.user = decodedToken;
             return next();
         } catch (firebaseError) {
+            console.log("Firebase ID token verification failed:", firebaseError.message);
             try {
                 // VideoSDK Token Verification
                 const decodedSecret = decodeBase64Secret(process.env.VIDEO_SDK_SECRET_KEY);
+                console.log("Decoded VideoSDK secret:", decodedSecret.toString('utf8'));
                 const decodedToken = jwt.verify(idToken, decodedSecret);
+                console.log("Decoded VideoSDK token:", decodedToken);
                 req.user = decodedToken;
                 return next();
             } catch (videosdkError) {
+                console.log("VideoSDK token verification failed:", videosdkError.message);
                 return res.status(401).json({ message: 'Unauthorized', error: videosdkError.message });
             }
         }
