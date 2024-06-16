@@ -4,8 +4,14 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
-const SECRET = Buffer.from(process.env.VIDEO_SDK_SECRET_KEY, 'base64').toString('utf8'); // Decodifica a chave secreta Base64
+const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
 const ENDPOINT = process.env.VIDEO_SDK_API_ENDPOINT;
+
+try {
+    SECRET = Buffer.from(SECRET, 'base64').toString('utf8');
+} catch (error) {
+    console.error('Erro ao decodificar a chave secreta:', error.message);
+}
 
 if (!API_KEY || !SECRET || !ENDPOINT) {
     console.error('Uma ou mais variáveis de ambiente não estão configuradas corretamente.');
