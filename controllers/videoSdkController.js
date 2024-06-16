@@ -20,7 +20,7 @@ if (!API_KEY || !SECRET || !ENDPOINT) {
 }
 
 const generateVideoSdkToken = () => {
-    const options = { expiresIn: "120m", algorithm: "HS256" };
+    const options = { expiresIn: "120m", algorithm: "RS256" };
    
     const payload = {
         apikey: API_KEY,
