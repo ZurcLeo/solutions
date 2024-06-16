@@ -22,6 +22,6 @@ router.post("/get-token", videoSdkController.getToken);
 router.post('/start-session', verifyToken, videoSdkController.startSession);
 router.post('/end-session', verifyToken, videoSdkController.endSession);
 router.post('/create-meeting', verifyToken, videoSdkController.createMeeting);
-router.post("/validate-meeting/:meetingId", videoSdkController.validateMeeting);
+router.post("/validate-meeting/:meetingId", verifyToken, videoSdkController.validateMeeting);
 
 module.exports = router;

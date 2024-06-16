@@ -43,7 +43,7 @@ exports.createMeeting = async (req, res) => {
         const response = await axios(url, options);
         res.json(response.data);
     } catch (error) {
-        console.error("error", error);
+        console.error("API Error:", error.response ? error.response.data : error.message);
         res.status(500).json({ error: error.message });
     }
 };
