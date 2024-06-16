@@ -1,4 +1,6 @@
+const admin = require('firebase-admin');
 const jwt = require('jsonwebtoken');
+
 const decodeBase64Secret = (secret) => Buffer.from(secret, 'base64');
 
 const verifyToken = async (req, res, next) => {
@@ -11,8 +13,8 @@ const verifyToken = async (req, res, next) => {
     const decodedSecret = decodeBase64Secret(process.env.VIDEO_SDK_SECRET_KEY);
 
     try {
-        const decodedToken = jwt.verify(idToken, decodedSecret);
-        console.log('Decoded Token:', decodedToken); // Log do token decodificado
+        const decodedToken = jwt.verify(idToken, decodedSecret, { algorithms: ['HS256'] });
+        console.log('Decoded Token:', decodedToken);
         req.user = decodedToken;
         return next();
     } catch (error) {

@@ -22,9 +22,7 @@ const generateVideoSdkToken = () => {
         roles: ['crawler']
     };
 
-    const token = jwt.sign(payload, SECRET, options);
-    res.json({ token });
-    return token
+    return jwt.sign(payload, SECRET, options);
 };
 
 exports.getToken = (req, res) => {
@@ -53,18 +51,11 @@ exports.createMeeting = async (req, res) => {
 exports.validateMeeting = async (req, res) => {
     const token = req.body.token;
     const meetingId = req.params.meetingId;
-
     const url = `${ENDPOINT}/v2/rooms/validate/${meetingId}`;
-
     const options = {
         method: "GET",
-        headers: { Authorization: token }
+        headers: { Authorization: `Bearer ${token}` }
     };
-
-    fetch(url, options)
-    .then((response) => response.json())
-    .then((result) => res.json(result)) // result will contain roomId
-    .catch((error) => console.error("error", error));
 
     try {
         const response = await axios(url, options);
@@ -79,7 +70,7 @@ exports.startSession = async (req, res) => {
     const userId = req.user.uid;
     const { roomId, participantId } = req.body;
 
-    const token = generateVideoSdkToken(roomId, participantId);
+    const token = generateVideoSdkToken();
     const url = `${ENDPOINT}/v2/rooms`;
     const fetchOptions = {
         method: "POST",
