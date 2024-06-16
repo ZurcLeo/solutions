@@ -7,6 +7,10 @@ const API_KEY = process.env.VIDEO_SDK_API_KEY;
 const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
 const ENDPOINT = process.env.VIDEO_SDK_API_ENDPOINT;
 
+console.log('API Key:', process.env.VIDEO_SDK_API_KEY);
+console.log('Secret Key:', process.env.VIDEO_SDK_SECRET_KEY);
+console.log('API Endpoint:', process.env.VIDEO_SDK_API_ENDPOINT);
+
 try {
     SECRET = Buffer.from(SECRET, 'base64').toString('utf8');
 } catch (error) {
