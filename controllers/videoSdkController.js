@@ -5,20 +5,21 @@ require('dotenv').config();
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
 const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
+const VIDEO_SDK_API_ENDPOINT = process.env.VIDEOSDK_API_ENDPOINT;
 
-if (!API_KEY || !SECRET) {
+if (!API_KEY || !SECRET || !VIDEO_SDK_API_ENDPOINT) {
     console.error('Uma ou mais variáveis de ambiente não estão configuradas corretamente.');
     process.exit(1); 
 }
 
 const generateVideoSdkToken = (roomId = null, participantId = null) => {
     const payload = {
-        apikey: API_KEY,
-        permissions: ["allow_join", "allow_mod"],
-        version: 2,
-        roles: ["rtc"],
-        roomId,
-        participantId
+      apikey: API_KEY,
+      permissions: ["allow_join", "allow_mod"],
+      version: 2,
+      roles: ["rtc"],
+      roomId,
+      participantId
     };
 
     const options = { expiresIn: "120m", algorithm: "HS256" };
@@ -31,39 +32,41 @@ exports.getToken = (req, res) => {
     res.json({ token });
 };
 
-exports.createMeeting = (req, res) => {
+exports.createMeeting = async (req, res) => {
     const { token, region } = req.body;
-    const url = `${process.env.VIDEOSDK_API_ENDPOINT}/rooms`;
+    const url = `${VIDEO_SDK_API_ENDPOINT}/rooms`;
     const options = {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        data: { region },
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: JSON.stringify({ region }),
     };
 
-    axios(url, options)
-        .then((response) => res.json(response.data))
-        .catch((error) => {
-            console.error("error", error);
-            res.status(500).json({ error: "Failed to create meeting" });
-        });
+    try {
+        const response = await axios(url, options);
+        res.json(response.data);
+    } catch (error) {
+        console.error("error", error);
+        res.status(500).json({ error: error.message });
+    }
 };
 
-exports.validateMeeting = (req, res) => {
+exports.validateMeeting = async (req, res) => {
     const token = req.body.token;
     const meetingId = req.params.meetingId;
 
-    const url = `${process.env.VIDEOSDK_API_ENDPOINT}/rooms/validate/${meetingId}`;
+    const url = `${VIDEO_SDK_API_ENDPOINT}/rooms/validate/${meetingId}`;
     const options = {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
     };
 
-    axios(url, options)
-        .then((response) => res.json(response.data))
-        .catch((error) => {
-            console.error("error", error);
-            res.status(500).json({ error: "Failed to validate meeting" });
-        });
+    try {
+        const response = await axios(url, options);
+        res.json(response.data);
+    } catch (error) {
+        console.error("error", error);
+        res.status(500).json({ error: error.message });
+    }
 };
 
 exports.startSession = async (req, res) => {
@@ -71,16 +74,20 @@ exports.startSession = async (req, res) => {
     const { roomId, participantId } = req.body;
 
     const token = generateVideoSdkToken(roomId, participantId);
-
-    const url = `${process.env.VIDEOSDK_API_ENDPOINT}/rooms`;
-    const options = {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    const url = `${VIDEO_SDK_API_ENDPOINT}/rooms`;
+    const fetchOptions = {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: {}
     };
 
     try {
-        const response = await axios(url, options);
+        const response = await axios(url, fetchOptions);
         const result = response.data;
+
+        if (!response.status === 200) {
+            throw new Error(result.error || 'Failed to start session');
+        }
 
         const newRoomId = result.roomId;
 
