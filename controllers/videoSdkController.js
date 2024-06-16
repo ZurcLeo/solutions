@@ -55,7 +55,7 @@ exports.validateMeeting = async (req, res) => {
 
     const options = {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
     };
 
     try {
