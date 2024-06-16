@@ -5,9 +5,9 @@ require('dotenv').config();
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
 const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
-const VIDEO_SDK_API_ENDPOINT = process.env.VIDEOSDK_API_ENDPOINT;
+const ENDPOINT = process.env.VIDEO_SDK_API_ENDPOINT;
 
-if (!API_KEY || !SECRET || !VIDEO_SDK_API_ENDPOINT) {
+if (!API_KEY || !SECRET || !ENDPOINT) {
     console.error('Uma ou mais variáveis de ambiente não estão configuradas corretamente.');
     process.exit(1); 
 }
@@ -34,7 +34,7 @@ exports.getToken = (req, res) => {
 
 exports.createMeeting = async (req, res) => {
     const { token, region } = req.body;
-    const url = `${VIDEO_SDK_API_ENDPOINT}/rooms`;
+    const url = `${ENDPOINT}/rooms`;
     const options = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -54,7 +54,7 @@ exports.validateMeeting = async (req, res) => {
     const token = req.body.token;
     const meetingId = req.params.meetingId;
 
-    const url = `${VIDEO_SDK_API_ENDPOINT}/rooms/validate/${meetingId}`;
+    const url = `${ENDPOINT}/rooms/validate/${meetingId}`;
     const options = {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
@@ -74,7 +74,7 @@ exports.startSession = async (req, res) => {
     const { roomId, participantId } = req.body;
 
     const token = generateVideoSdkToken(roomId, participantId);
-    const url = `${VIDEO_SDK_API_ENDPOINT}/rooms`;
+    const url = `${ENDPOINT}/rooms`;
     const fetchOptions = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
