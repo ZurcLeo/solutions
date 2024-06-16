@@ -118,3 +118,5 @@ exports.endSession = async (req, res) => {
         res.status(500).json({ error: 'Failed to end session', details: error.message });
     }
 };
+
+module.exports = generateVideoSdkToken;
