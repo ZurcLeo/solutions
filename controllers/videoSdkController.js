@@ -21,7 +21,9 @@ const generateVideoSdkToken = () => {
         apikey: API_KEY,
         permissions: ["allow_join"]
     };
-    return jwt.sign(payload, SECRET, options);
+    
+    const token = jwt.sign(payload, SECRET, options);
+    return res.status(200).json({ token });
 };
 
 exports.getToken = (req, res) => {

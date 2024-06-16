@@ -27,7 +27,6 @@ exports.facebookLogin = async (req, res) => {
     }
 };
 
-
 exports.registerWithEmail = async (req, res) => {
     const { email, password, inviteCode } = req.body;
 
