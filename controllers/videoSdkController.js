@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const API_KEY = process.env.VIDEO_SDK_API_KEY;
-const SECRET = process.env.VIDEO_SDK_SECRET_KEY;
+const SECRET = Buffer.from(process.env.VIDEO_SDK_SECRET_KEY, 'base64').toString('utf8'); // Decodifica a chave secreta Base64
 const ENDPOINT = process.env.VIDEO_SDK_API_ENDPOINT;
 
 if (!API_KEY || !SECRET || !ENDPOINT) {
