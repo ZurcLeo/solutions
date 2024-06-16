@@ -22,7 +22,7 @@ const generateVideoSdkToken = (roomId = null, participantId = null) => {
       participantId
     };
 
-    const options = { expiresIn: "120m", algorithm: "HS256" };
+    const options = { expiresIn: "10m", algorithm: "HS256" };
     return jwt.sign(payload, SECRET, options);
 };
 
