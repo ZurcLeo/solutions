@@ -21,17 +21,6 @@ const generateVideoSdkToken = (roomId = null, participantId = null) => {
       participantId
     };
 
-    if (roomId || peerId) {
-        payload.version = 2;
-        payload.roles = ["rtc"];
-      }
-      if (roomId) {
-        payload.roomId = roomId;
-      }
-      if (peerId) {
-        payload.participantId = peerId;
-      }
-
     const options = { expiresIn: "120m", algorithm: "HS256" };
     return jwt.sign(payload, SECRET, options);
 };
