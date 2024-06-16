@@ -21,7 +21,8 @@ const generateVideoSdkToken = (roomId = null, participantId = null) => {
     };
 
     const options = { expiresIn: "120m", algorithm: "HS256" };
-    return jwt.sign(payload, SECRET, options);
+    const token = jwt.sign(payload, SECRET, options);
+    res.json({ token });
 };
 
 exports.getToken = (req, res) => {
@@ -53,10 +54,16 @@ exports.validateMeeting = async (req, res) => {
     const meetingId = req.params.meetingId;
 
     const url = `${ENDPOINT}/v2/rooms/validate/${meetingId}`;
+
     const options = {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: token }
     };
+
+    fetch(url, options)
+    .then((response) => response.json())
+    .then((result) => res.json(result)) // result will contain roomId
+    .catch((error) => console.error("error", error));
 
     try {
         const response = await axios(url, options);
@@ -118,5 +125,3 @@ exports.endSession = async (req, res) => {
         res.status(500).json({ error: 'Failed to end session', details: error.message });
     }
 };
-
-module.exports = generateVideoSdkToken;
