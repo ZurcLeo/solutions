@@ -1,10 +1,9 @@
-//index.js
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const morgan = require("morgan");
 const admin = require('firebase-admin');
-require('dotenv').config();
 
 admin.initializeApp({
   credential: admin.credential.applicationDefault(),
@@ -17,7 +16,6 @@ const recaptchaRoutes = require('./routes/recaptcha');
 const emailRoutes = require('./routes/email');
 const userRoutes = require('./routes/users');
 const videoSdkRoutes = require('./routes/videosdk');
-const verifyToken = require('./middlewares/auth');
 
 const app = express();
 
@@ -43,7 +41,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/recaptcha', recaptchaRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/videosdk', verifyToken, videoSdkRoutes);
+app.use('/api/videosdk', videoSdkRoutes);
 
 const PORT = process.env.PORT || 3000;
 
