@@ -32,7 +32,17 @@ const generateVideoSdkToken = () => {
         roles: ['crawler']
     };
 
-    return jwt.sign(payload, SECRET, options);
+    const token = jwt.sign(payload, SECRET, { algorithm: 'HS256' });
+    console.log('Generated Token:', token);
+
+    try {
+        const decoded = jwt.verify(token, SECRET);
+        console.log('Decoded Token:', decoded);
+    } catch (error) {
+        console.error('Erro ao verificar o token:', error.message);
+    }
+
+    return ({ token });
 };
 
 exports.getToken = (req, res) => {
