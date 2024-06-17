@@ -1,6 +1,6 @@
 //controllers/authController.js
 const admin = require('firebase-admin');
-const { getAuth } = require('firebase-admin/auth');
+const { getAuth, signOut } = require('firebase-admin/auth');
 const jwt = require('jsonwebtoken');
 const { getFacebookUserData } = require('../services/facebookService');
 require('dotenv').config();
@@ -67,8 +67,13 @@ exports.signInWithEmail = async (req, res) => {
 
 exports.logout = async (req, res) => {
     try {
-        const token = req.header('Authorization').replace('Bearer ', '');
-        await auth.revokeRefreshTokens(token);
+        const { uid } = req.body;
+        console.log('Received UID:', uid);
+        if (!uid) {
+            return res.status(400).json({ message: 'UID is required' });
+        }
+        // Adicione lógica para invalidar o token se necessário, por exemplo, removendo da lista de sessões ativas.
+
         res.status(200).json({ message: 'Usuário deslogado com sucesso.' });
     } catch (error) {
         res.status(500).json({ message: 'Erro ao deslogar usuário', error: error.message });

@@ -23,6 +23,7 @@ const generateVideoSdkToken = () => {
     };
     
     const token = jwt.sign(payload, SECRET, options);
+    
     return res.status(200).json({ token });
 };
 
