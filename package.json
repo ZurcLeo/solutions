@@ -11,10 +11,12 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@babel/runtime": "^7.24.7",
     "@google-cloud/recaptcha-enterprise": "^5.9.0",
     "@videosdk.live/react-sdk": "^0.1.92",
     "axios": "^1.7.2",
     "body-parser": "^1.20.2",
+    "core-js": "^3.37.1",
     "cors": "^2.8.5",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
@@ -28,6 +30,7 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.9.13",
     "react-player": "^2.16.0",
-    "stripe": "^15.10.0"
+    "stripe": "^15.10.0",
+    "uuid": "^10.0.0"
   }
 }
