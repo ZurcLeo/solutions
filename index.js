@@ -16,6 +16,8 @@ const recaptchaRoutes = require('./routes/recaptcha');
 const emailRoutes = require('./routes/email');
 const userRoutes = require('./routes/users');
 const videoSdkRoutes = require('./routes/videosdk');
+const inviteRoutes = require('./routes/invite');
+const ja3Routes = require('./routes/ja3');
 
 const app = express();
 
@@ -42,6 +44,9 @@ app.use('/api/recaptcha', recaptchaRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/videosdk', videoSdkRoutes);
+app.use('/api/invite', inviteRoutes);
+app.use('/api/ja3', ja3Routes); 
+
 
 const PORT = process.env.PORT || 3000;
 
