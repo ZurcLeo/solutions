@@ -1,50 +1,45 @@
 const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
 const { sendEmail } = require('../services/emailService');
-const functions = require('firebase-functions');
 
-exports.generateInvite = functions.https.onCall(async (data, context) => {
-    const { email } = data;
 
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
-    }
-
-    const senderId = context.auth.uid;
-
-    const userRef = admin.firestore().collection('usuario').doc(senderId);
-    const userDoc = await userRef.get();
-
-    if (!userDoc.exists) {
-        throw new functions.https.HttpsError('not-found', 'User not found.');
-    }
-
-    const userData = userDoc.data();
-    const senderName = userData.nome || null;
-    const senderPhotoURL = userData.fotoDoPerfil || null;
-
-    if (!senderName || !senderPhotoURL) {
-        return {
-            success: false,
-            redirectTo: `/PerfilPessoal/${senderId}`,
-            message: 'Por favor, preencha seu nome e foto de perfil para continuar.'
-        };
-    }
-
-    const inviteId = uuidv4();
-    const createdAt = admin.firestore.FieldValue.serverTimestamp();
-
-    const inviteData = {
-        email,
-        senderId,
-        senderName,
-        inviteId,
-        createdAt,
-        senderPhotoURL,
-        status: 'pending'
-    };
+exports.generateInvite = async (req, res) => {
+    const { email } = req.body;
+    const senderId = req.user.uid;
 
     try {
+        const userRef = admin.firestore().collection('usuario').doc(senderId);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({ message: 'User not found.' });
+        }
+
+        const userData = userDoc.data();
+        const senderName = userData.nome || null;
+        const senderPhotoURL = userData.fotoDoPerfil || null;
+
+        if (!senderName || !senderPhotoURL) {
+            return res.status(400).json({
+                success: false,
+                redirectTo: `/PerfilPessoal/${senderId}`,
+                message: 'Por favor, preencha seu nome e foto de perfil para continuar.'
+            });
+        }
+
+        const inviteId = uuidv4();
+        const createdAt = admin.firestore.FieldValue.serverTimestamp();
+
+        const inviteData = {
+            email,
+            senderId,
+            senderName,
+            inviteId,
+            createdAt,
+            senderPhotoURL,
+            status: 'pending'
+        };
+
         await admin.firestore().collection('convites').doc(inviteId).set(inviteData, { merge: true });
 
         const content = `
@@ -74,130 +69,139 @@ exports.generateInvite = functions.https.onCall(async (data, context) => {
 
         await admin.firestore().collection('mail').add(mailData);
 
-        return { success: true };
+        return res.status(200).json({ success: true });
     } catch (error) {
         console.error('Erro ao gerar convite:', error);
-        throw new functions.https.HttpsError('internal', 'Erro ao gerar convite.');
+        return res.status(500).json({ message: 'Erro ao gerar convite.' });
     }
-});
+};
 
-exports.validateInvite = functions.https.onCall(async (data, context) => {
-    const { inviteId, userEmail } = data;
+exports.validateInvite = async (req, res) => {
+    const { inviteId, userEmail } = req.body;
 
     if (!inviteId || !userEmail) {
-        throw new functions.https.HttpsError('invalid-argument', 'Missing inviteId or userEmail');
+        return res.status(400).json({ message: 'Missing inviteId or userEmail' });
     }
 
-    const inviteRef = admin.firestore().collection('convites').doc(inviteId);
-    const inviteDoc = await inviteRef.get();
+    try {
+        const inviteRef = admin.firestore().collection('convites').doc(inviteId);
+        const inviteDoc = await inviteRef.get();
 
-    if (!inviteDoc.exists || inviteDoc.data().status !== 'pending' || inviteDoc.data().email !== userEmail) {
-        throw new functions.https.HttpsError('invalid-argument', 'Invalid or already used invite.');
-    }
-
-    await inviteRef.update({ validatedBy: userEmail });
-
-    return { success: true };
-});
-
-exports.invalidateInvite = functions.https.onCall(async (data, context) => {
-    const { inviteId } = data;
-    if (!inviteId) {
-        throw new functions.https.HttpsError('invalid-argument', 'InviteId is required.');
-    }
-
-    const inviteRef = admin.firestore().collection('convites').doc(inviteId);
-    const inviteDoc = await inviteRef.get();
-
-    if (!inviteDoc.exists) {
-        throw new functions.https.HttpsError('not-found', 'Invite not found.');
-    }
-
-    const inviteData = inviteDoc.data();
-
-    if (inviteData.status === 'used') {
-        throw new functions.https.HttpsError('failed-precondition', 'Invite already used.');
-    }
-
-    await inviteRef.update({ status: 'used' });
-
-    const welcomeContent = `
-        Olá! <br>
-        Sua conta foi criada com sucesso. <br><br>
-        Bem-vindo à ElosCloud! <br><br>
-        Próximos passos: <br>
-        -> Complete seu Perfil <br>
-        -> Encontre Amigos <br>
-        -> Converse em Chats Privados <br>
-        -> Crie sua primeira Postagem <br>
-        -> Envie e Receba Presentes <br>
-        -> Realize check-in on-line no Airbnb <br>
-        -> Convide seus amigos <br><br>
-        Aproveite! Seus ElosCoins já estão disponíveis na sua conta<br>
-        Obrigado, <br>
-        Equipe ElosCloud.
-    `;
-
-    await sendEmail(inviteData.email, 'ElosCloud - Bem-vindo!', welcomeContent);
-
-    const newUserId = context.auth.uid;
-    console.log('newUserId:', newUserId);
-
-    const newUserRef = admin.firestore().collection('usuario').doc(newUserId);
-    const comprasRef = newUserRef.collection('compras');
-    const ancestralidadeRef = newUserRef.collection('ancestralidade');
-
-    await comprasRef.add({
-        quantidade: 5000,
-        valorPago: 0,
-        dataCompra: admin.firestore.FieldValue.serverTimestamp(),
-        meioPagamento: 'oferta-boas-vindas'
-    });
-
-    console.log('Adicionando ancestralidade:', {
-        inviteId: inviteId,
-        senderId: inviteData.senderId,
-        dataAceite: admin.firestore.FieldValue.serverTimestamp(),
-        fotoDoUsuario: inviteData.senderPhotoURL
-    });
-
-    await ancestralidadeRef.add({
-        inviteId: inviteId,
-        senderId: inviteData.senderId,
-        dataAceite: admin.firestore.FieldValue.serverTimestamp(),
-        fotoDoUsuario: inviteData.senderPhotoURL
-    });
-
-    const senderRef = admin.firestore().collection('usuario').doc(inviteData.senderId);
-    const descendentesRef = senderRef.collection('descendentes');
-
-    console.log('Adicionando descendência:', {
-        userId: newUserId,
-        nome: inviteData.senderName,
-        email: inviteData.email,
-        fotoDoPerfil: inviteData.senderPhotoURL,
-        dataAceite: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    await descendentesRef.add({
-        userId: newUserId,
-        nome: inviteData.senderName,
-        email: inviteData.email,
-        fotoDoPerfil: inviteData.senderPhotoURL,
-        dataAceite: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    await admin.firestore().collection('mail').add({
-        to: [{ email: inviteData.email }],
-        subject: 'ElosCloud - Boas-vindas!',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        status: 'sent',
-        data: {
-            inviteId: inviteId,
-            userId: newUserId,
-            email: inviteData.email
+        if (!inviteDoc.exists || inviteDoc.data().status !== 'pending' || inviteDoc.data().email !== userEmail) {
+            return res.status(400).json({ message: 'Invalid or already used invite.' });
         }
-    });
 
-    return { success: true };
-});
+        await inviteRef.update({ validatedBy: userEmail });
+
+        return res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Erro ao validar convite:', error);
+        return res.status(500).json({ message: 'Erro ao validar convite.' });
+    }
+};
+
+exports.invalidateInvite = async (req, res) => {
+    const { inviteId } = req.body;
+    const newUserId = req.user.uid;
+
+    if (!inviteId) {
+        return res.status(400).json({ message: 'InviteId is required.' });
+    }
+
+    try {
+        const inviteRef = admin.firestore().collection('convites').doc(inviteId);
+        const inviteDoc = await inviteRef.get();
+
+        if (!inviteDoc.exists) {
+            return res.status(404).json({ message: 'Invite not found.' });
+        }
+
+        const inviteData = inviteDoc.data();
+
+        if (inviteData.status === 'used') {
+            return res.status(400).json({ message: 'Invite already used.' });
+        }
+
+        await inviteRef.update({ status: 'used' });
+
+        const welcomeContent = `
+            Olá! <br>
+            Sua conta foi criada com sucesso. <br><br>
+            Bem-vindo à ElosCloud! <br><br>
+            Próximos passos: <br>
+            -> Complete seu Perfil <br>
+            -> Encontre Amigos <br>
+            -> Converse em Chats Privados <br>
+            -> Crie sua primeira Postagem <br>
+            -> Envie e Receba Presentes <br>
+            -> Realize check-in on-line no Airbnb <br>
+            -> Convide seus amigos <br><br>
+            Aproveite! Seus ElosCoins já estão disponíveis na sua conta<br>
+            Obrigado, <br>
+            Equipe ElosCloud.
+        `;
+
+        await sendEmail(inviteData.email, 'ElosCloud - Bem-vindo!', welcomeContent);
+
+        const newUserRef = admin.firestore().collection('usuario').doc(newUserId);
+        const comprasRef = newUserRef.collection('compras');
+        const ancestralidadeRef = newUserRef.collection('ancestralidade');
+
+        await comprasRef.add({
+            quantidade: 5000,
+            valorPago: 0,
+            dataCompra: admin.firestore.FieldValue.serverTimestamp(),
+            meioPagamento: 'oferta-boas-vindas'
+        });
+
+        console.log('Adicionando ancestralidade:', {
+            inviteId: inviteId,
+            senderId: inviteData.senderId,
+            dataAceite: admin.firestore.FieldValue.serverTimestamp(),
+            fotoDoUsuario: inviteData.senderPhotoURL
+        });
+
+        await ancestralidadeRef.add({
+            inviteId: inviteId,
+            senderId: inviteData.senderId,
+            dataAceite: admin.firestore.FieldValue.serverTimestamp(),
+            fotoDoUsuario: inviteData.senderPhotoURL
+        });
+
+        const senderRef = admin.firestore().collection('usuario').doc(inviteData.senderId);
+        const descendentesRef = senderRef.collection('descendentes');
+
+        console.log('Adicionando descendência:', {
+            userId: newUserId,
+            nome: inviteData.senderName,
+            email: inviteData.email,
+            fotoDoPerfil: inviteData.senderPhotoURL,
+            dataAceite: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        await descendentesRef.add({
+            userId: newUserId,
+            nome: inviteData.senderName,
+            email: inviteData.email,
+            fotoDoPerfil: inviteData.senderPhotoURL,
+            dataAceite: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        await admin.firestore().collection('mail').add({
+            to: [{ email: inviteData.email }],
+            subject: 'ElosCloud - Boas-vindas!',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: 'sent',
+            data: {
+                inviteId: inviteId,
+                userId: newUserId,
+                email: inviteData.email
+            }
+        });
+
+        return res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Erro ao invalidar convite:', error);
+        return res.status(500).json({ message: 'Erro ao invalidar convite.' });
+    }
+};
