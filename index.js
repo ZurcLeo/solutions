@@ -1,8 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const cors = require('./middlewares/cors');
-const morgan = require("morgan");
+const cors = require('cors');
+const morgan = require('morgan');
 const admin = require('firebase-admin');
 
 admin.initializeApp({
@@ -21,20 +21,35 @@ const ja3Routes = require('./routes/ja3');
 
 const app = express();
 
+const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3001'];
+
 const corsOptions = {
-  origin: 'https://eloscloud.com',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
   allowedHeaders: 'Content-Type, Authorization',
   credentials: true,
   optionsSuccessStatus: 204
 };
 
-app.use(cors);
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(morgan("dev"));
+app.use(morgan('dev'));
 
-app.get("/", (req, res) => {
+// Adicionar cabeçalhos de segurança para lidar com Cross-Origin-Opener-Policy
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  next();
+});
+
+app.get('/', (req, res) => {
   res.send(`Server running on port ${PORT}`);
 });
 
@@ -45,8 +60,7 @@ app.use('/api/email', emailRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/videosdk', videoSdkRoutes);
 app.use('/api/invite', inviteRoutes);
-app.use('/api/ja3', ja3Routes); 
-
+app.use('/api/ja3', ja3Routes);
 
 const PORT = process.env.PORT || 3000;
 
