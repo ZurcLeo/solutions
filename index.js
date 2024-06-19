@@ -1,9 +1,9 @@
-require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const morgan = require('morgan');
 const admin = require('firebase-admin');
+require('dotenv').config();
 
 admin.initializeApp({
   credential: admin.credential.applicationDefault(),
@@ -21,7 +21,7 @@ const ja3Routes = require('./routes/ja3');
 
 const app = express();
 
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3001'];
+const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
 
 const corsOptions = {
   origin: (origin, callback) => {
