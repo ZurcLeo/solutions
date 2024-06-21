@@ -1,0 +1,54 @@
+const admin = require('firebase-admin');
+const firestore = admin.firestore();
+
+class User {
+  constructor(data) {
+    this.id = data.id || data.uid;
+    this.uid = data.uid;
+    this.nome = data.nome;
+    this.email = data.email;
+    this.reacoes = data.reacoes || {};
+    this.perfilPublico = data.perfilPublico || false;
+    this.ja3Hash = data.ja3Hash;
+    this.tipoDeConta = data.tipoDeConta;
+    this.isOwnerOrAdmin = data.isOwnerOrAdmin || false;
+    this.fotoDoPerfil = data.fotoDoPerfil;
+    this.descricao = data.descricao;
+    this.interessesNegocios = data.interessesNegocios || [];
+    this.amigosAutorizados = data.amigosAutorizados || [];
+    this.amigos = data.amigos || [];
+    this.interessesPessoais = data.interessesPessoais || [];
+    this.dataCriacao = data.dataCriacao ? new Date(data.dataCriacao.seconds * 1000) : new Date();
+    this.saldoElosCoins = data.saldoElosCoins || 0;
+    this.conversasComMensagensNaoLidas = data.conversasComMensagensNaoLidas || [];
+  }
+
+  static async getById(id) {
+    const doc = await firestore.collection('users').doc(id).get();
+    if (!doc.exists) {
+      throw new Error('User not found');
+    }
+    return new User(doc.data());
+  }
+
+  static async create(data) {
+    const user = new User(data);
+    const docRef = await firestore.collection('users').add({ ...user });
+    user.id = docRef.id;
+    return user;
+  }
+
+  static async update(id, data) {
+    const userRef = firestore.collection('users').doc(id);
+    await userRef.update(data);
+    const updatedDoc = await userRef.get();
+    return new User(updatedDoc.data());
+  }
+
+  static async delete(id) {
+    const userRef = firestore.collection('users').doc(id);
+    await userRef.delete();
+  }
+}
+
+module.exports = User;

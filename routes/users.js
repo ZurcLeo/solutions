@@ -3,7 +3,7 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 
 // Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3001'];
+const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
 
 // Middleware to add CORS headers for all requests
 router.use((req, res, next) => {
@@ -25,6 +25,7 @@ router.use((req, res, next) => {
 
 router.post('/add-user', userController.addUser);
 router.get('/get-user/:id', userController.getUser);
-router.put('/update-user', userController.updateUser);
+router.put('/update-user/:id', userController.updateUser);
+router.delete('/delete-user/:id', userController.deleteUser);
 
 module.exports = router;
