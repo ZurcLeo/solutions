@@ -33,5 +33,6 @@ router.post('/login-with-provider', authController.signInWithProvider);
 router.post('/register-with-provider', authController.registerWithProvider);
 router.post('/resend-verification-email', authController.resendVerificationEmail);
 router.get('/token', verifyToken, authController.getToken);
+router.get('/me', verifyToken, authController.getCurrentUser);
 
 module.exports = router;

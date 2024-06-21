@@ -133,6 +133,16 @@ exports.resendVerificationEmail = async (req, res) => {
     }
 };
 
+exports.getCurrentUser = async (req, res) => {
+    try {
+      const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
+      const userRecord = await auth.getUser(decodedToken.uid);
+      res.status(200).json(userRecord);
+    } catch (error) {
+      res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
+    }
+  };  
+
 async function validateInvite(inviteCode) {
     const inviteRef = admin.firestore().doc(`convites/${inviteCode}`);
     const inviteSnap = await inviteRef.get();

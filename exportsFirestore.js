@@ -11,7 +11,7 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
-const collectionName = 'usuario'; 
+const collectionName = 'convites'; 
 
 async function exportCollection() {
   const snapshot = await db.collection(collectionName).get();
