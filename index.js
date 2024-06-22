@@ -57,7 +57,7 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/recaptcha', recaptchaRoutes);
 app.use('/api/email', emailRoutes);
-app.use('/api/users', userRoutes);
+app.use('/api/user', userRoutes);
 app.use('/api/videosdk', videoSdkRoutes);
 app.use('/api/invite', inviteRoutes);
 app.use('/api/ja3', ja3Routes);

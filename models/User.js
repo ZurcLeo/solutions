@@ -24,29 +24,29 @@ class User {
   }
 
   static async getById(id) {
-    const doc = await firestore.collection('users').doc(id).get();
+    const doc = await firestore.collection('usuario').doc(id).get();
     if (!doc.exists) {
-      throw new Error('User not found');
+      throw new Error('Usuário não encontrado.');
     }
     return new User(doc.data());
   }
 
   static async create(data) {
     const user = new User(data);
-    const docRef = await firestore.collection('users').add({ ...user });
+    const docRef = await firestore.collection('usuario').add({ ...user });
     user.id = docRef.id;
     return user;
   }
 
   static async update(id, data) {
-    const userRef = firestore.collection('users').doc(id);
+    const userRef = firestore.collection('usuario').doc(id);
     await userRef.update(data);
     const updatedDoc = await userRef.get();
     return new User(updatedDoc.data());
   }
 
   static async delete(id) {
-    const userRef = firestore.collection('users').doc(id);
+    const userRef = firestore.collection('usuario').doc(id);
     await userRef.delete();
   }
 }
