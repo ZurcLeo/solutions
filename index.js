@@ -2,13 +2,8 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const morgan = require('morgan');
-const admin = require('firebase-admin');
+const { admin } = require('./firebaseAdmin'); // Importando o firebaseAdmin.js
 require('dotenv').config();
-
-admin.initializeApp({
-  credential: admin.credential.applicationDefault(),
-  databaseURL: process.env.FIREBASE_DATABASE_URL,
-});
 
 const paymentsRoutes = require('./routes/payments');
 const authRoutes = require('./routes/auth');
@@ -18,6 +13,7 @@ const userRoutes = require('./routes/user');
 const videoSdkRoutes = require('./routes/videosdk');
 const inviteRoutes = require('./routes/invite');
 const ja3Routes = require('./routes/ja3');
+const notificationsRoutes = require('./routes/notifications');
 
 const app = express();
 
@@ -57,12 +53,13 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/recaptcha', recaptchaRoutes);
 app.use('/api/email', emailRoutes);
-app.use('/api/user', userRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/videosdk', videoSdkRoutes);
 app.use('/api/invite', inviteRoutes);
 app.use('/api/ja3', ja3Routes);
+app.use('/api/notifications', notificationsRoutes);
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 9000;
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

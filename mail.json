@@ -1,0 +1,97 @@
+[
+  {
+    "id": "4ZAx1QYMrFvF3qZZmXyk",
+    "data": {
+      "senderId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+      "inviteId": "ef5ed695-b018-4cd3-93d5-551548fff62b",
+      "url": "https://eloscloud.com.br/invite?inviteId=ef5ed695-b018-4cd3-93d5-551548fff62b"
+    },
+    "subject": "Seu convite chegou!",
+    "to": [
+      {
+        "email": "leolest@gmail.com"
+      }
+    ],
+    "status": "pending",
+    "createdAt": {
+      "_seconds": 1718132493,
+      "_nanoseconds": 839000000
+    }
+  },
+  {
+    "id": "6xb8kAKiHtELTtrNQYbW",
+    "data": {
+      "inviteId": "58d2f05a-9a2a-45fe-8f97-eb7ab89ea402",
+      "userId": "4MekUfqxgJcNhNQd1J38G7D6BU83",
+      "email": "leolest@gmail.com"
+    },
+    "subject": "ElosCloud - Boas-vindas!",
+    "to": [
+      {
+        "email": "leolest@gmail.com"
+      }
+    ],
+    "status": "sent",
+    "createdAt": {
+      "_seconds": 1717859975,
+      "_nanoseconds": 917000000
+    }
+  },
+  {
+    "id": "9bzxYV7ePM31P88FUkoH",
+    "data": {
+      "senderId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+      "inviteId": "a2bad8b6-878b-4ba8-80d5-2f19bf203139",
+      "url": "https://eloscloud.com.br/invite?inviteId=a2bad8b6-878b-4ba8-80d5-2f19bf203139"
+    },
+    "subject": "Seu convite chegou!",
+    "to": [
+      {
+        "email": "leolest@gmail.com"
+      }
+    ],
+    "status": "pending",
+    "createdAt": {
+      "_seconds": 1718133035,
+      "_nanoseconds": 227000000
+    }
+  },
+  {
+    "id": "XCYX0UJn0cpf038cfxmw",
+    "data": {
+      "senderId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+      "inviteId": "6636c603-e54e-4a65-b6aa-5cd46636ede5",
+      "url": "https://eloscloud.com.br/invite?inviteId=6636c603-e54e-4a65-b6aa-5cd46636ede5"
+    },
+    "subject": "Seu convite chegou!",
+    "to": [
+      {
+        "email": "leolest@gmail.com"
+      }
+    ],
+    "status": "pending",
+    "createdAt": {
+      "_seconds": 1718133126,
+      "_nanoseconds": 979000000
+    }
+  },
+  {
+    "id": "kl4ztd1RxyyD3UMFJxth",
+    "data": {
+      "senderId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+      "inviteId": "58d2f05a-9a2a-45fe-8f97-eb7ab89ea402",
+      "url": "https://eloscloud.com.br/invite?inviteId=58d2f05a-9a2a-45fe-8f97-eb7ab89ea402"
+    },
+    "subject": "Seu convite chegou!",
+    "to": [
+      {
+        "email": "leolest@gmail.com"
+      }
+    ],
+    "status": "pending",
+    "createdAt": {
+      "_seconds": 1717859912,
+      "_nanoseconds": 704000000
+    }
+  }
+]

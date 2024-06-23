@@ -1,3 +1,4 @@
+const admin = require('firebase-admin');
 const User = require('../models/User');
 
 exports.addUser = async (req, res) => {
@@ -9,12 +10,22 @@ exports.addUser = async (req, res) => {
   }
 };
 
-exports.getUser = async (req, res) => {
+exports.getUsers = async (req, res) => {
+  try {
+    const usersCollection = await admin.firestore().collection('usuario').get();
+    const users = usersCollection.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.status(200).json(users);
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao buscar usuários', error: error.message });
+  }
+};
+
+exports.getUserById = async (req, res) => {
   try {
     const user = await User.getById(req.params.id);
     res.status(200).json(user);
   } catch (error) {
-    res.status(404).json({ message: error.message });
+    res.status(404).json({ message: 'Usuário não encontrado', error: error.message });
   }
 };
 

@@ -23,8 +23,9 @@ router.use((req, res, next) => {
   next();
 });
 
+router.get('/', userController.getUsers);
+router.get('/:id', userController.getUserById);
 router.post('/add-user', userController.addUser);
-router.get('/get-user/:id', userController.getUser);
 router.put('/update-user/:id', userController.updateUser);
 router.delete('/delete-user/:id', userController.deleteUser);
 
