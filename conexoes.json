@@ -1,0 +1,740 @@
+[
+  {
+    "id": "ativas",
+    "ativas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "amigosAutorizados": [
+          "0000000000",
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1"
+        ],
+        "tipoDeConta": "proprietario",
+        "saldoElosCoins": 1,
+        "isOwnerOrAdmin": true,
+        "interessesPessoais": [
+          "Sem Compromisso"
+        ],
+        "conversasComMensagensNaoLidas": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1_sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://firebasestorage.googleapis.com/v0/b/elossolucoescloud-1804e.appspot.com/o/fotoDePerfil%2FsS855lp9DwhZodxMqG7bf5cYeQ92?alt=media&token=a7ebb766-677e-428b-9def-f7fe0cb16451",
+        "reacoes": {},
+        "descricao": "🎬 Pronto para a ação!\n✊🏾 Engajado!\n🏳️‍🌈 Mais amor por favor!\n\n--------\n\n\n🍀 Sorte aos bons!",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "interessesNegocios": [
+          "Oferta de Serviços"
+        ],
+        "amigos": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+          "Zf5sA5ZoAsV8Dn6AMApPLac29Hh1",
+          "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+          "1UAY51r7xZatbrd0ulGo8msRzH82"
+        ],
+        "dataCriacao": {
+          "_seconds": 1715197511,
+          "_nanoseconds": 276000000
+        },
+        "email": "claud@eloscloud.com.br",
+        "status": "aceita",
+        "perfilPublico": true,
+        "dataDoAceite": {
+          "_seconds": 1717845048,
+          "_nanoseconds": 554000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1717845025,
+          "_nanoseconds": 818000000
+        },
+        "dataDoAceite": {
+          "_seconds": 1717845041,
+          "_nanoseconds": 912000000
+        },
+        "status": "aprovada"
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "status": "pendente",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1717859965,
+          "_nanoseconds": 98000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "ativas",
+    "ativas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "tipoDeConta": "suporte",
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "descricao": "Um assistente diferente.",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000",
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1"
+        ],
+        "dataCriacao": {
+          "_seconds": 1715197511,
+          "_nanoseconds": 276000000
+        },
+        "email": "claud@eloscloud.com.br",
+        "status": "aceita",
+        "perfilPublico": true,
+        "dataDoAceite": {
+          "_seconds": 1715197611,
+          "_nanoseconds": 454000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "uid": "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://lh3.googleusercontent.com/a/ACg8ocI1N-exQPWRReu9CkSB1i0z-5slXLY2VMIdYFHLetyM_Ag56Xvj=s96-c",
+        "email": "leolest@gmail.com",
+        "descricao": "Gostaria de conectar com você.",
+        "status": "pendente",
+        "dataCriacao": {
+          "_seconds": 1717743776,
+          "_nanoseconds": 298000000
+        }
+      },
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "status": "pendente",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1718083536,
+          "_nanoseconds": 360000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "status": "pendente",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1717851906,
+          "_nanoseconds": 881000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "ativas",
+    "ativas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "tipoDeConta": "suporte",
+        "amigosAutorizados": [
+          "0000000000",
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1"
+        ],
+        "saldoElosCoins": 0,
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1_sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "reacoes": {},
+        "descricao": "Um assistente diferente.",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000",
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+          "Zf5sA5ZoAsV8Dn6AMApPLac29Hh1"
+        ],
+        "dataCriacao": {
+          "_seconds": 1715197511,
+          "_nanoseconds": 276000000
+        },
+        "email": "claud@eloscloud.com.br",
+        "status": "aceita",
+        "perfilPublico": true,
+        "dataDoAceite": {
+          "_seconds": 1717247167,
+          "_nanoseconds": 636000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1717024047,
+          "_nanoseconds": 796000000
+        },
+        "dataDoAceite": {
+          "_seconds": 1717247161,
+          "_nanoseconds": 661000000
+        },
+        "status": "aprovada"
+      }
+    ]
+  },
+  {
+    "id": "ativas",
+    "ativas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "amigosAutorizados": [
+          "0000000000",
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1"
+        ],
+        "tipoDeConta": "proprietario",
+        "saldoElosCoins": 1,
+        "isOwnerOrAdmin": true,
+        "interessesPessoais": [
+          "Sem Compromisso"
+        ],
+        "conversasComMensagensNaoLidas": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1_sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://firebasestorage.googleapis.com/v0/b/elossolucoescloud-1804e.appspot.com/o/fotoDePerfil%2FsS855lp9DwhZodxMqG7bf5cYeQ92?alt=media&token=a7ebb766-677e-428b-9def-f7fe0cb16451",
+        "reacoes": {},
+        "descricao": "🎬 Pronto para a ação!\n✊🏾 Engajado!\n🏳️‍🌈 Mais amor por favor!\n\n--------\n\n\n🍀 Sorte aos bons!",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "interessesNegocios": [
+          "Oferta de Serviços"
+        ],
+        "amigos": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+          "Zf5sA5ZoAsV8Dn6AMApPLac29Hh1",
+          "dk4S5I3S10gyMQ0cgjosdTtXldz2"
+        ],
+        "dataCriacao": {
+          "_seconds": 1715197511,
+          "_nanoseconds": 276000000
+        },
+        "email": "claud@eloscloud.com.br",
+        "status": "aceita",
+        "perfilPublico": true,
+        "dataDoAceite": {
+          "_seconds": 1717839114,
+          "_nanoseconds": 439000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1717579037,
+          "_nanoseconds": 292000000
+        },
+        "dataDoAceite": {
+          "_seconds": 1717839110,
+          "_nanoseconds": 54000000
+        },
+        "status": "aprovada"
+      }
+    ]
+  },
+  {
+    "id": "ativas",
+    "ativas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "tipoDeConta": "proprietario",
+        "saldoElosCoins": 1,
+        "amigosAutorizados": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1"
+        ],
+        "isOwnerOrAdmin": true,
+        "interessesPessoais": [
+          "Sem Compromisso"
+        ],
+        "conversasComMensagensNaoLidas": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1_sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://firebasestorage.googleapis.com/v0/b/elossolucoescloud-1804e.appspot.com/o/fotoDePerfil%2FsS855lp9DwhZodxMqG7bf5cYeQ92?alt=media&token=a7ebb766-677e-428b-9def-f7fe0cb16451",
+        "reacoes": {},
+        "descricao": "🎬 Pronto para a ação!\n✊🏾 Engajado!\n🏳️‍🌈 Mais amor por favor!\n\n--------\n\n\n🍀 Sorte aos bons!",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "interessesNegocios": [
+          "Oferta de Serviços"
+        ],
+        "amigos": [
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+          "pJPaB92jZJb4G65XZ4lSjebNr5d2"
+        ],
+        "dataCriacao": {
+          "_seconds": 1715197511,
+          "_nanoseconds": 276000000
+        },
+        "email": "claud@eloscloud.com.br",
+        "status": "aceita",
+        "perfilPublico": true,
+        "dataDoAceite": {
+          "_seconds": 1717858355,
+          "_nanoseconds": 788000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1717858261,
+          "_nanoseconds": 376000000
+        },
+        "dataDoAceite": {
+          "_seconds": 1717858349,
+          "_nanoseconds": 604000000
+        },
+        "status": "aprovada"
+      }
+    ]
+  },
+  {
+    "id": "ativas",
+    "ativas": [
+      {
+        "id": "1UAY51r7xZatbrd0ulGo8msRzH82",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "tipoDeConta": "Cliente",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "uid": "1UAY51r7xZatbrd0ulGo8msRzH82",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717845025,
+          "_nanoseconds": 818000000
+        },
+        "email": "leolest@gmail.com",
+        "perfilPublico": false,
+        "dataDoAceite": {
+          "_seconds": 1717845048,
+          "_nanoseconds": 554000000
+        },
+        "status": "desfeita"
+      },
+      {
+        "id": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "uid": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "tipoDeConta": "Cliente",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "dataCriacao": {
+          "_seconds": 1715197600,
+          "_nanoseconds": 234000000
+        },
+        "email": "leonardocruz.di@gmail.com",
+        "status": "aceita",
+        "perfilPublico": false,
+        "dataDoAceite": {
+          "_seconds": 1715197611,
+          "_nanoseconds": 454000000
+        }
+      },
+      {
+        "id": "Zf5sA5ZoAsV8Dn6AMApPLac29Hh1",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "tipoDeConta": "cliente",
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leo Lest",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "uid": "Zf5sA5ZoAsV8Dn6AMApPLac29Hh1",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717024047,
+          "_nanoseconds": 796000000
+        },
+        "email": "leolest@gmail.com",
+        "perfilPublico": false,
+        "dataDoAceite": {
+          "_seconds": 1717247167,
+          "_nanoseconds": 636000000
+        },
+        "dataDesfeita": {
+          "_seconds": 1717571506,
+          "_nanoseconds": 322000000
+        },
+        "status": "desfeita"
+      },
+      {
+        "id": "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "tipoDeConta": "Cliente",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "saldoElosCoins": 10,
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "uid": "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717579037,
+          "_nanoseconds": 292000000
+        },
+        "email": "leolest@gmail.com",
+        "perfilPublico": false,
+        "dataDoAceite": {
+          "_seconds": 1717839114,
+          "_nanoseconds": 439000000
+        },
+        "status": "desfeita"
+      },
+      {
+        "id": "pJPaB92jZJb4G65XZ4lSjebNr5d2",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "tipoDeConta": "Cliente",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "uid": "pJPaB92jZJb4G65XZ4lSjebNr5d2",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717858261,
+          "_nanoseconds": 376000000
+        },
+        "email": "leolest@gmail.com",
+        "perfilPublico": false,
+        "dataDoAceite": {
+          "_seconds": 1717858355,
+          "_nanoseconds": 788000000
+        },
+        "status": "desfeita"
+      }
+    ]
+  },
+  {
+    "id": "inativas",
+    "inativas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "dataSolicitacao": {
+          "_seconds": 1715197511,
+          "_nanoseconds": 276000000
+        },
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "dataDesfeita": {
+          "_seconds": 1715198086,
+          "_nanoseconds": 689000000
+        },
+        "descricao": "Gostaria de conectar com você.",
+        "status": "desfeita",
+        "dataAmizadeDesfeita": {
+          "_seconds": 1715198091,
+          "_nanoseconds": 144000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "1UAY51r7xZatbrd0ulGo8msRzH82",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "tipoDeConta": "Cliente",
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "uid": "1UAY51r7xZatbrd0ulGo8msRzH82",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717845025,
+          "_nanoseconds": 818000000
+        },
+        "email": "leolest@gmail.com",
+        "dataDoAceite": {
+          "_seconds": 1717845048,
+          "_nanoseconds": 554000000
+        },
+        "perfilPublico": false,
+        "status": "aprovada"
+      },
+      {
+        "id": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "tipoDeConta": "Cliente",
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "uid": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1715197600,
+          "_nanoseconds": 234000000
+        },
+        "email": "leonardocruz.di@gmail.com",
+        "dataDoAceite": {
+          "_seconds": 1715197611,
+          "_nanoseconds": 454000000
+        },
+        "perfilPublico": false,
+        "status": "aprovada"
+      },
+      {
+        "id": "Zf5sA5ZoAsV8Dn6AMApPLac29Hh1",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "tipoDeConta": "cliente",
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leo Lest",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "uid": "Zf5sA5ZoAsV8Dn6AMApPLac29Hh1",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717024047,
+          "_nanoseconds": 796000000
+        },
+        "email": "leolest@gmail.com",
+        "dataDoAceite": {
+          "_seconds": 1717247167,
+          "_nanoseconds": 636000000
+        },
+        "perfilPublico": false,
+        "status": "aprovada"
+      },
+      {
+        "id": "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "saldoElosCoins": 10,
+        "tipoDeConta": "Cliente",
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "uid": "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717579037,
+          "_nanoseconds": 292000000
+        },
+        "email": "leolest@gmail.com",
+        "dataDoAceite": {
+          "_seconds": 1717839114,
+          "_nanoseconds": 439000000
+        },
+        "perfilPublico": false,
+        "status": "aprovada"
+      },
+      {
+        "id": "pJPaB92jZJb4G65XZ4lSjebNr5d2",
+        "ja3Hash": "f4306527a1b643c46a254170733051ca",
+        "amigosAutorizados": [
+          "0000000000"
+        ],
+        "tipoDeConta": "Cliente",
+        "isOwnerOrAdmin": false,
+        "conversasComMensagensNaoLidas": [],
+        "nome": "Leonardo Cruz",
+        "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+        "uid": "pJPaB92jZJb4G65XZ4lSjebNr5d2",
+        "amigos": [
+          "0000000000",
+          "sS855lp9DwhZodxMqG7bf5cYeQ92"
+        ],
+        "dataCriacao": {
+          "_seconds": 1717858261,
+          "_nanoseconds": 376000000
+        },
+        "email": "leolest@gmail.com",
+        "dataDoAceite": {
+          "_seconds": 1717858355,
+          "_nanoseconds": 788000000
+        },
+        "perfilPublico": false,
+        "status": "aprovada"
+      },
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1715197511,
+          "_nanoseconds": 276000000
+        },
+        "dataDesfeita": {
+          "_seconds": 1715198086,
+          "_nanoseconds": 689000000
+        },
+        "status": "desfeita"
+      }
+    ]
+  },
+  {
+    "id": "solicitadas",
+    "solicitadas": [
+      {
+        "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "amigos": [
+          "0000000000"
+        ],
+        "nome": "Claud Suporte",
+        "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+        "status": "pendente",
+        "descricao": "Gostaria de conectar com você.",
+        "dataSolicitacao": {
+          "_seconds": 1716833145,
+          "_nanoseconds": 20000000
+        }
+      }
+    ]
+  }
+]

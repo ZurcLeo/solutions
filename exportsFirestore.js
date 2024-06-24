@@ -13,17 +13,47 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// Função para exportar dados de uma coleção
+// Função para exportar dados de uma coleção, incluindo subcoleções
 async function exportCollection(collectionName) {
-  const snapshot = await db.collection(collectionName).get();
+  const collectionRef = db.collection(collectionName);
+  const data = await exportDocuments(collectionRef, collectionName);
+  fs.writeFileSync(`${collectionName}.json`, JSON.stringify(data, null, 2));
+  console.log(`Exported data from ${collectionName} collection.`);
+}
+
+// Função recursiva para exportar documentos e suas subcoleções
+async function exportDocuments(collectionRef, parentName = '') {
+  const snapshot = await collectionRef.get();
   const data = [];
 
-  snapshot.forEach((doc) => {
-    data.push({ id: doc.id, ...doc.data() });
-  });
+  if (snapshot.empty) {
+    // Verificar e exportar subcoleções mesmo se a coleção principal estiver vazia
+    const subCollections = await collectionRef.listDocuments().then(docRefs => {
+      return Promise.all(docRefs.map(docRef => docRef.listCollections()));
+    });
 
-  fs.writeFileSync(`${collectionName}.json`, JSON.stringify(data, null, 2));
-  console.log(`Exported ${snapshot.size} documents from ${collectionName} collection.`);
+    for (const subCollectionGroup of subCollections) {
+      for (const subCollection of subCollectionGroup) {
+        const subCollectionData = await exportDocuments(subCollection, `${parentName}/${subCollection.id}`);
+        if (subCollectionData.length > 0) {
+          data.push({ id: subCollection.id, [subCollection.id]: subCollectionData });
+        }
+      }
+    }
+  } else {
+    for (const doc of snapshot.docs) {
+      const docData = { id: doc.id, ...doc.data() };
+      const subCollections = await doc.ref.listCollections();
+
+      for (const subCollection of subCollections) {
+        docData[subCollection.id] = await exportDocuments(subCollection, `${parentName}/${doc.id}/${subCollection.id}`);
+      }
+
+      data.push(docData);
+    }
+  }
+
+  return data;
 }
 
 // Função para listar todas as coleções
