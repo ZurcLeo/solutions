@@ -14,6 +14,8 @@ const videoSdkRoutes = require('./routes/videosdk');
 const inviteRoutes = require('./routes/invite');
 const ja3Routes = require('./routes/ja3');
 const notificationsRoutes = require('./routes/notifications');
+const groupsCaixinhaRoutes = require('./routes/groupsCaixinha');
+const caixinhaRoutes = require('./routes/caixinha');
 
 const app = express();
 
@@ -58,6 +60,8 @@ app.use('/api/videosdk', videoSdkRoutes);
 app.use('/api/invite', inviteRoutes);
 app.use('/api/ja3', ja3Routes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/groupsCaixinha', groupsCaixinhaRoutes);
+app.use('/api/caixinha', caixinhaRoutes);
 
 const PORT = process.env.PORT || 9000;
 
