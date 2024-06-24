@@ -27,14 +27,16 @@ exports.getCaixinhaById = async (req, res) => {
 
 // Função para criar uma nova caixinha
 exports.createCaixinha = async (req, res) => {
-  const { groupId, name, description, amount } = req.body;
+  const { nome, descricao, adminId, membros, contribuicaoMensal } = req.body;
   try {
     const docRef = await admin.firestore().collection('caixinhas').add({
-      groupId,
-      name,
-      description,
-      amount,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
+      nome,
+      descricao,
+      adminId,
+      membros,
+      contribuicaoMensal,
+      saldoTotal: 0,
+      dataCriacao: admin.firestore.FieldValue.serverTimestamp()
     });
     res.status(201).json({ id: docRef.id, message: 'Caixinha criada com sucesso' });
   } catch (error) {
@@ -72,5 +74,73 @@ exports.deleteCaixinha = async (req, res) => {
     res.status(200).json({ message: 'Caixinha deletada com sucesso' });
   } catch (error) {
     res.status(500).json({ message: 'Erro ao deletar caixinha', error: error.message });
+  }
+};
+
+// Função para adicionar uma contribuição
+exports.addContribuicao = async (req, res) => {
+  const { caixinhaId, userId, valor } = req.body;
+  try {
+    const contribRef = await admin.firestore().collection('contribuicoes').add({
+      caixinhaId,
+      userId,
+      valor,
+      dataContribuicao: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Atualizar saldo da caixinha
+    const caixinhaRef = admin.firestore().collection('caixinhas').doc(caixinhaId);
+    const caixinhaDoc = await caixinhaRef.get();
+    if (caixinhaDoc.exists) {
+      const saldoAtual = caixinhaDoc.data().saldoTotal;
+      await caixinhaRef.update({ saldoTotal: saldoAtual + valor });
+    }
+
+    res.status(201).json({ id: contribRef.id, message: 'Contribuição adicionada com sucesso' });
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao adicionar contribuição', error: error.message });
+  }
+};
+
+// Função para solicitar um empréstimo
+exports.solicitarEmprestimo = async (req, res) => {
+  const { caixinhaId, userId, valorSolicitado } = req.body;
+  try {
+    const emprestimoRef = await admin.firestore().collection('emprestimos').add({
+      caixinhaId,
+      userId,
+      valorSolicitado,
+      dataSolicitacao: admin.firestore.FieldValue.serverTimestamp(),
+      status: 'pendente',
+      votos: {}
+    });
+    res.status(201).json({ id: emprestimoRef.id, message: 'Empréstimo solicitado com sucesso' });
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao solicitar empréstimo', error: error.message });
+  }
+};
+
+// Função para registrar uma atividade bônus
+exports.addAtividadeBonus = async (req, res) => {
+  const { caixinhaId, descricao, valorArrecadado } = req.body;
+  try {
+    const atividadeRef = await admin.firestore().collection('atividadesBonus').add({
+      caixinhaId,
+      descricao,
+      valorArrecadado,
+      dataAtividade: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Atualizar saldo da caixinha
+    const caixinhaRef = admin.firestore().collection('caixinhas').doc(caixinhaId);
+    const caixinhaDoc = await caixinhaRef.get();
+    if (caixinhaDoc.exists) {
+      const saldoAtual = caixinhaDoc.data().saldoTotal;
+      await caixinhaRef.update({ saldoTotal: saldoAtual + valorArrecadado });
+    }
+
+    res.status(201).json({ id: atividadeRef.id, message: 'Atividade bônus registrada com sucesso' });
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao registrar atividade bônus', error: error.message });
   }
 };

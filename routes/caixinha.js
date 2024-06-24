@@ -29,5 +29,8 @@ router.get('/:id', verifyToken, caixinhaController.getCaixinhaById);
 router.post('/', verifyToken, caixinhaController.createCaixinha);
 router.put('/:id', verifyToken, caixinhaController.updateCaixinha);
 router.delete('/:id', verifyToken, caixinhaController.deleteCaixinha);
+router.post('/contribuicao', verifyToken, caixinhaController.addContribuicao);
+router.post('/emprestimo', verifyToken, caixinhaController.solicitarEmprestimo);
+router.post('/atividade-bonus', verifyToken, caixinhaController.addAtividadeBonus);
 
 module.exports = router;
