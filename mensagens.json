@@ -1,0 +1,88 @@
+[
+  {
+    "id": "msgs",
+    "msgs": [
+      {
+        "id": "5NimHTRyUghCTIkW6K4b",
+        "uidRemetente": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "conteudo": "Oi",
+        "tipo": "texto",
+        "uidDestinatario": "1UAY51r7xZatbrd0ulGo8msRzH82",
+        "lido": false,
+        "timestamp": {
+          "_seconds": 1718140735,
+          "_nanoseconds": 932000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "msgs",
+    "msgs": [
+      {
+        "id": "4fpQBKVhA3nLzSQuWEAp",
+        "uidRemetente": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "conteudo": "Oi querido!",
+        "tipo": "texto",
+        "uidDestinatario": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1716140892,
+          "_nanoseconds": 535000000
+        },
+        "dataLeitura": {
+          "_seconds": 1718262471,
+          "_nanoseconds": 881000000
+        },
+        "lido": true
+      },
+      {
+        "id": "NkEPfoDWdRDabse3dRY8",
+        "uidRemetente": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "conteudo": "https://firebasestorage.googleapis.com/v0/b/elossolucoescloud-1804e.appspot.com/o/uploads%2Fmensagens%2FClm9oH8zKIanVQO1NMnWLYu93Jr1_sS855lp9DwhZodxMqG7bf5cYeQ92%2F1718631178493_Screenshot%202024-06-13%20at%2008.43.12.png?alt=media&token=b9b08f3d-ea7c-4347-a358-52f19925bc26",
+        "tipo": "imagem",
+        "uidDestinatario": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1718631180,
+          "_nanoseconds": 152000000
+        },
+        "dataLeitura": {
+          "_seconds": 1718631180,
+          "_nanoseconds": 533000000
+        },
+        "lido": true
+      },
+      {
+        "id": "X0c6nRcxtNNDf9mtStNm",
+        "uidRemetente": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "conteudo": "mensagem de  Claud para Leonardo DI",
+        "tipo": "texto",
+        "uidDestinatario": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "timestamp": {
+          "_seconds": 1716137997,
+          "_nanoseconds": 45000000
+        },
+        "dataLeitura": {
+          "_seconds": 1716140886,
+          "_nanoseconds": 77000000
+        },
+        "lido": true
+      },
+      {
+        "id": "rHlTNK8nGUs8a2tNSMh1",
+        "uidRemetente": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "conteudo": "https://firebasestorage.googleapis.com/v0/b/elossolucoescloud-1804e.appspot.com/o/uploads%2Fmensagens%2FClm9oH8zKIanVQO1NMnWLYu93Jr1_sS855lp9DwhZodxMqG7bf5cYeQ92%2F1718631157149_undefined?alt=media&token=3d991fc9-8cbc-4a6f-b76d-a35cfc2b67d3",
+        "tipo": "audio",
+        "uidDestinatario": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1718631157,
+          "_nanoseconds": 915000000
+        },
+        "dataLeitura": {
+          "_seconds": 1718631158,
+          "_nanoseconds": 108000000
+        },
+        "lido": true
+      }
+    ]
+  }
+]

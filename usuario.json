@@ -1,0 +1,96 @@
+[
+  {
+    "id": "4MekUfqxgJcNhNQd1J38G7D6BU83",
+    "uid": "4MekUfqxgJcNhNQd1J38G7D6BU83",
+    "tipoDeConta": "Cliente",
+    "amigosAutorizados": [
+      "0000000000"
+    ],
+    "isOwnerOrAdmin": false,
+    "conversasComMensagensNaoLidas": [],
+    "amigos": [
+      "0000000000"
+    ],
+    "nome": "Leonardo Cruz",
+    "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+    "email": "leolest@gmail.com",
+    "dataCriacao": {
+      "_seconds": 1717859965,
+      "_nanoseconds": 98000000
+    },
+    "ja3Hash": "f4306527a1b643c46a254170733051ca",
+    "perfilPublico": true
+  },
+  {
+    "id": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+    "uid": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+    "amigosAutorizados": [],
+    "tipoDeConta": "Cliente",
+    "isOwnerOrAdmin": false,
+    "conversasComMensagensNaoLidas": [],
+    "amigos": [],
+    "nome": "Leonardo Cruz",
+    "fotoDoPerfil": "https://imgur.com/D6BLx2n.png",
+    "email": "leonardocruz.di@gmail.com",
+    "perfilPublico": false,
+    "dataCriacao": {
+      "_seconds": 1718083536,
+      "_nanoseconds": 360000000
+    },
+    "ja3Hash": "f4306527a1b643c46a254170733051ca",
+    "saldoElosCoins": 1
+  },
+  {
+    "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+    "uid": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+    "nome": "Claud Suporte",
+    "email": "claud@eloscloud.com.br",
+    "reacoes": {},
+    "perfilPublico": true,
+    "ja3Hash": "f4306527a1b643c46a254170733051ca",
+    "tipoDeConta": "proprietario",
+    "isOwnerOrAdmin": true,
+    "fotoDoPerfil": "https://firebasestorage.googleapis.com/v0/b/elossolucoescloud-1804e.appspot.com/o/fotoDePerfil%2FsS855lp9DwhZodxMqG7bf5cYeQ92?alt=media&token=a7ebb766-677e-428b-9def-f7fe0cb16451",
+    "descricao": "🎬 Pronto para a ação!\n✊🏾 Engajado!\n🏳️‍🌈 Mais amor por favor!\n\n--------\n\n\n🍀 Sorte aos bons!",
+    "interessesNegocios": [
+      "Oferta de Serviços"
+    ],
+    "amigosAutorizados": [
+      "Clm9oH8zKIanVQO1NMnWLYu93Jr1"
+    ],
+    "amigos": [
+      "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+      "pJPaB92jZJb4G65XZ4lSjebNr5d2"
+    ],
+    "interessesPessoais": [
+      "Sem Compromisso",
+      "Encontros Casuais",
+      "Passeios Românticos"
+    ],
+    "dataCriacao": {
+      "seconds": 1715197511,
+      "nanoseconds": 276000000
+    },
+    "saldoElosCoins": 13,
+    "conversasComMensagensNaoLidas": []
+  },
+  {
+    "id": "xFcbvCPqfkS1JoP3zn33gnt4h6y2",
+    "uid": "xFcbvCPqfkS1JoP3zn33gnt4h6y2",
+    "tipoDeConta": "Cliente",
+    "isOwnerOrAdmin": false,
+    "conversasComMensagensNaoLidas": [],
+    "nome": "Leonardo Cruz",
+    "fotoDoPerfil": "https://eloscloud.com/static/media/robozinho_tres.95fa2d6fb75fb994b8e5.webp",
+    "email": "leonardo@eloscloud.com.br",
+    "perfilPublico": false,
+    "dataCriacao": {
+      "_seconds": 1716833145,
+      "_nanoseconds": 20000000
+    },
+    "ja3Hash": "f4306527a1b643c46a254170733051ca",
+    "saldoElosCoins": 10010,
+    "amigos": [],
+    "amigosAutorizados": []
+  }
+]

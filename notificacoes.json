@@ -1,0 +1,481 @@
+[
+  {
+    "id": "notifications",
+    "notifications": [
+      {
+        "id": "5uuSFKgNvEBf0jsCMZ40",
+        "tipo": "amizadeAceita",
+        "conteudo": "Você e Claud Suporte agora são amigos.",
+        "lida": false,
+        "link": "/perfilAmigo/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717845048,
+          "_nanoseconds": 438000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "notifications",
+    "notifications": [
+      {
+        "id": "5INr7P87vHjVoqAh10fy",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com like à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717760179,
+          "_nanoseconds": 35000000
+        }
+      },
+      {
+        "id": "CLikYAosUnACd1Fs6DPM",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com like à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717760180,
+          "_nanoseconds": 415000000
+        }
+      },
+      {
+        "id": "PPoWFa42ZpYjB3Z1rzGn",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com haha à sua postagem.",
+        "lida": false,
+        "link": "/postagens/7cq0SXrB3o4yH1IRjjBO",
+        "timestamp": {
+          "_seconds": 1717760192,
+          "_nanoseconds": 571000000
+        }
+      },
+      {
+        "id": "TsuEgObLZo8pbZHIKGPt",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com dislike à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717760187,
+          "_nanoseconds": 125000000
+        }
+      },
+      {
+        "id": "X12jcDGb04XRk3bpA55f",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com sad à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717760185,
+          "_nanoseconds": 866000000
+        }
+      },
+      {
+        "id": "ZktooswywzukXB0T3qK3",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com dislike à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717755789,
+          "_nanoseconds": 523000000
+        }
+      },
+      {
+        "id": "ay8YNw064Is00ha9Zujh",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com haha à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717760184,
+          "_nanoseconds": 171000000
+        }
+      },
+      {
+        "id": "bvttaB8i2oOLacz9R4ql",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com love à sua postagem.",
+        "lida": false,
+        "link": "/postagens/7cq0SXrB3o4yH1IRjjBO",
+        "timestamp": {
+          "_seconds": 1717760191,
+          "_nanoseconds": 743000000
+        }
+      },
+      {
+        "id": "wtNEFYOU6HJwhsD5Kc0M",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com haha à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717760173,
+          "_nanoseconds": 122000000
+        }
+      },
+      {
+        "id": "zXRWoKOPIfiV6Hf8fzaE",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com love à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717755792,
+          "_nanoseconds": 139000000
+        }
+      },
+      {
+        "id": "zzkwxVW2DRi547JBI4V5",
+        "tipo": "reacao",
+        "conteudo": "Leonardo Cruz reagiu com haha à sua postagem.",
+        "lida": false,
+        "link": "/postagens/5hnIwBvWqsvavYbeEw4l",
+        "timestamp": {
+          "_seconds": 1717755786,
+          "_nanoseconds": 596000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "notifications",
+    "notifications": [
+      {
+        "id": "T59AZogWt3CH5oXKhPYo",
+        "tipo": "amizadeAceita",
+        "conteudo": "Você e Claud Suporte agora são amigos.",
+        "lida": false,
+        "link": "/perfilAmigo/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717839117,
+          "_nanoseconds": 288000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "notifications",
+    "notifications": [
+      {
+        "id": "2r461Ex2nnuDW9DIARNI",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717532686,
+          "_nanoseconds": 830000000
+        },
+        "lida": {
+          "dk4S5I3S10gyMQ0cgjosdTtXldz2": {
+            "_seconds": 1717743750,
+            "_nanoseconds": 627000000
+          }
+        }
+      },
+      {
+        "id": "3pPfwHLvK5JzXZXUixvi",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717532330,
+          "_nanoseconds": 309000000
+        }
+      },
+      {
+        "id": "4gGYzpOAMQytVHtmxKNR",
+        "conteudo": "Leonardo Cruz iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "userName": "Leonardo Cruz",
+        "userId": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "timestamp": {
+          "_seconds": 1717476135,
+          "_nanoseconds": 975000000
+        },
+        "lida": {
+          "Clm9oH8zKIanVQO1NMnWLYu93Jr1": {
+            "_seconds": 1717497702,
+            "_nanoseconds": 816000000
+          }
+        }
+      },
+      {
+        "id": "66cRjqSfDimiBGerWMSv",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717532376,
+          "_nanoseconds": 865000000
+        }
+      },
+      {
+        "id": "6U02FrmwwjUopzFwWVZk",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717531498,
+          "_nanoseconds": 933000000
+        }
+      },
+      {
+        "id": "6rJbAzp8d0Q8dJAfwfhb",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717426731,
+          "_nanoseconds": 915000000
+        }
+      },
+      {
+        "id": "AK71f32M7Cw1ELU3KLBT",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717480348,
+          "_nanoseconds": 796000000
+        }
+      },
+      {
+        "id": "B24DeTshjFFHGUMssIMX",
+        "conteudo": "Leonardo Cruz iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "lida": {},
+        "userName": "Leonardo Cruz",
+        "userId": "dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "timestamp": {
+          "_seconds": 1717748295,
+          "_nanoseconds": 322000000
+        }
+      },
+      {
+        "id": "GSYzuEecBWP8CsMsJxoh",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717533385,
+          "_nanoseconds": 389000000
+        }
+      },
+      {
+        "id": "IQkENnOOgXoQoLU8DiY1",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717433245,
+          "_nanoseconds": 695000000
+        }
+      },
+      {
+        "id": "LXoYWHV9CmUdunNMHmTe",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717427947,
+          "_nanoseconds": 256000000
+        }
+      },
+      {
+        "id": "WIMVjxueWNIjVpxoi0Jh",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717497034,
+          "_nanoseconds": 3000000
+        }
+      },
+      {
+        "id": "XSGBQ3OK523Bd47hzvRT",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717532493,
+          "_nanoseconds": 852000000
+        }
+      },
+      {
+        "id": "ajhXWiPgqa1MX15LFDYT",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717503536,
+          "_nanoseconds": 445000000
+        }
+      },
+      {
+        "id": "ggacQYlRttvXnBZavWvV",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717533334,
+          "_nanoseconds": 681000000
+        }
+      },
+      {
+        "id": "lL4agcgufV95zBtt01Vl",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717427212,
+          "_nanoseconds": 965000000
+        }
+      },
+      {
+        "id": "mvxfgPwzkNbS3sJqegc9",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717428113,
+          "_nanoseconds": 575000000
+        }
+      },
+      {
+        "id": "pzhCDNeacIpmvwVhPfGl",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717533109,
+          "_nanoseconds": 918000000
+        }
+      },
+      {
+        "id": "tF40c2OE3znKzgnRY1ng",
+        "conteudo": "Leonardo Cruz iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/live/Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "lida": {},
+        "userName": "Leonardo Cruz",
+        "userId": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+        "timestamp": {
+          "_seconds": 1717445996,
+          "_nanoseconds": 210000000
+        }
+      },
+      {
+        "id": "y8LOZMxic6f4LNneXD6w",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717497669,
+          "_nanoseconds": 112000000
+        }
+      },
+      {
+        "id": "yhtlhTml2NuYVmKCdKaz",
+        "conteudo": "Claud Suporte iniciou uma transmissão ao vivo.",
+        "link": "https://eloscloud.com.br/LiveStreamViewer/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "lida": {},
+        "userName": "Claud Suporte",
+        "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717534810,
+          "_nanoseconds": 904000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "notifications",
+    "notifications": [
+      {
+        "id": "uDPdpbVgR7jMtmeTGqVv",
+        "tipo": "amizadeAceita",
+        "conteudo": "Você e Claud Suporte agora são amigos.",
+        "lida": false,
+        "link": "/perfilAmigo/sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "timestamp": {
+          "_seconds": 1717858356,
+          "_nanoseconds": 50000000
+        }
+      }
+    ]
+  },
+  {
+    "id": "notifications",
+    "notifications": [
+      {
+        "id": "5Ph3FLZHCLSY7DoGlzgT",
+        "tipo": "amizadeAceita",
+        "conteudo": "Sua solicitação de amizade foi aceita por Leonardo Cruz.",
+        "lida": false,
+        "link": "/perfil/1UAY51r7xZatbrd0ulGo8msRzH82",
+        "timestamp": {
+          "_seconds": 1717845048,
+          "_nanoseconds": 621000000
+        }
+      },
+      {
+        "id": "S2MBxKN6lqjFjslpLjfv",
+        "tipo": "amizadeAceita",
+        "conteudo": "Sua solicitação de amizade foi aceita por Leonardo Cruz.",
+        "lida": false,
+        "link": "/perfil/pJPaB92jZJb4G65XZ4lSjebNr5d2",
+        "timestamp": {
+          "_seconds": 1717858356,
+          "_nanoseconds": 568000000
+        }
+      },
+      {
+        "id": "bkTUsyGwRzcq6GOUjnE8",
+        "tipo": "amizadeAceita",
+        "conteudo": "Sua solicitação de amizade foi aceita por Leonardo Cruz.",
+        "lida": false,
+        "link": "/perfil/dk4S5I3S10gyMQ0cgjosdTtXldz2",
+        "timestamp": {
+          "_seconds": 1717839117,
+          "_nanoseconds": 575000000
+        }
+      }
+    ]
+  }
+]
