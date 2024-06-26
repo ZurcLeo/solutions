@@ -83,3 +83,15 @@ exports.getPurchases = async (req, res) => {
         res.status(500).send({ error: 'Erro ao buscar compras', details: error.message });
     }
 };
+
+exports.getAllPurchases = async (req, res) => {
+    try {
+        const purchasesSnapshot = await admin.firestore().collectionGroup('compras').get();
+        const purchases = purchasesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        res.status(200).json(purchases);
+    } catch (error) {
+        console.error('Erro ao buscar todas as compras:', error);
+        res.status(500).send({ error: 'Erro ao buscar todas as compras', details: error.message });
+    }
+};

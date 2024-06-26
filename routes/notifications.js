@@ -25,6 +25,7 @@ router.use((req, res, next) => {
   next();
 });
   
+  router.get('/', verifyToken, notificationsController.getAllNotifications);
   router.get('/:userId', verifyToken, notificationsController.getUserNotifications);
   router.post('/:userId/markAsRead', verifyToken, notificationsController.markAsRead);
   

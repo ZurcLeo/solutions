@@ -1,7 +1,7 @@
+// routes/messages.js
 const express = require('express');
 const router = express.Router();
-const paymentsController = require('../controllers/paymentsController');
-const verifyToken = require('../middlewares/auth')
+const messageController = require('../controllers/messageController');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
@@ -24,9 +24,10 @@ router.use((req, res, next) => {
   next();
 });
 
-router.get('/all-purchases', verifyToken, paymentsController.getAllPurchases);
-router.post('/create-payment-intent', paymentsController.createPaymentIntent);
-router.get('/session-status', paymentsController.sessionStatus);
-router.get('/purchases', paymentsController.getPurchases);
+router.get('/:id', messageController.getMessageById);
+router.get('/user/:uid', messageController.getMessagesByUserId);
+router.post('/', messageController.createMessage);
+router.put('/:id', messageController.updateMessage);
+router.delete('/:id', messageController.deleteMessage);
 
 module.exports = router;

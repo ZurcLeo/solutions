@@ -16,9 +16,11 @@ const ja3Routes = require('./routes/ja3');
 const notificationsRoutes = require('./routes/notifications');
 const groupsCaixinhaRoutes = require('./routes/groupsCaixinha');
 const caixinhaRoutes = require('./routes/caixinha');
+const postRoutes = require('./routes/posts'); 
+const messageRoutes = require('./routes/messages');
 
 const app = express();
-
+const swagger = require('./swagger');
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
 
 const corsOptions = {
@@ -39,6 +41,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(morgan('dev'));
+swagger(app);
 
 // Adicionar cabeçalhos de segurança para lidar com Cross-Origin-Opener-Policy
 app.use((req, res, next) => {
@@ -62,6 +65,8 @@ app.use('/api/ja3', ja3Routes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/groupsCaixinha', groupsCaixinhaRoutes);
 app.use('/api/caixinha', caixinhaRoutes);
+app.use('/api/posts', postRoutes);
+app.use('/api/messages', messageRoutes); 
 
 const PORT = process.env.PORT || 9000;
 
