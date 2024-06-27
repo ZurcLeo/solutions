@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const connectionsController = require('../controllers/connectionsController');
+const verifyToken = require('../middlewares/auth');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
@@ -49,7 +50,7 @@ router.use((req, res, next) => {
  *       404:
  *         description: Conexão ativa não encontrada
  */
-router.get('/active/:id', connectionsController.getActiveConnectionById);
+router.get('/active/:id', verifyToken, connectionsController.getActiveConnectionById);
 
 /**
  * @swagger
@@ -89,7 +90,7 @@ router.get('/active/:id', connectionsController.getActiveConnectionById);
  *       500:
  *         description: Erro ao criar conexão ativa
  */
-router.post('/active', connectionsController.createActiveConnection);
+router.post('/active', verifyToken, connectionsController.createActiveConnection);
 
 /**
  * @swagger
@@ -136,7 +137,7 @@ router.post('/active', connectionsController.createActiveConnection);
  *       500:
  *         description: Erro ao atualizar conexão ativa
  */
-router.put('/active/:id', connectionsController.updateActiveConnection);
+router.put('/active/:id', verifyToken, connectionsController.updateActiveConnection);
 
 /**
  * @swagger
@@ -157,7 +158,7 @@ router.put('/active/:id', connectionsController.updateActiveConnection);
  *       500:
  *         description: Erro ao deletar conexão ativa
  */
-router.delete('/active/:id', connectionsController.deleteActiveConnection);
+router.delete('/active/:id', verifyToken, connectionsController.deleteActiveConnection);
 
 /**
  * @swagger
@@ -178,7 +179,7 @@ router.delete('/active/:id', connectionsController.deleteActiveConnection);
  *       404:
  *         description: Conexão inativa não encontrada
  */
-router.get('/inactive/:id', connectionsController.getInactiveConnectionById);
+router.get('/inactive/:id', verifyToken, connectionsController.getInactiveConnectionById);
 
 /**
  * @swagger
@@ -214,7 +215,7 @@ router.get('/inactive/:id', connectionsController.getInactiveConnectionById);
  *       500:
  *         description: Erro ao criar conexão inativa
  */
-router.post('/inactive', connectionsController.createInactiveConnection);
+router.post('/inactive', verifyToken, connectionsController.createInactiveConnection);
 
 /**
  * @swagger
@@ -257,7 +258,7 @@ router.post('/inactive', connectionsController.createInactiveConnection);
  *       500:
  *         description: Erro ao atualizar conexão inativa
  */
-router.put('/inactive/:id', connectionsController.updateInactiveConnection);
+router.put('/inactive/:id', verifyToken, connectionsController.updateInactiveConnection);
 
 /**
  * @swagger
@@ -278,7 +279,7 @@ router.put('/inactive/:id', connectionsController.updateInactiveConnection);
  *       500:
  *         description: Erro ao deletar conexão inativa
  */
-router.delete('/inactive/:id', connectionsController.deleteInactiveConnection);
+router.delete('/inactive/:id', verifyToken, connectionsController.deleteInactiveConnection);
 
 /**
  * @swagger
@@ -299,7 +300,7 @@ router.delete('/inactive/:id', connectionsController.deleteInactiveConnection);
  *       404:
  *         description: Conexão solicitada não encontrada
  */
-router.get('/requested/:id', connectionsController.getRequestedConnectionById);
+router.get('/requested/:id', verifyToken, connectionsController.getRequestedConnectionById);
 
 /**
  * @swagger
@@ -337,7 +338,7 @@ router.get('/requested/:id', connectionsController.getRequestedConnectionById);
  *       500:
  *         description: Erro ao criar conexão solicitada
  */
-router.post('/requested', connectionsController.createRequestedConnection);
+router.post('/requested', verifyToken, connectionsController.createRequestedConnection);
 
 /**
  * @swagger
@@ -382,7 +383,7 @@ router.post('/requested', connectionsController.createRequestedConnection);
  *       500:
  *         description: Erro ao atualizar conexão solicitada
  */
-router.put('/requested/:id', connectionsController.updateRequestedConnection);
+router.put('/requested/:id', verifyToken, connectionsController.updateRequestedConnection);
 
 /**
  * @swagger
@@ -403,6 +404,6 @@ router.put('/requested/:id', connectionsController.updateRequestedConnection);
  *       500:
  *         description: Erro ao deletar conexão solicitada
  */
-router.delete('/requested/:id', connectionsController.deleteRequestedConnection);
+router.delete('/requested/:id', verifyToken, connectionsController.deleteRequestedConnection);
 
 module.exports = router;

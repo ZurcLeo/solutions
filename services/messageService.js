@@ -1,25 +1,49 @@
 // services/messageService.js
-const Message = require('../models/Message');
+const admin = require('firebase-admin');
 
 class MessageService {
   static async getMessageById(id) {
-    return await Message.getById(id);
+    const doc = await admin.firestore().collection('messages').doc(id).get();
+    if (!doc.exists) {
+      throw new Error('Mensagem não encontrada.');
+    }
+    return { id: doc.id, ...doc.data() };
   }
 
   static async getMessagesByUserId(uid) {
-    return await Message.getByUserId(uid);
+    const snapshot = await admin.firestore().collection('messages').where('uidDestinatario', '==', uid).get();
+    if (snapshot.empty) {
+      return [];
+    }
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   static async createMessage(data) {
-    return await Message.create(data);
+    const newMessage = {
+      uidRemetente: data.uidRemetente,
+      conteudo: data.conteudo,
+      tipo: data.tipo,
+      uidDestinatario: data.uidDestinatario,
+      lido: false,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const docRef = await admin.firestore().collection('messages').add(newMessage);
+    return { id: docRef.id, ...newMessage };
   }
 
   static async updateMessage(id, data) {
-    return await Message.update(id, data);
+    const messageRef = admin.firestore().collection('messages').doc(id);
+    await messageRef.update(data);
+    const updatedDoc = await messageRef.get();
+    if (!updatedDoc.exists) {
+      throw new Error('Mensagem não encontrada.');
+    }
+    return { id: updatedDoc.id, ...updatedDoc.data() };
   }
 
   static async deleteMessage(id) {
-    await Message.delete(id);
+    const messageRef = admin.firestore().collection('messages').doc(id);
+    await messageRef.delete();
   }
 }
 

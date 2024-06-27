@@ -678,11 +678,11 @@ router.get('/:id/relatorio/emprestimos', verifyToken, caixinhaController.getRela
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: id
+ *       - name: id
+ *           in: path
+ *           required: true
  *         schema:
  *           type: string
- *         required: true
  *         description: ID da caixinha
  *     responses:
  *       200:

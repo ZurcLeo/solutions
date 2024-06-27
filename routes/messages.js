@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const messageController = require('../controllers/messageController');
+const verifyToken = require('../middlewares/auth');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
@@ -57,7 +58,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:id', messageController.getMessageById);
+router.get('/:id', verifyToken, messageController.getMessageById);
 
 /**
  * @swagger
@@ -88,7 +89,7 @@ router.get('/:id', messageController.getMessageById);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/user/:uid', messageController.getMessagesByUserId);
+router.get('/user/:uid', verifyToken, messageController.getMessagesByUserId);
 
 /**
  * @swagger
@@ -114,7 +115,7 @@ router.get('/user/:uid', messageController.getMessagesByUserId);
  *       500:
  *         description: Erro no servidor
  */
-router.post('/', messageController.createMessage);
+router.post('/', verifyToken, messageController.createMessage);
 
 /**
  * @swagger
@@ -149,7 +150,7 @@ router.post('/', messageController.createMessage);
  *       500:
  *         description: Erro no servidor
  */
-router.put('/:id', messageController.updateMessage);
+router.put('/:id', verifyToken, messageController.updateMessage);
 
 /**
  * @swagger
@@ -174,6 +175,6 @@ router.put('/:id', messageController.updateMessage);
  *       500:
  *         description: Erro no servidor
  */
-router.delete('/:id', messageController.deleteMessage);
+router.delete('/:id', verifyToken, messageController.deleteMessage);
 
 module.exports = router;
