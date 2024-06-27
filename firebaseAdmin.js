@@ -1,10 +1,13 @@
-var admin = require("firebase-admin");
+// firebaseAdmin.js
+const admin = require('firebase-admin');
+require('dotenv').config();
 
-var serviceAccount = require("./serviceAccountKey.json");
+// Certifique-se de ter configurado suas credenciais corretamente.
+const serviceAccount = require('./serviceAccountKey.json');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://elossolucoescloud-1804e-default-rtdb.firebaseio.com"
+  databaseURL: process.env.FIREBASE_DATABASE_URL
 });
 
 const db = admin.firestore();
