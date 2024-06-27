@@ -1,5 +1,5 @@
 const express = require('express');
-const cors = require('cors');
+const corsMiddleware = require('./middlewares/cors');
 const { admin } = require('./firebaseAdmin');
 const swaggerUi = require('swagger-ui-express');
 const swaggerDocs = require('./swagger');
@@ -8,7 +8,7 @@ const swaggerDocs = require('./swagger');
 const app = express();
 
 // Configurações de Middleware
-app.use(cors());
+app.use(corsMiddleware);
 app.use(express.json());
 
 // Importação de Rotas
@@ -24,7 +24,7 @@ const paymentsRoutes = require('./routes/payments');
 const postsRoutes = require('./routes/posts');
 const recaptchaRoutes = require('./routes/recaptcha');
 const userRoutes = require('./routes/user');
-const videoSdkRoutes = require('./routes/videoSdk');
+const videoSdkRoutes = require('./routes/videosdk');
 const connectionsRoutes = require('./routes/connections');
 
 // Definição de Rotas
