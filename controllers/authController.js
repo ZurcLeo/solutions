@@ -1,6 +1,6 @@
 //controllers/authController.js
-const admin = require('firebase-admin');
-const { getAuth, signOut } = require('firebase-admin/auth');
+const { logger } = require('../logger');
+const { getAuth } = require('firebase-admin/auth');
 const jwt = require('jsonwebtoken');
 const { getFacebookUserData } = require('../services/facebookService');
 require('dotenv').config();
@@ -129,19 +129,44 @@ exports.resendVerificationEmail = async (req, res) => {
             res.status(200).json({ message: 'E-mail de verificação reenviado.' });
         }
     } catch (error) {
+        logger.error(`Erro ao obter dados do usuário: ${error.message}`);
         res.status(500).json({ message: 'Erro ao reenviar e-mail de verificação', error: error.message });
     }
 };
 
 exports.getCurrentUser = async (req, res) => {
     try {
-      const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
-      const userRecord = await auth.getUser(decodedToken.uid);
-      res.status(200).json(userRecord);
+        // Decodifica o token JWT
+        const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
+        // Obtém o UID do token decodificado
+        const uid = decodedToken.uid;
+        
+        // Busca os dados básicos do usuário no Firebase Auth
+        const userRecord = await auth.getUser(uid);
+        
+        // Busca os dados adicionais do usuário no Firestore
+        const userProfile = await User.getById(uid);
+        
+        // Combina os dados básicos com os dados adicionais
+        const userData = {
+            uid: userRecord.uid,
+            email: userRecord.email,
+            emailVerified: userRecord.emailVerified,
+            phoneNumber: userRecord.phoneNumber,
+            displayName: userRecord.displayName,
+            photoURL: userRecord.photoURL,
+            providerData: userRecord.providerData,
+            ...userProfile // Adiciona os dados do perfil do Firestore
+        };
+        
+        // Retorna os dados do usuário
+        logger.info(`Usuário autenticado: ${userRecord.email}`);
+        res.status(200).json(userData);
     } catch (error) {
-      res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
+        logger.error(`Erro ao obter dados do usuário: ${error.message}`);
+        res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
     }
-  };  
+};
 
 async function validateInvite(inviteCode) {
     const inviteRef = admin.firestore().doc(`convites/${inviteCode}`);

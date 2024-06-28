@@ -1,5 +1,6 @@
 const express = require('express');
 const corsMiddleware = require('./middlewares/cors');
+const { morganMiddleware } = require('./logger');
 const { admin } = require('./firebaseAdmin');
 const swaggerUi = require('swagger-ui-express');
 const swaggerDocs = require('./swagger');
@@ -10,6 +11,7 @@ const app = express();
 // Configurações de Middleware
 app.use(corsMiddleware);
 app.use(express.json());
+app.use(morganMiddleware);
 
 // Importação de Rotas
 const authRoutes = require('./routes/auth');

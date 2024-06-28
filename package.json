@@ -31,9 +31,11 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.9.13",
     "react-player": "^2.16.0",
+    "rotating-file-stream": "^3.2.3",
     "stripe": "^15.10.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "winston": "^3.13.0"
   }
 }

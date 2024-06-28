@@ -28,7 +28,9 @@ class User {
     if (!doc.exists) {
       throw new Error('Usuário não encontrado.');
     }
-    return new User(doc.data());
+    const data = doc.data();
+    data.id = id; // Garante que o ID está no objeto
+    return new User(data);
   }
 
   static async create(data) {

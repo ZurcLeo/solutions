@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
+const authController = require('../controllers/authController');
+const verifyToken = require('../middlewares/auth');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
@@ -164,5 +166,27 @@ router.put('/update-user/:id', userController.updateUser);
  *         description: Erro no servidor
  */
 router.delete('/delete-user/:id', userController.deleteUser);
+
+/**
+ * @swagger
+ * /users/me:
+ *   get:
+ *     summary: Retorna o perfil do usuário autenticado
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Perfil do usuário retornado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/User'
+ *       401:
+ *         description: Não autorizado
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/me', verifyToken, authController.getCurrentUser);
 
 module.exports = router;
