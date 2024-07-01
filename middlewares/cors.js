@@ -1,6 +1,11 @@
 const cors = require('cors');
 
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const allowedOrigins = [
+  'https://eloscloud.com',
+  'http://localhost:3000',
+  'https://www.facebook.com',
+  'https://accounts.google.com'
+];
 
 const corsOptions = {
   origin: (origin, callback) => {
