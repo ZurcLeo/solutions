@@ -33,11 +33,43 @@ router.use((req, res, next) => {
 
 /**
  * @swagger
- * /messages/{id}:
+ * /messages:
+ *   get:
+ *     summary: Retorna todas as mensagens
+ *     tags: [Messages]
+ *     responses:
+ *       200:
+ *         description: Mensagens retornadas com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Message'
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/', verifyToken, messageController.getAllMessages);
+
+/**
+ * @swagger
+ * /messages/{uidRemetente}/{uidDestinatario}/{id}:
  *   get:
  *     summary: Retorna uma mensagem pelo ID
  *     tags: [Messages]
  *     parameters:
+ *       - in: path
+ *         name: uidRemetente
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do remetente
+ *       - in: path
+ *         name: uidDestinatario
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do destinatário
  *       - in: path
  *         name: id
  *         schema:
@@ -58,21 +90,27 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:id', verifyToken, messageController.getMessageById);
+router.get('/:uidRemetente/:uidDestinatario/:id', verifyToken, messageController.getMessageById);
 
 /**
  * @swagger
- * /messages/user/{uid}:
+ * /messages/user/{uidRemetente}/{uidDestinatario}:
  *   get:
  *     summary: Retorna mensagens por ID de usuário
  *     tags: [Messages]
  *     parameters:
  *       - in: path
- *         name: uid
+ *         name: uidRemetente
  *         schema:
  *           type: string
  *         required: true
- *         description: ID do usuário
+ *         description: ID do remetente
+ *       - in: path
+ *         name: uidDestinatario
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do destinatário
  *     responses:
  *       200:
  *         description: Mensagens retornadas com sucesso
@@ -89,7 +127,7 @@ router.get('/:id', verifyToken, messageController.getMessageById);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/user/:uid', verifyToken, messageController.getMessagesByUserId);
+router.get('/user/:uidRemetente/:uidDestinatario', verifyToken, messageController.getMessagesByUserId);
 
 /**
  * @swagger
@@ -119,11 +157,23 @@ router.post('/', verifyToken, messageController.createMessage);
 
 /**
  * @swagger
- * /messages/{id}:
+ * /messages/{uidRemetente}/{uidDestinatario}/{id}:
  *   put:
  *     summary: Atualiza uma mensagem pelo ID
  *     tags: [Messages]
  *     parameters:
+ *       - in: path
+ *         name: uidRemetente
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do remetente
+ *       - in: path
+ *         name: uidDestinatario
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do destinatário
  *       - in: path
  *         name: id
  *         schema:
@@ -150,15 +200,27 @@ router.post('/', verifyToken, messageController.createMessage);
  *       500:
  *         description: Erro no servidor
  */
-router.put('/:id', verifyToken, messageController.updateMessage);
+router.put('/:uidRemetente/:uidDestinatario/:id', verifyToken, messageController.updateMessage);
 
 /**
  * @swagger
- * /messages/{id}:
+ * /messages/{uidRemetente}/{uidDestinatario}/{id}:
  *   delete:
  *     summary: Deleta uma mensagem pelo ID
  *     tags: [Messages]
  *     parameters:
+ *       - in: path
+ *         name: uidRemetente
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do remetente
+ *       - in: path
+ *         name: uidDestinatario
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do destinatário
  *       - in: path
  *         name: id
  *         schema:
@@ -175,8 +237,6 @@ router.put('/:id', verifyToken, messageController.updateMessage);
  *       500:
  *         description: Erro no servidor
  */
-router.delete('/:id', verifyToken, messageController.deleteMessage);
-
-router.get('/api/messages', verifyToken, messageController.getAllMessages);
+router.delete('/:uidRemetente/:uidDestinatario/:id', verifyToken, messageController.deleteMessage);
 
 module.exports = router;
