@@ -1,17 +1,15 @@
 //controllers/authController.js
 const { logger } = require('../logger');
-const { getAuth } = require('firebase-admin/auth');
+const { auth } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
 const { getFacebookUserData } = require('../services/facebookService');
 require('dotenv').config();
 
-const auth = getAuth();
-
-exports.getToken = (req, res) => {
+exports.getToken = async (req, res) => {
     const user = req.user; 
     const token = jwt.sign({ uid: user.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ token });
-};
+  };
 
 exports.facebookLogin = async (req, res) => {
     const { accessToken } = req.body;
@@ -80,21 +78,17 @@ exports.logout = async (req, res) => {
     }
 };
 
-exports.signInWithProvider = async (req, res) => {
-    const { idToken, provider } = req.body; 
-
+exports.signInWithProvider = async (provider) => {
     try {
-        const decodedToken = await auth.verifyIdToken(idToken);
-        const uid = decodedToken.uid; 
-        const userRecord = await auth.getUser(uid);
-
-        const token = jwt.sign({ uid: userRecord.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
-        res.status(200).json({ message: 'Login com provedor bem-sucedido', token, user: userRecord });
+      const result = await auth.signInWithPopup(getProviderInstance(provider));
+      const idToken = await result.user.getIdToken();
+      // Return the authentication token to the frontend
+      return { token: idToken };
     } catch (error) {
-        console.error('Error during provider sign-in:', error);
-        res.status(500).json({ message: 'Internal Server Error', error: error.message });
+      console.error('Erro ao fazer login com provedor:', error);
+      throw error;
     }
-};
+  };
 
 exports.registerWithProvider = async (req, res) => {
     const { provider, inviteCode } = req.body;
@@ -167,6 +161,19 @@ exports.getCurrentUser = async (req, res) => {
         res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
     }
 };
+
+const getProviderInstance = (provider) => {
+    switch (provider) {
+      case 'google':
+        return new firebase.auth.GoogleAuthProvider();
+      case 'facebook':
+        return new firebase.auth.FacebookAuthProvider();
+      case 'microsoft':
+        return new firebase.auth.OAuthProvider('microsoft.com');
+      default:
+        throw new Error(`Invalid provider: ${provider}`);
+    }
+  };
 
 async function validateInvite(inviteCode) {
     const inviteRef = admin.firestore().doc(`convites/${inviteCode}`);

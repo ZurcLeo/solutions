@@ -1,25 +1,22 @@
-const admin = require('firebase-admin');
-const jwt = require('jsonwebtoken');
-
-const decodeBase64Secret = (secret) => Buffer.from(secret, 'base64');
+const { auth } = require('../firebaseAdmin');
 
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  if (!authHeader) {
-    return res.status(401).json({ message: 'No token provided' });
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'No token provided or invalid format' });
   }
 
   const idToken = authHeader.split(' ')[1];
 
   try {
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const decodedToken = await auth.verifyIdToken(idToken);
     console.log('Firebase Decoded Token:', decodedToken);
-    req.user = decodedToken;
+    req.user = decodedToken; // or use decodedToken more explicitly
     return next();
   } catch (error) {
-    console.log('Token verification failed:', error.message);
+    console.error('Token verification failed:', error.message, error);
     return res.status(401).json({ message: 'Unauthorized', error: error.message });
   }
 };
 
-module.exports = verifyToken; 
+module.exports = verifyToken;

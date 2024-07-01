@@ -1,3 +1,4 @@
+//index.js
 const express = require('express');
 const corsMiddleware = require('./middlewares/cors');
 const { morganMiddleware } = require('./logger');
@@ -12,6 +13,7 @@ const app = express();
 app.use(corsMiddleware);
 app.use(express.json());
 app.use(morganMiddleware);
+
 
 // Importação de Rotas
 const authRoutes = require('./routes/auth');
@@ -45,6 +47,12 @@ app.use('/api/users', userRoutes);
 app.use('/api/video-sdk', videoSdkRoutes);
 app.use('/api/connections', connectionsRoutes);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+
+// Load listRoutes dynamically
+(async () => {
+  const { default: listRoutes } = await import('./middlewares/listRoutes.mjs');
+  listRoutes(app);
+})();
 
 // Inicialização do Servidor
 const PORT = process.env.PORT || 9000;
