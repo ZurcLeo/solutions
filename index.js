@@ -14,7 +14,6 @@ app.use(corsMiddleware);
 app.use(express.json());
 app.use(morganMiddleware);
 
-
 // Importação de Rotas
 const authRoutes = require('./routes/auth');
 const caixinhaRoutes = require('./routes/caixinha');

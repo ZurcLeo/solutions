@@ -3,6 +3,7 @@ const { logger } = require('../logger');
 const { auth } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
 const { getFacebookUserData } = require('../services/facebookService');
+const User = require('../models/User'); 
 require('dotenv').config();
 
 exports.getToken = async (req, res) => {
@@ -78,15 +79,29 @@ exports.logout = async (req, res) => {
     }
 };
 
-exports.signInWithProvider = async (provider) => {
+exports.signInWithProvider = async (req, res) => {
+    const { idToken, provider } = req.body;
+  
+    if (typeof provider !== 'string' || !['google', 'facebook', 'microsoft'].includes(provider)) {
+      return res.status(400).json({ message: 'Invalid provider' });
+    }
+  
     try {
-      const result = await auth.signInWithPopup(getProviderInstance(provider));
-      const idToken = await result.user.getIdToken();
-      // Return the authentication token to the frontend
-      return { token: idToken };
+      const decodedToken = await auth.verifyIdToken(idToken);
+      const uid = decodedToken.uid;
+      const userRecord = await auth.getUser(uid);
+  
+      const token = jwt.sign({ uid: userRecord.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  
+      if (!userRecord.emailVerified) {
+        return res.status(401).json({ message: 'Por favor, verifique seu e-mail.' });
+      }
+  
+      await ensureUserProfileExists(userRecord);
+      res.status(200).json({ message: 'Login com provedor bem-sucedido', token, user: userRecord });
     } catch (error) {
-      console.error('Erro ao fazer login com provedor:', error);
-      throw error;
+      console.error('Error during provider sign-in:', error);
+      res.status(500).json({ message: 'Internal Server Error', error: error.message });
     }
   };
 
@@ -200,36 +215,36 @@ async function invalidateInvite(inviteId, email) {
 async function ensureUserProfileExists(userRecord) {
     const userDocRef = admin.firestore().doc(`usuario/${userRecord.uid}`);
     const docSnap = await userDocRef.get();
-
+  
     if (!docSnap.exists) {
-        const batch = admin.firestore().batch();
-        const email = userRecord.email;
-        const defaultName = email.substring(0, email.indexOf('@'));
-
-        batch.set(userDocRef, {
-            email: userRecord.email,
-            nome: userRecord.displayName || defaultName || 'ElosCloud.Cliente',
-            perfilPublico: false,
-            dataCriacao: admin.firestore.FieldValue.serverTimestamp(),
-            uid: userRecord.uid,
-            tipoDeConta: 'Cliente',
-            isOwnerOrAdmin: false,
-            fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-            amigos: [],
-            amigosAutorizados: [],
-            conversasComMensagensNaoLidas: [],
-        });
-
-        batch.set(admin.firestore().doc(`conexoes/${userRecord.uid}/solicitadas/${process.env.CLAUD_PROFILE}`), {
-            dataSolicitacao: admin.firestore.FieldValue.serverTimestamp(),
-            nome: 'Claud Suporte',
-            uid: process.env.CLAUD_PROFILE,
-            status: 'pendente',
-            fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-            descricao: 'Gostaria de conectar com você.',
-            amigos: [],
-        });
-
-        await batch.commit();
+      const batch = admin.firestore().batch();
+      const email = userRecord.email;
+      const defaultName = email.substring(0, email.indexOf('@'));
+  
+      batch.set(userDocRef, {
+        email: userRecord.email,
+        nome: userRecord.displayName || defaultName || 'ElosCloud.Cliente',
+        perfilPublico: false,
+        dataCriacao: admin.firestore.FieldValue.serverTimestamp(),
+        uid: userRecord.uid,
+        tipoDeConta: 'Cliente',
+        isOwnerOrAdmin: false,
+        fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
+        amigos: [],
+        amigosAutorizados: [],
+        conversasComMensagensNaoLidas: [],
+      });
+  
+      batch.set(admin.firestore().doc(`conexoes/${userRecord.uid}/solicitadas/${process.env.CLAUD_PROFILE}`), {
+        dataSolicitacao: admin.firestore.FieldValue.serverTimestamp(),
+        nome: 'Claud Suporte',
+        uid: process.env.CLAUD_PROFILE,
+        status: 'pendente',
+        fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
+        descricao: 'Gostaria de conectar com você.',
+        amigos: [],
+      });
+  
+      await batch.commit();
     }
-}
+  }

@@ -1,3 +1,4 @@
+//middlewares/cors.js
 const cors = require('cors');
 
 const allowedOrigins = [
@@ -19,7 +20,8 @@ const corsOptions = {
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
   allowedHeaders: 'Content-Type, Authorization',
   credentials: true,
-  optionsSuccessStatus: 204
+  optionsSuccessStatus: 204,
+  preflightContinue: true,
 };
 
 module.exports = cors(corsOptions);
