@@ -177,4 +177,6 @@ router.put('/:id', verifyToken, messageController.updateMessage);
  */
 router.delete('/:id', verifyToken, messageController.deleteMessage);
 
+router.get('/api/messages', verifyToken, messageController.getAllMessages);
+
 module.exports = router;

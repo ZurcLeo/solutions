@@ -2,7 +2,6 @@
 const express = require('express');
 const corsMiddleware = require('./middlewares/cors');
 const { morganMiddleware } = require('./logger');
-const { admin } = require('./firebaseAdmin');
 const swaggerUi = require('swagger-ui-express');
 const swaggerDocs = require('./swagger');
 
