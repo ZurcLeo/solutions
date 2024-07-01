@@ -2,6 +2,15 @@
 const Message = require('../models/Message');
 
 class MessageService {
+  static async getAllMessages() {
+    const snapshot = await Message.db.collectionGroup('mensagens').get();
+    const messages = [];
+    snapshot.forEach(doc => {
+      messages.push(new Message(doc.data()));
+    });
+    return messages;
+  }
+
   static async getMessageById(uidRemetente, uidDestinatario, id) {
     return await Message.getById(uidRemetente, uidDestinatario, id);
   }

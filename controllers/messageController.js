@@ -50,3 +50,12 @@ exports.deleteMessage = async (req, res) => {
     res.status(500).json({ message: 'Erro ao deletar mensagem', error: error.message });
   }
 };
+
+exports.getAllMessages = async (req, res) => {
+  try {
+    const messages = await MessageService.getAllMessages();
+    res.status(200).json(messages);
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao buscar mensagens', error: error.message });
+  }
+};
