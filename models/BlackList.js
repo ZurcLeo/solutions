@@ -22,7 +22,7 @@ const connectDB = async () => {
       const client = new MongoClient(mongoUri, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
-        tlsOptions: {
+        tls: {
           agent
         }
       });
