@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { MongoClient } = require('mongodb');
 const tunnel = require('tunnel');
 const url = require('url');
+const https = require('https');
 
 const mongoUri = process.env.MONGODB_URI;
 const quotaguardStaticUrl = process.env.QUOTAGUARDSTATIC_URL;
@@ -17,6 +18,8 @@ const agent = tunnel.httpsOverHttp({
   },
 });
 
+https.globalAgent = agent;
+
 const connectDB = async () => {
   try {
     const client = new MongoClient(mongoUri, {
@@ -25,7 +28,6 @@ const connectDB = async () => {
       tls: true,
       tlsAllowInvalidCertificates: true,
       tlsAllowInvalidHostnames: true,
-      httpAgent: agent,  // Use the agent created by tunnel
     });
     await client.connect();
     console.log('MongoDB connected...');
