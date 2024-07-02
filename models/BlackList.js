@@ -18,20 +18,22 @@ const agent = tunnel.httpsOverHttp({
 });
 
 const connectDB = async () => {
-  try {
-    const client = new MongoClient(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      httpOptions: { agent }
-    });
-    
-    await client.connect();
-    console.log('MongoDB connected...');
-  } catch (err) {
-    console.error('Error connecting to MongoDB:', err.message);
-    process.exit(1);
-  }
-};
+    try {
+      const client = new MongoClient(mongoUri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        tlsOptions: {
+          agent
+        }
+      });
+      
+      await client.connect();
+      console.log('MongoDB connected...');
+    } catch (err) {
+      console.error('Error connecting to MongoDB:', err.message);
+      process.exit(1);
+    }
+  };
 
 const blacklistSchema = new mongoose.Schema({
   token: { type: String, required: true, unique: true },
