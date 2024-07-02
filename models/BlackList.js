@@ -28,7 +28,6 @@ const connectDB = async () => {
       tlsCertificateFile: null,
       tlsCertificateFilePassword: null,
       tlsCertificateKeyFilePassword: null,
-      tlsDisableOCSPEndpointCheck: true,
       tlsDisableOCSP: true,
       tlsUseSystemCA: false,
       tlsValidate: false,
