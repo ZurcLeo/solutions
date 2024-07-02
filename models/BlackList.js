@@ -9,23 +9,18 @@ const quotaguardStaticUrl = process.env.QUOTAGUARDSTATIC_URL;
 const proxyOptions = url.parse(quotaguardStaticUrl);
 const auth = proxyOptions.auth.split(':');
 
-const agent = tunnel.httpsOverHttp({
-  proxy: {
-    host: proxyOptions.hostname,
-    port: proxyOptions.port,
-    proxyAuth: `${auth[0]}:${auth[1]}`
-  }
-});
-
 const connectDB = async () => {
     try {
       const client = new MongoClient(mongoUri, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
         tls: true,
-        agent
+        proxy: {
+          host: proxyOptions.hostname,
+          port: proxyOptions.port,
+          proxyAuth: `${auth[0]}:${auth[1]}`
+        }
       });
-      
       await client.connect();
       console.log('MongoDB connected...');
     } catch (err) {
