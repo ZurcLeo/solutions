@@ -9,7 +9,7 @@ require('dotenv').config();
 
 exports.getToken = async (req, res) => {
     const user = req.user; 
-    const token = jwt.sign({ uid: user.uid }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ token });
   };
 
@@ -18,6 +18,7 @@ exports.facebookLogin = async (req, res) => {
 
     try {
         const userData = await getFacebookUserData(accessToken);
+        await ensureUserProfileExists(userData);
 
         // Você pode salvar o usuário no seu banco de dados aqui
         res.status(200).json(userData);
