@@ -22,8 +22,7 @@ const connectDB = async () => {
     const client = new MongoClient(mongoUri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverApi: MongoClient.ServerApiVersion.v1,
-      proxy: agent
+      httpOptions: { agent }
     });
     
     await client.connect();
