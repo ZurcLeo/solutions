@@ -20,21 +20,11 @@ const agent = tunnel.httpsOverHttp({
 const connectDB = async () => {
   try {
     const client = new MongoClient(mongoUri, {
+      useUnifiedTopology: true,
+      useNewUrlParser: true,
       tls: true,
       tlsAllowInvalidCertificates: true,
       tlsAllowInvalidHostnames: true,
-      tlsCAFile: null,
-      tlsCertificateKeyFile: null,
-      tlsCertificateFile: null,
-      tlsCertificateFilePassword: null,
-      tlsCertificateKeyFilePassword: null,
-      tlsDisableOCSP: true,
-      tlsUseSystemCA: false,
-      tlsValidate: false,
-      useUnifiedTopology: true,
-      useNewUrlParser: true,
-      serverSelectionTimeoutMS: 5000,
-      directConnection: true,
       httpAgent: agent,  // Use the agent created by tunnel
     });
     await client.connect();
