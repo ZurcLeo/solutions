@@ -23,8 +23,6 @@ https.globalAgent = agent;
 const connectDB = async () => {
   try {
     const client = new MongoClient(mongoUri, {
-      useUnifiedTopology: true,
-      useNewUrlParser: true,
       tls: true,
       tlsAllowInvalidCertificates: true,
       tlsAllowInvalidHostnames: true,
