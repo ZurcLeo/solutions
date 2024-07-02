@@ -1,4 +1,3 @@
-// models/Blacklist.js
 const mongoose = require('mongoose');
 const { MongoClient } = require('mongodb');
 const tunnel = require('tunnel');
@@ -20,13 +19,14 @@ const agent = tunnel.httpsOverHttp({
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(mongoUri, {
+    const client = new MongoClient(mongoUri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      httpAgent: agent
+      serverApi: MongoClient.ServerApiVersion.v1,
+      proxy: agent
     });
+    
+    await client.connect();
     console.log('MongoDB connected...');
   } catch (err) {
     console.error('Error connecting to MongoDB:', err.message);
