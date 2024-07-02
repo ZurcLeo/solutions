@@ -1868,6 +1868,15 @@ mongodb@6.6.2:
     bson "^6.7.0"
     mongodb-connection-string-url "^3.0.0"
 
+mongodb@^6.8.0:
+  version "6.8.0"
+  resolved "https://registry.npmjs.org/mongodb/-/mongodb-6.8.0.tgz#680450f113cdea6d2d9f7121fe57cd29111fd2ce"
+  integrity sha512-HGQ9NWDle5WvwMnrvUxsFYPd3JEbqD3RgABHBQRuoCEND0qzhsd0iH5ypHsf1eJ+sXmvmyKpP+FLOKY8Il7jMw==
+  dependencies:
+    "@mongodb-js/saslprep" "^1.1.5"
+    bson "^6.7.0"
+    mongodb-connection-string-url "^3.0.0"
+
 mongoose@^8.4.4:
   version "8.4.4"
   resolved "https://registry.npmjs.org/mongoose/-/mongoose-8.4.4.tgz#2a70f47cc69f3b0ad756af6a97484d4fb1835fb3"
