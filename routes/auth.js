@@ -104,8 +104,12 @@ router.post('/login', authController.signInWithEmail);
  *     responses:
  *       200:
  *         description: Sucesso no logout
+ *       401:
+ *         description: Não autorizado
+ *       500:
+ *         description: Erro no servidor
  */
-router.post('/logout', authController.logout);
+router.post('/logout', verifyToken, authController.logout);
 
 /**
  * @swagger
