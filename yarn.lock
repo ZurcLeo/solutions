@@ -1265,15 +1265,15 @@ functional-red-black-tree@^1.0.1:
   integrity sha512-dsKNQNdj6xA3T+QlADDA7mOSlX0qiMINjn0cgr+eGHGsbSHzTabcIogz2+p/iqP1Xs6EP/sS2SbqH+brGTbq0g==
 
 gaxios@^6.0.0, gaxios@^6.0.2, gaxios@^6.1.1:
-  version "6.6.0"
-  resolved "https://registry.npmjs.org/gaxios/-/gaxios-6.6.0.tgz#af8242fff0bbb82a682840d5feaa91b6a1c58be4"
-  integrity sha512-bpOZVQV5gthH/jVCSuYuokRo2bTKOcuBiVWpjmTn6C5Agl5zclGfTljuGsQZxwwDBkli+YhZhP4TdlqTnhOezQ==
+  version "6.7.0"
+  resolved "https://registry.npmjs.org/gaxios/-/gaxios-6.7.0.tgz#37b7c5961cb67d8d4b0ae8110dcd83cc6791eb6d"
+  integrity sha512-DSrkyMTfAnAm4ks9Go20QGOcXEyW/NmZhvTYBU2rb4afBB393WIMQPWPEDMl/k8xqiNN9HYq2zao3oWXsdl2Tg==
   dependencies:
     extend "^3.0.2"
     https-proxy-agent "^7.0.1"
     is-stream "^2.0.0"
     node-fetch "^2.6.9"
-    uuid "^9.0.1"
+    uuid "^10.0.0"
 
 gcp-metadata@^6.1.0:
   version "6.1.0"
@@ -1406,9 +1406,9 @@ hasown@^2.0.0:
     function-bind "^1.1.2"
 
 hls.js@^1.5.11:
-  version "1.5.11"
-  resolved "https://registry.npmjs.org/hls.js/-/hls.js-1.5.11.tgz#3941347df454983859ae8c75fe19e8818719a826"
-  integrity sha512-q3We1izi2+qkOO+TvZdHv+dx6aFzdtk3xc1/Qesrvto4thLTT/x/1FK85c5h1qZE4MmMBNgKg+MIW8nxQfxwBw==
+  version "1.5.12"
+  resolved "https://registry.npmjs.org/hls.js/-/hls.js-1.5.12.tgz#ea6b8e3d74bbaff2d542fabe3d1435e70300d013"
+  integrity sha512-QxBMsawjqIPNfgAzaFFVJu0t8OwOyFXK3cuj9MX5L7byZZL+n9PeJXtIMu2FS0026Dt/hBAz9u2sDLZ4bQdv6w==
 
 html-entities@^2.5.2:
   version "2.5.2"
@@ -1458,9 +1458,9 @@ https-proxy-agent@^5.0.0:
     debug "4"
 
 https-proxy-agent@^7.0.1:
-  version "7.0.4"
-  resolved "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.4.tgz#8e97b841a029ad8ddc8731f26595bad868cb4168"
-  integrity sha512-wlwpilI7YdjSkWaQ/7omYBMTliDcmCN8OLihO6I9B86g06lMyAoqgoDpV0XqoaPOKj+0DIdAvnsWfyAAhmimcg==
+  version "7.0.5"
+  resolved "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.5.tgz#9e8b5013873299e11fab6fd548405da2d6c602b2"
+  integrity sha512-1e4Wqeblerz+tMKPIq2EMGiiWW1dIjZOksyHWSUm1rmuvw/how9hBHZ38lAGj5ID4Ik6EdkOw7NmWPy6LAwalw==
   dependencies:
     agent-base "^7.0.2"
     debug "4"
@@ -1491,24 +1491,22 @@ inherits@2, inherits@2.0.4, inherits@^2.0.3, inherits@^2.0.4:
   integrity sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==
 
 inquirer@^9.2.23:
-  version "9.3.0"
-  resolved "https://registry.npmjs.org/inquirer/-/inquirer-9.3.0.tgz#58ee70c9e2262f8750a12e42773e6f8ba614390f"
-  integrity sha512-zdopqPUKWmnOcaBJYMMtjqWCB2HHXrteAou9tCYgkTJu01QheLfYOrkzigDfidPBtCizmkdpSU0fp2DKaMdFPA==
+  version "9.3.2"
+  resolved "https://registry.npmjs.org/inquirer/-/inquirer-9.3.2.tgz#9bc5ced19f572e848044baa05094a498f1e448c6"
+  integrity sha512-+ynEbhWKhyomnaX0n2aLIMSkgSlGB5RrWbNXnEqj6mdaIydu6y40MdBjL38SAB0JcdmOaIaMua1azdjLEr3sdw==
   dependencies:
     "@inquirer/figures" "^1.0.3"
     ansi-escapes "^4.3.2"
     cli-width "^4.1.0"
     external-editor "^3.1.0"
-    lodash.get "^4.4.2"
-    lodash.set "^4.3.2"
     mute-stream "1.0.0"
     ora "^5.4.1"
-    picocolors "^1.0.1"
     run-async "^3.0.0"
     rxjs "^7.8.1"
     string-width "^4.2.3"
     strip-ansi "^6.0.1"
     wrap-ansi "^6.2.0"
+    yoctocolors-cjs "^2.1.1"
 
 ipaddr.js@1.9.1:
   version "1.9.1"
@@ -1751,11 +1749,6 @@ lodash.once@^4.0.0:
   version "4.1.1"
   resolved "https://registry.npmjs.org/lodash.once/-/lodash.once-4.1.1.tgz#0dd3971213c7c56df880977d504c88fb471a97ac"
   integrity sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==
-
-lodash.set@^4.3.2:
-  version "4.3.2"
-  resolved "https://registry.npmjs.org/lodash.set/-/lodash.set-4.3.2.tgz#d8757b1da807dde24816b0d6a84bea1a76230b23"
-  integrity sha512-4hNPN5jlm/N/HLMCO43v8BXKq9Z7QdAGc/VGrRD61w8gN9g/6jF9A4L1pbUgBLCffi0w9VsXfTOij5x8iTyFvg==
 
 log-symbols@^4.1.0:
   version "4.1.0"
@@ -2081,11 +2074,6 @@ performance-now@^2.1.0:
   resolved "https://registry.npmjs.org/performance-now/-/performance-now-2.1.0.tgz#6309f4e0e5fa913ec1c69307ae364b4b377c9e7b"
   integrity sha512-7EAHlyLHI56VEIdK57uwHdHKIaAGbnXPiw0yWbarQZOKaKpvUIgW0jWRVLiatnM+XXlSwsanIBH/hzGMJulMow==
 
-picocolors@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.npmjs.org/picocolors/-/picocolors-1.0.1.tgz#a8ad579b571952f0e5d25892de5445bcfe25aaa1"
-  integrity sha512-anP1Z8qwhkbmu7MFP5iTt+wQKXgwzf7zTyGlcdzabySa9vd0Xt392U0rVmz9poOaBj0uHJKyyo9/upk0HrEQew==
-
 proto3-json-serializer@^2.0.2:
   version "2.0.2"
   resolved "https://registry.npmjs.org/proto3-json-serializer/-/proto3-json-serializer-2.0.2.tgz#5b705203b4d58f3880596c95fad64902617529dd"
@@ -2142,9 +2130,9 @@ qs@6.11.0:
     side-channel "^1.0.4"
 
 qs@^6.11.0:
-  version "6.12.1"
-  resolved "https://registry.npmjs.org/qs/-/qs-6.12.1.tgz#39422111ca7cbdb70425541cba20c7d7b216599a"
-  integrity sha512-zWmv4RSuB9r2mYQw3zxQuHWeU+42aKi1wWig/j4ele4ygELZ7PEO6MM7rim9oAQH2A5MWfsAVf/jPvTPgCbvUQ==
+  version "6.12.2"
+  resolved "https://registry.npmjs.org/qs/-/qs-6.12.2.tgz#5443b587f3bf73ac68968de491e5b25bafe04478"
+  integrity sha512-x+NLUpx9SYrcwXtX7ob1gnkSems4i/mGZX5SlYxwIau6RrUSODO89TR/XDGGpn5RPWSYIB+aSfuSlV5+CmbTBg==
   dependencies:
     side-channel "^1.0.6"
 
@@ -2789,6 +2777,11 @@ yocto-queue@^0.1.0:
   version "0.1.0"
   resolved "https://registry.npmjs.org/yocto-queue/-/yocto-queue-0.1.0.tgz#0294eb3dee05028d31ee1a5fa2c556a6aaf10a1b"
   integrity sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==
+
+yoctocolors-cjs@^2.1.1:
+  version "2.1.1"
+  resolved "https://registry.npmjs.org/yoctocolors-cjs/-/yoctocolors-cjs-2.1.1.tgz#1a096cffaeda2eb725e33b19735681875465c920"
+  integrity sha512-c6T13b6qYcJZvck7QbEFXrFX/Mu2KOjvAGiKHmYMUg96jxNpfP6i+psGW72BOPxOIDUJrORG+Kyu7quMX9CQBQ==
 
 z-schema@^5.0.1:
   version "5.0.6"
