@@ -1,15 +1,31 @@
 // models/Blacklist.js
 const mongoose = require('mongoose');
+const { MongoClient } = require('mongodb');
+const tunnel = require('tunnel');
+const url = require('url');
 
-// Connect to MongoDB
+const mongoUri = process.env.MONGODB_URI;
+const quotaguardStaticUrl = process.env.QUOTAGUARDSTATIC_URL;
+
+const proxyOptions = url.parse(quotaguardStaticUrl);
+const auth = proxyOptions.auth.split(':');
+
+const agent = tunnel.httpsOverHttp({
+  proxy: {
+    host: proxyOptions.hostname,
+    port: proxyOptions.port,
+    proxyAuth: `${auth[0]}:${auth[1]}`
+  }
+});
+
 const connectDB = async () => {
-  const uri = process.env.MONGODB_URI;
   try {
-    await mongoose.connect(uri, {
+    await mongoose.connect(mongoUri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      httpAgent: agent
     });
     console.log('MongoDB connected...');
   } catch (err) {
@@ -18,11 +34,12 @@ const connectDB = async () => {
   }
 };
 
-connectDB();
-
 const blacklistSchema = new mongoose.Schema({
   token: { type: String, required: true, unique: true },
   createdAt: { type: Date, default: Date.now, index: { expires: '1d' } },
 });
 
-module.exports = mongoose.model('Blacklist', blacklistSchema);
+const Blacklist = mongoose.model('Blacklist', blacklistSchema);
+connectDB();
+
+module.exports = Blacklist;
