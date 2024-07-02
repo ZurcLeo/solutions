@@ -3,7 +3,8 @@ const { logger } = require('../logger');
 const { auth } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
 const { getFacebookUserData } = require('../services/facebookService');
-const User = require('../models/User'); 
+const User = require('../models/User');
+const Blacklist = require('../models/BlackList');
 require('dotenv').config();
 
 exports.getToken = async (req, res) => {
@@ -65,19 +66,20 @@ exports.signInWithEmail = async (req, res) => {
 };
 
 exports.logout = async (req, res) => {
-    try {
-        const { uid } = req.body;
-        console.log('Received UID:', uid);
-        if (!uid) {
-            return res.status(400).json({ message: 'UID is required' });
-        }
-        // Adicione lógica para invalidar o token se necessário, por exemplo, removendo da lista de sessões ativas.
-
-        res.status(200).json({ message: 'Usuário deslogado com sucesso.' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao deslogar usuário', error: error.message });
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided or invalid format' });
     }
-};
+  
+    const idToken = authHeader.split(' ')[1];
+    try {
+      // Add token to blacklist
+      await Blacklist.create({ token: idToken });
+      res.status(200).json({ message: 'Logout successful and token blacklisted' });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to blacklist token', error: error.message });
+    }
+  };
 
 exports.signInWithProvider = async (req, res) => {
     const { idToken, provider } = req.body;

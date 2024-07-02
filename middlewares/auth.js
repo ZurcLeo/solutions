@@ -1,5 +1,6 @@
 //middlewares/auth.js
 const { auth } = require('../firebaseAdmin');
+const Blacklist = require('../models/BlackList');
 
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
