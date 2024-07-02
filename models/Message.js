@@ -1,5 +1,6 @@
 // models/Message.js
-const {db} = require('../firebaseAdmin');
+const {admin} = require('../firebaseAdmin')
+const firestore = admin.firestore();
 
 class Message {
   constructor(data) {
@@ -15,7 +16,7 @@ class Message {
 
   static async getById(uidRemetente, uidDestinatario, id) {
     const path = this.getPath(uidRemetente, uidDestinatario);
-    const doc = await db.collection(path).doc(id).get();
+    const doc = await firestore.collection(path).doc(id).get();
     if (!doc.exists) {
       throw new Error('Mensagem não encontrada.');
     }
@@ -24,7 +25,7 @@ class Message {
 
   static async getByUserId(uidRemetente, uidDestinatario) {
     const path = this.getPath(uidRemetente, uidDestinatario);
-    const snapshot = await db.collection(path).get();
+    const snapshot = await firestore.collection(path).get();
     const messages = [];
     snapshot.forEach(doc => {
       messages.push(new Message(doc.data()));
@@ -35,14 +36,14 @@ class Message {
   static async create(data) {
     const message = new Message(data);
     const path = this.getPath(data.uidRemetente, data.uidDestinatario);
-    const docRef = await db.collection(path).add({ ...message });
+    const docRef = await firestore.collection(path).add({ ...message });
     message.id = docRef.id;
     return message;
   }
 
   static async update(uidRemetente, uidDestinatario, id, data) {
     const path = this.getPath(uidRemetente, uidDestinatario);
-    const messageRef = db.collection(path).doc(id);
+    const messageRef = firestore.collection(path).doc(id);
     await messageRef.update(data);
     const updatedDoc = await messageRef.get();
     return new Message(updatedDoc.data());
@@ -50,7 +51,7 @@ class Message {
 
   static async delete(uidRemetente, uidDestinatario, id) {
     const path = this.getPath(uidRemetente, uidDestinatario);
-    const messageRef = db.collection(path).doc(id);
+    const messageRef = firestore.collection(path).doc(id);
     await messageRef.delete();
   }
 

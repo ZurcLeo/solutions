@@ -12,7 +12,7 @@ const verifyToken = async (req, res, next) => {
   try {
     const decodedToken = await auth.verifyIdToken(idToken);
     console.log('Firebase Decoded Token:', decodedToken);
-    req.user = decodedToken; // or use decodedToken more explicitly
+    req.user = decodedToken;
     return next();
   } catch (error) {
     console.error('Token verification failed:', error.message, error);
