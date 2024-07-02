@@ -11,13 +11,17 @@ const auth = proxyOptions.auth.split(':');
 
 const connectDB = async () => {
     try {
-        console.log(mongoUri);
-        await mongoose.connect(`${mongoUri}`, {
-          useNewUrlParser: true,
-          useUnifiedTopology: true,
-        });
-        console.log('MongoDB connected');
-      } catch (err) {
+      const client = new MongoClient(mongoUri, {
+        tls: true,
+        proxy: {
+          host: proxyOptions.hostname,
+          port: proxyOptions.port,
+          proxyAuth: `${auth[0]}:${auth[1]}`
+        }
+      });
+      await client.connect();
+      console.log('MongoDB connected...');
+    } catch (err) {
       console.error('Error connecting to MongoDB:', err.message);
       process.exit(1);
     }
