@@ -21,7 +21,6 @@ const connectDB = async () => {
   try {
     const client = new MongoClient(mongoUri, {
       tls: true,
-      tlsInsecure: true,
       tlsAllowInvalidCertificates: true,
       tlsAllowInvalidHostnames: true,
       tlsCAFile: null,
