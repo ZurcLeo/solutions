@@ -1,5 +1,5 @@
 // services/blacklistService.js
-const { db, admin } = require('../models/firebaseAdmin');
+const { db, admin } = require('../firebaseAdmin');
 
 const blacklistRef = db.collection('blacklist');
 
