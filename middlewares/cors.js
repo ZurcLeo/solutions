@@ -21,7 +21,7 @@ const corsOptions = {
   allowedHeaders: 'Content-Type, Authorization',
   credentials: true,
   optionsSuccessStatus: 204,
-  preflightContinue: true,
+  preflightContinue: false,
 };
 
 module.exports = cors(corsOptions);
