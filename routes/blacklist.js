@@ -1,8 +1,8 @@
-//routes/blacklist.js
+// routes/blacklist.js
 const express = require('express');
 const router = express.Router();
 const { addTokenToBlacklist, checkTokenBlacklist } = require('../controllers/blacklistController');
-const {verifyToken} = require('../middlewares/auth')
+const verifyToken = require('../middlewares/auth');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];

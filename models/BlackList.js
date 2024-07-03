@@ -1,5 +1,5 @@
 // models/blacklist.js
-const { db } = require('../firebaseAdmin');
+const { db, admin } = require('../firebaseAdmin');
 
 class Blacklist {
   constructor() {
@@ -9,7 +9,7 @@ class Blacklist {
   async addToBlacklist(token) {
     const tokenDoc = this.blacklistRef.doc(token);
     await tokenDoc.set({
-      createdAt: db.FieldValue.serverTimestamp()
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
   }
 
@@ -19,7 +19,7 @@ class Blacklist {
   }
 
   async removeExpiredTokens() {
-    const now = db.Timestamp.now();
+    const now = admin.firestore.Timestamp.now();
     const snapshot = await this.blacklistRef.where('createdAt', '<', now.toDate()).get();
     
     const batch = db.batch();
