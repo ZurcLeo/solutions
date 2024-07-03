@@ -9,6 +9,7 @@ const verifyToken = async (req, res, next) => {
   }
 
   const idToken = authHeader.split(' ')[1];
+  console.log('ID Token:', idToken);
 
   try {
     // Check if token is blacklisted

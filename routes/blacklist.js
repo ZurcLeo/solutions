@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { addTokenToBlacklist, checkTokenBlacklist } = require('../controllers/blacklistController');
+const {verifyToken} = require('../middlewares/auth')
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
@@ -55,7 +56,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.post('/blacklist', addTokenToBlacklist);
+router.post('/blacklist', verifyToken, addTokenToBlacklist);
 
 /**
  * @swagger
@@ -86,6 +87,6 @@ router.post('/blacklist', addTokenToBlacklist);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/blacklist/:token', checkTokenBlacklist);
+router.get('/blacklist/:token', verifyToken, checkTokenBlacklist);
 
 module.exports = router;
