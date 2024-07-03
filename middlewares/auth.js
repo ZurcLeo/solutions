@@ -1,5 +1,5 @@
 // middlewares/auth.js
-const { auth } = require('../models/firebaseAdmin');
+const { auth } = require('../firebaseAdmin');
 const { isTokenBlacklisted } = require('../services/blacklistService');
 
 const verifyToken = async (req, res, next) => {
