@@ -1,6 +1,6 @@
-//middlewares/auth.js
-const { auth } = require('../firebaseAdmin');
-const Blacklist = require('../models/BlackList');
+// middlewares/auth.js
+const { auth } = require('../models/firebaseAdmin');
+const { isTokenBlacklisted } = require('../services/blacklistService');
 
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -10,13 +10,13 @@ const verifyToken = async (req, res, next) => {
 
   const idToken = authHeader.split(' ')[1];
 
-  // Check if token is blacklisted
-  const blacklisted = await Blacklist.findOne({ token: idToken });
-  if (blacklisted) {
-    return res.status(401).json({ message: 'Token is blacklisted' });
-  }
-  
   try {
+    // Check if token is blacklisted
+    const blacklisted = await isTokenBlacklisted(idToken);
+    if (blacklisted) {
+      return res.status(401).json({ message: 'Token is blacklisted' });
+    }
+
     const decodedToken = await auth.verifyIdToken(idToken);
     req.user = decodedToken;
     return next();
