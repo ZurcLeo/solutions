@@ -1,3 +1,4 @@
+//routes/blacklist.js
 const express = require('express');
 const router = express.Router();
 const { addTokenToBlacklist, checkTokenBlacklist } = require('../controllers/blacklistController');

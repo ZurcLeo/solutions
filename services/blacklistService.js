@@ -1,30 +1,18 @@
 // services/blacklistService.js
-const { db, admin } = require('../firebaseAdmin');
+const Blacklist = require('../models/BlackList');
 
-const blacklistRef = db.collection('blacklist');
+const blacklist = new Blacklist();
 
 const addToBlacklist = async (token) => {
-  const tokenDoc = blacklistRef.doc(token);
-  await tokenDoc.set({
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
-  });
+  await blacklist.addToBlacklist(token);
 };
 
 const isTokenBlacklisted = async (token) => {
-  const tokenDoc = await blacklistRef.doc(token).get();
-  return tokenDoc.exists;
+  return await blacklist.isTokenBlacklisted(token);
 };
 
 const removeExpiredTokens = async () => {
-  const now = admin.firestore.Timestamp.now();
-  const snapshot = await blacklistRef.where('createdAt', '<', now.toDate()).get();
-  
-  const batch = db.batch();
-  snapshot.forEach((doc) => {
-    batch.delete(doc.ref);
-  });
-  
-  await batch.commit();
+  await blacklist.removeExpiredTokens();
 };
 
 module.exports = {

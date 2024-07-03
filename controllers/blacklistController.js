@@ -1,5 +1,5 @@
 // controllers/blacklistController.js
-const { addToBlacklist, isTokenBlacklisted, removeExpiredTokens } = require('../services/blacklistService');
+const { addToBlacklist, isTokenBlacklisted } = require('../services/blacklistService');
 
 const addTokenToBlacklist = async (req, res) => {
   try {

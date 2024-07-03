@@ -1,17 +1,17 @@
-//controllers/authController.js
+// controllers/authController.js
 const { logger } = require('../logger');
 const { auth } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
 const { getFacebookUserData } = require('../services/facebookService');
 const User = require('../models/User');
-const Blacklist = require('../models/BlackList');
+const { addToBlacklist } = require('../services/blacklistService');
 require('dotenv').config();
 
 exports.getToken = async (req, res) => {
     const user = req.user; 
     const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ token });
-  };
+};
 
 exports.facebookLogin = async (req, res) => {
     const { accessToken } = req.body;
@@ -20,7 +20,6 @@ exports.facebookLogin = async (req, res) => {
         const userData = await getFacebookUserData(accessToken);
         await ensureUserProfileExists(userData);
 
-        // Você pode salvar o usuário no seu banco de dados aqui
         res.status(200).json(userData);
     } catch (error) {
         console.error('Erro ao autenticar com Facebook:', error);
@@ -32,7 +31,6 @@ exports.registerWithEmail = async (req, res) => {
     const { email, password, inviteCode } = req.body;
 
     try {
-        // Validar e invalidar o convite
         const inviteRef = await validateInvite(inviteCode);
         const userRecord = await auth.createUser({ email, password });
         await sendEmailVerification(userRecord.uid);
@@ -74,13 +72,12 @@ exports.logout = async (req, res) => {
   
     const idToken = authHeader.split(' ')[1];
     try {
-      // Add token to blacklist
-      await Blacklist.create({ token: idToken });
+      await addToBlacklist(idToken);
       res.status(200).json({ message: 'Logout successful and token blacklisted' });
     } catch (error) {
       res.status(500).json({ message: 'Failed to blacklist token', error: error.message });
     }
-  };
+};
 
 exports.signInWithProvider = async (req, res) => {
     const { idToken, provider } = req.body;
@@ -106,7 +103,7 @@ exports.signInWithProvider = async (req, res) => {
       console.error('Error during provider sign-in:', error);
       res.status(500).json({ message: 'Internal Server Error', error: error.message });
     }
-  };
+};
 
 exports.registerWithProvider = async (req, res) => {
     const { provider, inviteCode } = req.body;
@@ -148,18 +145,12 @@ exports.resendVerificationEmail = async (req, res) => {
 
 exports.getCurrentUser = async (req, res) => {
     try {
-        // Decodifica o token JWT
         const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
-        // Obtém o UID do token decodificado
         const uid = decodedToken.uid;
         
-        // Busca os dados básicos do usuário no Firebase Auth
         const userRecord = await auth.getUser(uid);
-        
-        // Busca os dados adicionais do usuário no Firestore
         const userProfile = await User.getById(uid);
         
-        // Combina os dados básicos com os dados adicionais
         const userData = {
             uid: userRecord.uid,
             email: userRecord.email,
@@ -168,10 +159,9 @@ exports.getCurrentUser = async (req, res) => {
             displayName: userRecord.displayName,
             photoURL: userRecord.photoURL,
             providerData: userRecord.providerData,
-            ...userProfile // Adiciona os dados do perfil do Firestore
+            ...userProfile
         };
         
-        // Retorna os dados do usuário
         logger.info(`Usuário autenticado: ${userRecord.email}`);
         res.status(200).json(userData);
     } catch (error) {
@@ -191,7 +181,7 @@ const getProviderInstance = (provider) => {
       default:
         throw new Error(`Invalid provider: ${provider}`);
     }
-  };
+};
 
 async function validateInvite(inviteCode) {
     const inviteRef = admin.firestore().doc(`convites/${inviteCode}`);
@@ -250,4 +240,4 @@ async function ensureUserProfileExists(userRecord) {
   
       await batch.commit();
     }
-  }
+}
