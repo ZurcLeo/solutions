@@ -4,7 +4,7 @@ const { isTokenBlacklisted } = require('../services/blacklistService');
 
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  console.log('Authorization Header:', authHeader); // Adiciona log do cabeçalho de autorização
+  console.log('Authorization Header:', authHeader); 
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     console.error('No token provided or invalid format');
