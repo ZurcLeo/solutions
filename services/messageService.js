@@ -3,17 +3,24 @@ const { admin } = require('../firebaseAdmin');
 const Message = require('../models/Message');
 
 class MessageService {
-  static async getAllMessages() {
+  static async getAllMessages(userId) {
     try {
       const db = admin.firestore();
       const messagesRef = db.collection('mensagens');
-      const messages = await messagesRef.get();
-      console.log('Messages snapshot:', messages);
-      const messagesArray = [];
-      messages.forEach((doc) => {
-        messagesArray.push(doc.data());
+      const subcollections = await messagesRef.listCollections();
+      const userSubcollections = subcollections.filter(subcollection => {
+        const subcollectionName = subcollection.id;
+        return subcollectionName.startsWith(`${userId}_`) || subcollectionName.endsWith(`_${userId}`);
       });
-      return messagesArray;
+      const messages = [];
+      for (const subcollection of userSubcollections) {
+        const subcollectionRef = subcollection.firestore.collection(subcollection.id);
+        const subcollectionMessages = await subcollectionRef.get();
+        subcollectionMessages.forEach(doc => {
+          messages.push(doc.data());
+        });
+      }
+      return messages;
     } catch (error) {
       console.error('Error fetching messages:', error);
       throw error;

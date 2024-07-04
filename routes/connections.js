@@ -128,7 +128,7 @@ router.post('/active', verifyToken, connectionsController.createActiveConnection
  *       500:
  *         description: Erro no servidor
  */
-router.get('/active/user/:userId', connectionsController.getConnectionsByUserId);
+router.get('/active/user/:userId', verifyToken, connectionsController.getConnectionsByUserId);
 
 /**
  * @swagger

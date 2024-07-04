@@ -19,7 +19,31 @@
       "_nanoseconds": 98000000
     },
     "ja3Hash": "f4306527a1b643c46a254170733051ca",
-    "perfilPublico": true
+    "perfilPublico": true,
+    "ancestralidade": [
+      {
+        "id": "EF6rAGFphvTGXFSMcwt5",
+        "senderId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "inviteId": "58d2f05a-9a2a-45fe-8f97-eb7ab89ea402",
+        "fotoDoUsuario": "https://imgur.com/qxJJF2u.png",
+        "dataAceite": {
+          "_seconds": 1717859975,
+          "_nanoseconds": 551000000
+        }
+      }
+    ],
+    "compras": [
+      {
+        "id": "gpGm3eq6kJcIeJAFRvzc",
+        "valorPago": 0,
+        "meioPagamento": "oferta-boas-vindas",
+        "quantidade": 5000,
+        "dataCompra": {
+          "_seconds": 1717859975,
+          "_nanoseconds": 393000000
+        }
+      }
+    ]
   },
   {
     "id": "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
@@ -38,7 +62,20 @@
       "_nanoseconds": 360000000
     },
     "ja3Hash": "f4306527a1b643c46a254170733051ca",
-    "saldoElosCoins": 1
+    "saldoElosCoins": 1,
+    "compras": [
+      {
+        "id": "8QDG9vZ1lwp9wP9WzWkY",
+        "nomeDoProduto": "1 ElosCoins",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718630952,
+          "_nanoseconds": 583000000
+        }
+      }
+    ]
   },
   {
     "id": "sS855lp9DwhZodxMqG7bf5cYeQ92",
@@ -58,10 +95,6 @@
     "amigosAutorizados": [
       "Clm9oH8zKIanVQO1NMnWLYu93Jr1"
     ],
-    "amigos": [
-      "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
-      "pJPaB92jZJb4G65XZ4lSjebNr5d2"
-    ],
     "interessesPessoais": [
       "Sem Compromisso",
       "Encontros Casuais",
@@ -72,7 +105,188 @@
       "nanoseconds": 276000000
     },
     "saldoElosCoins": 13,
-    "conversasComMensagensNaoLidas": []
+    "conversasComMensagensNaoLidas": [],
+    "amigos": [
+      "Clm9oH8zKIanVQO1NMnWLYu93Jr1",
+      "4MekUfqxgJcNhNQd1J38G7D6BU83"
+    ],
+    "compras": [
+      {
+        "id": "4NWclbmxf3lJTlT4ZVfV",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718282061,
+          "_nanoseconds": 102000000
+        }
+      },
+      {
+        "id": "5igpBfaeZdPJ2MXmBj0d",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718285103,
+          "_nanoseconds": 59000000
+        }
+      },
+      {
+        "id": "7A8wWxgUldCidWU7wHv9",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718286040,
+          "_nanoseconds": 509000000
+        }
+      },
+      {
+        "id": "7BwitiWUFOjdeMM4bld7",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1717257849,
+          "_nanoseconds": 846000000
+        }
+      },
+      {
+        "id": "Nbyf66aKi1UplFbLKDNL",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718289108,
+          "_nanoseconds": 957000000
+        }
+      },
+      {
+        "id": "OIIjKDqzKqJ8iEQ7qdzF",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1716899351,
+          "_nanoseconds": 205000000
+        }
+      },
+      {
+        "id": "PWqPIrUCg56heSGCXCij",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718128485,
+          "_nanoseconds": 927000000
+        },
+        "nomeDoProduto": "Moeda - ElosCoin"
+      },
+      {
+        "id": "eUEkiRMnA7U7Lylp7NjO",
+        "nomeDoProduto": "1 ElosCoins",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718306788,
+          "_nanoseconds": 27000000
+        }
+      },
+      {
+        "id": "hQNUN6H4sgbcWAdVip9A",
+        "valorPago": 0,
+        "meioPagamento": "oferta-boas-vindas",
+        "quantidade": 5000,
+        "dataCompra": {
+          "_seconds": 1717855979,
+          "_nanoseconds": 378000000
+        }
+      },
+      {
+        "id": "hkwNUkHCwe26zm2mMM6H",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718287342,
+          "_nanoseconds": 326000000
+        }
+      },
+      {
+        "id": "hxyIX1z7fahpORMaFlGy",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718280984,
+          "_nanoseconds": 948000000
+        }
+      },
+      {
+        "id": "oZt92v9t4fR99AU7JMms",
+        "valorPago": 0,
+        "meioPagamento": "oferta-boas-vindas",
+        "quantidade": 5000,
+        "dataCompra": {
+          "_seconds": 1717851918,
+          "_nanoseconds": 824000000
+        }
+      },
+      {
+        "id": "pkR3v36prJcMMySWMef6",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718281532,
+          "_nanoseconds": 825000000
+        }
+      },
+      {
+        "id": "slPcLG1eJ0kwJKDVYady",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718141006,
+          "_nanoseconds": 223000000
+        }
+      },
+      {
+        "id": "yRcfTF8L2LgE8Ldm65MN",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718288221,
+          "_nanoseconds": 168000000
+        }
+      },
+      {
+        "id": "yqdetLITV6TLFDlUlmIe",
+        "valorPago": 0.5,
+        "meioPagamento": "stripe",
+        "quantidade": 1,
+        "dataCompra": {
+          "_seconds": 1718260456,
+          "_nanoseconds": 875000000
+        }
+      }
+    ],
+    "descendentes": [
+      {
+        "id": "NJMcY3Bb5db954lFL0pa",
+        "nome": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+        "fotoDoPerfil": "https://imgur.com/qxJJF2u.png",
+        "userId": "4MekUfqxgJcNhNQd1J38G7D6BU83",
+        "email": "leolest@gmail.com",
+        "dataAceite": {
+          "_seconds": 1717859975,
+          "_nanoseconds": 733000000
+        }
+      }
+    ]
   },
   {
     "id": "xFcbvCPqfkS1JoP3zn33gnt4h6y2",
@@ -91,6 +305,18 @@
     "ja3Hash": "f4306527a1b643c46a254170733051ca",
     "saldoElosCoins": 10010,
     "amigos": [],
-    "amigosAutorizados": []
+    "amigosAutorizados": [],
+    "compras": [
+      {
+        "id": "YzhButUlkzm6DlewZdHS",
+        "valorPago": 2.5,
+        "meioPagamento": "stripe",
+        "quantidade": 10,
+        "dataCompra": {
+          "_seconds": 1716913942,
+          "_nanoseconds": 562000000
+        }
+      }
+    ]
   }
 ]
