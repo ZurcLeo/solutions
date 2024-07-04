@@ -97,7 +97,7 @@ router.post('/active', verifyToken, connectionsController.createActiveConnection
  * /connections/active/user/{userId}:
  *   get:
  *     summary: Retorna todas as conexões ativas de um usuário específico
- *     tags: [Connections]
+ *     tags: [Conexões]
  *     parameters:
  *       - in: path
  *         name: userId
