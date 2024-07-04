@@ -13,6 +13,23 @@ class ActiveConnection {
     this.dataDoAceite = data.dataDoAceite ? new Date(data.dataDoAceite.seconds * 1000) : null;
   }
 
+  static async getConnectionsByUserId(userId) {
+    const userDoc = await firestore.collection('usuario').doc(userId).get();
+    if (!userDoc.exists) {
+      throw new Error('Usuário não encontrado.');
+    }
+
+    const userData = userDoc.data();
+    const friendIds = userData.amigos || [];
+    const bestFriendIds = userData.amigosAutorizados || [];
+
+    const friendDocs = await firestore.collection('usuario').where('uid', 'in', friendIds).get();
+    const bestFriendDocs = await firestore.collection('usuario').where('uid', 'in', bestFriendIds).get();
+    const friends = friendDocs.docs.map(doc => new ActiveConnection(doc.data()));
+    const bestFriends = bestFriendDocs.docs.map(doc => new ActiveConnection(doc.data()));
+    return {friends, bestFriends};
+  }
+
   static async getById(id) {
     const doc = await firestore.collection('ativas').doc(id).get();
     if (!doc.exists) {

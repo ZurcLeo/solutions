@@ -1,6 +1,7 @@
 const ActiveConnection = require('../models/ActiveConnection');
 const InactiveConnection = require('../models/InactiveConnection');
 const RequestedConnection = require('../models/RequestedConnection');
+const connectionService = require('../services/connectionService')
 
 exports.getActiveConnectionById = async (req, res) => {
   try {
@@ -8,6 +9,17 @@ exports.getActiveConnectionById = async (req, res) => {
     res.status(200).json(connection);
   } catch (error) {
     res.status(404).json({ message: error.message });
+  }
+};
+
+exports.getConnectionsByUserId = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const { friends, bestFriends } = await connectionService.getConnectionsByUserId(userId);
+    res.status(200).json({ friends, bestFriends });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 

@@ -94,6 +94,44 @@ router.post('/active', verifyToken, connectionsController.createActiveConnection
 
 /**
  * @swagger
+ * /connections/active/user/{userId}:
+ *   get:
+ *     summary: Retorna todas as conexões ativas de um usuário específico
+ *     tags: [Connections]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do usuário
+ *     responses:
+ *       200:
+ *         description: Conexões ativas retornadas com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 friends:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ActiveConnection'
+ *                 bestFriends:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ActiveConnection'
+ *       400:
+ *         description: Erro na solicitação
+ *       404:
+ *         description: Usuário não encontrado
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/active/user/:userId', connectionsController.getConnectionsByUserId);
+
+/**
+ * @swagger
  * /connections/active/{id}:
  *   put:
  *     summary: Atualiza uma conexão ativa pelo ID
