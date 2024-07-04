@@ -15,8 +15,8 @@ class MessageService {
       const messages = [];
       for (const subcollection of userSubcollections) {
         const subcollectionRef = subcollection.firestore.collection(subcollection.id);
-        const subcollectionMessages = await subcollectionRef.get();
-        subcollectionMessages.forEach(doc => {
+        const querySnapshot = await subcollectionRef.get();
+        querySnapshot.forEach(doc => {
           messages.push(doc.data());
         });
       }
