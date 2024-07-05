@@ -6,29 +6,31 @@ class MessageService {
   static async getAllMessages(userId) {
     try {
       const db = admin.firestore();
-      const messagesRef = db.collection('mensagens');
-      const subcollections = await messagesRef.listCollections();
-      const userSubcollections = subcollections.filter(subcollection => {
-        const subcollectionName = subcollection.id;
-        return subcollectionName.startsWith(`${userId}_`) || subcollectionName.endsWith(`_${userId}`);
+      const messagesRef = db.collectionGroup('mensagens');
+      const collections = await messagesRef.get();
+      const userSubcollections = collections.docs.filter(doc => {
+        const subcollectionName = doc.ref.path.split('/')[1];
+        const [idA, idB] = subcollectionName.split('_');
+        return (idA === userId || idB === userId);
       });
-      const messages = [];
-      for (const subcollection of userSubcollections) {
-        const subcollectionRef = subcollection.firestore.collection(subcollection.id);
-        const querySnapshot = await subcollectionRef.get();
-        querySnapshot.forEach(doc => {
-          messages.push(doc.data());
-        });
-      }
-      return messages;
+    return userSubcollections;
     } catch (error) {
       console.error('Error fetching messages:', error);
       throw error;
     }
   }
 
-  static async getMessageById(uidRemetente, uidDestinatario, id) {
-    return await Message.getById(uidRemetente, uidDestinatario, id);
+  static async getMessageById(userId) {
+    const userSubcollections = await this.getAllMessages(userId);
+    const messages = [];
+    for (const subcollection of userSubcollections) {
+      const subcollectionRef = subcollection.ref.collection('msgs');
+      const subcollectionMessages = await subcollectionRef.get();
+      subcollectionMessages.forEach(doc => {
+        messages.push(doc.data());
+      });
+    }
+    return messages;
   }
 
   static async getMessagesByUserId(uidRemetente, uidDestinatario) {

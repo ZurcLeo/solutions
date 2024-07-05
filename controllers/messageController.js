@@ -53,7 +53,8 @@ exports.deleteMessage = async (req, res) => {
 
 exports.getAllMessages = async (req, res) => {
   try {
-    const messages = await MessageService.getAllMessages();
+    const userId = req.user.id; 
+    const messages = await MessageService.getAllMessages(userId);
     console.log('Messages:', messages);
     res.status(200).json(messages);
   } catch (error) {
