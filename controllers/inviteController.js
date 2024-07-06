@@ -2,6 +2,7 @@ const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
 const { sendEmail } = require('../services/emailService');
 const Invite = require('../models/Invite');
+const { auth } = require('../firebaseAdmin');
 
 exports.getInviteById = async (req, res) => {
   try {
@@ -41,7 +42,8 @@ exports.deleteInvite = async (req, res) => {
 
 exports.generateInvite = async (req, res) => {
   const { email } = req.body;
-  const senderId = req.user.uid;
+  const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
+  const senderId = decodedToken.uid;
 
   try {
     const userRef = admin.firestore().collection('usuario').doc(senderId);
