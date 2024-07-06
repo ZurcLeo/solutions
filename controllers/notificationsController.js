@@ -13,7 +13,7 @@ exports.getUserNotifications = async (req, res) => {
 
   exports.markAsRead = async (req, res) => {
     const { notificationId, type } = req.body;
-    const { userId } = req.params.userId; // Obter userId dos parâmetros da URL
+    const { userId } = req.params; // Obter userId dos parâmetros da URL
   
     console.log(`markAsRead called with userId: ${userId}, notificationId: ${notificationId}, type: ${type}`);
   
