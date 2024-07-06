@@ -26,34 +26,39 @@ router.use((req, res, next) => {
 
 /**
  * @swagger
- * tags:
- *   name: Notifications
- *   description: Gerenciamento de notificações
- */
-
-/**
- * @swagger
  * /notifications:
- *   get:
- *     summary: Retorna todas as notificações
+ *   post:
+ *     summary: Cria uma nova notificação
  *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               userId:
+ *                 type: string
+ *                 description: ID do usuário (para notificações privadas)
+ *               type:
+ *                 type: string
+ *                 description: Tipo de notificação (private ou global)
+ *                 example: "private"
+ *               message:
+ *                 type: string
+ *                 description: Mensagem da notificação
+ *                 example: "Você tem uma nova mensagem."
  *     responses:
- *       200:
- *         description: Lista de todas as notificações
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Notification'
- *       401:
- *         description: Não autorizado
+ *       201:
+ *         description: Notificação criada com sucesso
+ *       400:
+ *         description: Erro na solicitação
  *       500:
  *         description: Erro no servidor
  */
-router.get('/', verifyToken, notificationsController.getAllNotifications);
+router.post('/', verifyToken, notificationsController.createNotification);
 
 /**
  * @swagger

@@ -2,31 +2,44 @@
 const notificationService = require('../services/notificationService');
 
 exports.getUserNotifications = async (req, res) => {
-    const { userId } = req.params;
     try {
-        const notifications = await notificationService.getUserNotifications(userId);
-        res.status(200).json(notifications);
+      const notifications = await notificationService.getUserNotifications(req.params.userId);
+      res.status(200).json(notifications);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+      console.error('Error getting user notifications:', error);
+      res.status(500).json({ message: 'Error getting user notifications', error: error.message });
     }
-};
+  };
 
-exports.markAsRead = async (req, res) => {
-    const { userId } = req.params;
+  exports.markAsRead = async (req, res) => {
     const { notificationId, type } = req.body;
-    try {
-        await notificationService.markAsRead(userId, notificationId, type);
-        res.status(200).json({ message: 'Notificação marcada como lida' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    const { userId } = req.params;
+  
+    if (!userId || !notificationId || !type) {
+      return res.status(400).json({ message: 'Missing required fields' });
     }
-};
+  
+    try {
+      await notificationService.markAsRead(userId, notificationId, type);
+      res.status(200).json({ message: 'Notification marked as read' });
+    } catch (error) {
+      res.status(500).json({ message: 'Server error', error: error.message });
+    }
+  };
+  
+  
 
-exports.getAllNotifications = async (req, res) => {
+exports.createNotification = async (req, res) => {
     try {
-        const notifications = await notificationService.getAllNotifications();
-        res.status(200).json(notifications);
+      const { userId, type, message } = req.body;
+  
+      if (!type || !message || (type === 'private' && !userId)) {
+        return res.status(400).json({ message: 'Invalid request parameters' });
+      }
+  
+      await notificationService.createNotification({ userId, type, message });
+      res.status(201).json({ message: 'Notification created successfully' });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+      res.status(500).json({ message: 'Server error', error: error.message });
     }
-};
+  };

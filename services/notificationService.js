@@ -28,14 +28,28 @@ exports.getUserNotifications = async (userId) => {
 
 exports.markAsRead = async (userId, notificationId, type) => {
     const notificationDocRef = type === 'private'
-        ? db.collection(`notificacoes/${userId}/notifications`).doc(notificationId)
-        : db.collection('notificacoes/global/notifications').doc(notificationId);
-
+      ? db.collection(`notificacoes/${userId}/notifications`).doc(notificationId)
+      : db.collection('notificacoes/global/notifications').doc(notificationId);
+  
     if (type === 'private') {
-        await notificationDocRef.update({ lida: true });
+      await notificationDocRef.update({ lida: true });
     } else {
-        await notificationDocRef.update({
-            [`lida.${userId}`]: FieldValue.serverTimestamp()
-        });
+      await notificationDocRef.update({
+        [`lida.${userId}`]: FieldValue.serverTimestamp()
+      });
     }
-};
+  };
+
+exports.createNotification = async ({ userId, type, message }) => {
+    const notification = {
+      message,
+      lida: type === 'private' ? false : {},
+      timestamp: FieldValue.serverTimestamp(),
+    };
+  
+    if (type === 'private') {
+      await db.collection(`notificacoes/${userId}/notifications`).add(notification);
+    } else {
+      await db.collection('notificacoes/global/notifications').add(notification);
+    }
+  };
