@@ -19,14 +19,24 @@ exports.createInvite = async (email, senderId, senderName, senderPhotoURL) => {
     await admin.firestore().collection('convites').doc(inviteId).set(inviteData, { merge: true });
 
     const content = `
-        Olá! <br>
-        Você recebeu um convite. <br><br>
-        Clique no botão abaixo para aceitar o convite:
-        <br><br>
-        <a href="https://eloscloud.com.br/invite?inviteId=${inviteId}" style="background-color: #345C72; color: #ffffff; padding: 10px 20px; border-radius: 5px; text-decoration: none;">Aceitar Convite</a>
-        <br><br>
-        Obrigado, <br>
-        Equipe ElosCloud
+                    Olá! <br>
+            Você recebeu um convite para se juntar à ElosCloud, a plataforma onde você pode:
+            <ul>
+                <li>Convidar novos amigos</li>
+                <li>Realizar postagens</li>
+                <li>Criar, participar e gerenciar caixinhas coletivas em grupo</li>
+                <li>Adicionar formas de pagamento e recebimento</li>
+                <li>Efetuar pagamento de colaboração mensal</li>
+                <li>Receber proventos de caixinhas</li>
+                <li>Enviar presentes usando eloscoin</li>
+                <li>Comprar eloscoin</li>
+                <li>Pagar com Pix ou cartão de crédito/débito</li>
+            </ul>
+            Clique no botão abaixo para aceitar o convite e começar a explorar:
+            <br><br>
+            <a href="https://eloscloud.com.br/invite?inviteId={{inviteId}}" class="button">Aceitar Convite</a>
+            <br><br>
+            Obrigado, <br>
     `;
 
     await sendEmail(email, 'ElosCloud - Seu convite chegou!', content);

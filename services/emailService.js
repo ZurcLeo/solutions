@@ -20,108 +20,82 @@ const transporter = nodemailer.createTransport({
 
 const getEmailTemplate = (subject, content) => {
     return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${subject}</title>
-        <style>
-          @media screen and (max-width: 600px) {
-           .content {
-              width: 100%!important;
-              display: block!important;
-              padding: 10px!important;
-            }
-           .header,.body,.footer {
-              padding: 20px!important;
-            }
-          }
-          body {
-            font-family: 'Poppins', sans-serif;
-            font-size: 18px; /* increased font size for better readability */
-            line-height: 1.6;
-          }
-         .header {
-            background-color: #345C72;
-            padding: 40px;
-            text-align: center;
-            color: white;
-            font-size: 24px;
-          }
-         .body {
-            padding: 40px;
-            text-align: left;
-          }
-         .footer {
-            background-color: #333333;
-            padding: 40px;
-            text-align: center;
-            color: white;
-            font-size: 14px;
-          }
-          a {
-            text-decoration: none;
-            color: #345C72;
-          }
-          a:hover {
-            color: #666; /* added hover effect */
-          }
-          ul {
-            list-style: none;
-            padding: 0;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${subject}</title>
+    <style>
+        body {
+            font-family: 'Poppins', Arial, sans-serif;
+            background-color: #f4f4f4;
             margin: 0;
-          }
-          ul li {
-            margin-bottom: 10px;
-          }
-        </style>
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
-      </head>
-      <body>
-        <table width="100%" border="0" cellspacing="0" cellpadding="0">
-          <tr>
-            <td align="center" style="padding: 20px;">
-              <table class="content" width="600" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #cccccc;">
-                <tr>
-                  <td class="header">
-                    <img src="https://example.com/logo.png" alt="ElosCloud Logo" width="120" height="30" style="margin-bottom: 10px;">
-                    <h1>${subject}</h1>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="body">
-                    <p>${content}</p>
-                    <p style="margin-top: 20px;">
-                      Need help or have questions? <a href="https://example.com/contact">Contact us</a>
-                    </p>
-                    <ul>
-                      <li><a href="https://example.com/terms">Terms of Use</a></li>
-                      <li><a href="https://example.com/privacy">Privacy Policy</a></li>
-                    </ul>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="footer">
-                    <p>Copyright &copy; 2024 | ElosCloud</p>
-                    <p style="margin-top: 10px;">
-                      Follow us:
-                      <ul>
-                        <li><a href="https://example.com/facebook"><i class="fa fa-facebook" aria-hidden="true"></i></a></li>
-                        <li><a href="https://example.com/twitter"><i class="fa fa-twitter" aria-hidden="true"></i></a></li>
-                        <li><a href="https://example.com/instagram"><i class="fa fa-instagram" aria-hidden="true"></i></a></li>
-                      </ul>
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-      </html>
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: auto;
+            background-color: #ffffff;
+            border: 1px solid #dddddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .header {
+            background-color: #345C72;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            font-size: 24px;
+        }
+        .body {
+            padding: 20px;
+            font-size: 16px;
+            color: #333333;
+            line-height: 1.6;
+        }
+        .body a {
+            color: #345C72;
+            text-decoration: none;
+        }
+        .footer {
+            background-color: #333333;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            font-size: 14px;
+        }
+        @media screen and (max-width: 600px) {
+            .email-container {
+                width: 100% !important;
+                margin: auto;
+                border-radius: 0;
+            }
+            .header, .body, .footer {
+                padding: 10px !important;
+            }
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            ${subject}
+        </div>
+        <div class="body">
+                                    ${content}
+                              </div>
+        <div class="footer">
+            Copyright &copy; 2024 | ElosCloud
+        </div>
+    </div>
+</body>
+</html>
     `;
   };
 
