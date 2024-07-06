@@ -1,6 +1,7 @@
 const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
 const { sendEmail } = require('../services/emailService');
+const inviteService = require('../services/inviteService')
 const Invite = require('../models/Invite');
 const { auth } = require('../firebaseAdmin');
 
@@ -41,72 +42,8 @@ exports.deleteInvite = async (req, res) => {
 };
 
 exports.generateInvite = async (req, res) => {
-  const { email } = req.body;
-  const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
-  const senderId = decodedToken.uid;
-
   try {
-    const userRef = admin.firestore().collection('usuario').doc(senderId);
-    const userDoc = await userRef.get();
-
-    if (!userDoc.exists) {
-      return res.status(404).json({ message: 'User not found.' });
-    }
-
-    const userData = userDoc.data();
-    const senderName = userData.nome || null;
-    const senderPhotoURL = userData.fotoDoPerfil || null;
-
-    if (!senderName || !senderPhotoURL) {
-      return res.status(400).json({
-        success: false,
-        redirectTo: `/PerfilPessoal/${senderId}`,
-        message: 'Por favor, preencha seu nome e foto de perfil para continuar.'
-      });
-    }
-
-    const inviteId = uuidv4();
-    const createdAt = admin.firestore.FieldValue.serverTimestamp();
-
-    const inviteData = {
-      email,
-      senderId,
-      senderName,
-      inviteId,
-      createdAt,
-      senderPhotoURL,
-      status: 'pending'
-    };
-
-    await admin.firestore().collection('convites').doc(inviteId).set(inviteData, { merge: true });
-
-    const content = `
-      Olá! <br>
-      Você recebeu um convite. <br><br>
-      Clique no botão abaixo para aceitar o convite:
-      <br><br>
-      <a href="https://eloscloud.com.br/invite?inviteId=${inviteId}" style="background-color: #345C72; color: #ffffff; padding: 10px 20px; border-radius: 5px; text-decoration: none;">Aceitar Convite</a>
-      <br><br>
-      Obrigado, <br>
-      Equipe ElosCloud
-    `;
-
-    await sendEmail(email, 'ElosCloud - Seu convite chegou!', content);
-
-    const mailData = {
-      to: [{ email: email }],
-      subject: 'Seu convite chegou!',
-      createdAt: createdAt,
-      status: 'pending',
-      data: {
-        inviteId: inviteId,
-        senderId: senderId,
-        url: `https://eloscloud.com.br/invite?inviteId=${inviteId}`
-      }
-    };
-
-    await admin.firestore().collection('mail').add(mailData);
-
+    await inviteService.createInvite(req.body.email, req);
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Erro ao gerar convite:', error);

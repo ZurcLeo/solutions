@@ -1,12 +1,37 @@
 const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
 const { sendEmail } = require('./emailService');
+const { auth } = require('../firebaseAdmin');
 
-exports.createInvite = async (email, senderId, senderName, senderPhotoURL) => {
-    const inviteId = uuidv4();
-    const createdAt = admin.firestore.FieldValue.serverTimestamp();
 
-    const inviteData = {
+exports.createInvite = async (email, req) => {
+    const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
+    const senderId = decodedToken.uid;
+  
+    try {
+      const userRef = admin.firestore().collection('usuario').doc(senderId);
+      const userDoc = await userRef.get();
+  
+      if (!userDoc.exists) {
+        return { success: false, message: 'User not found.' };
+      }
+  
+      const userData = userDoc.data();
+      senderName = userData.nome || null;
+      senderPhotoURL = userData.fotoDoPerfil || null;
+  
+      if (!senderName ||!senderPhotoURL) {
+        return {
+          success: false,
+          redirectTo: `/PerfilPessoal/${senderId}`,
+          message: 'Por favor, preencha seu nome e foto de perfil para continuar.'
+        };
+      }
+  
+      const inviteId = uuidv4();
+      const createdAt = admin.firestore.FieldValue.serverTimestamp();
+  
+      const inviteData = {
         email,
         senderId,
         senderName,
@@ -14,49 +39,58 @@ exports.createInvite = async (email, senderId, senderName, senderPhotoURL) => {
         createdAt,
         senderPhotoURL,
         status: 'pending'
-    };
-
-    await admin.firestore().collection('convites').doc(inviteId).set(inviteData, { merge: true });
-
-    const content = `
-                    Olá! <br>
-            Você recebeu um convite para se juntar à ElosCloud, a plataforma onde você pode:
-            <ul>
-                <li>Convidar novos amigos</li>
-                <li>Realizar postagens</li>
-                <li>Criar, participar e gerenciar caixinhas coletivas em grupo</li>
-                <li>Adicionar formas de pagamento e recebimento</li>
-                <li>Efetuar pagamento de colaboração mensal</li>
-                <li>Receber proventos de caixinhas</li>
-                <li>Enviar presentes usando eloscoin</li>
-                <li>Comprar eloscoin</li>
-                <li>Pagar com Pix ou cartão de crédito/débito</li>
-            </ul>
-            Clique no botão abaixo para aceitar o convite e começar a explorar:
-            <br><br>
-            <a href="https://eloscloud.com.br/invite?inviteId={{inviteId}}" class="button">Aceitar Convite</a>
-            <br><br>
-            Obrigado, <br>
-    `;
-
-    await sendEmail(email, 'ElosCloud - Seu convite chegou!', content);
-
-    const mailData = {
+      };
+  
+      await admin.firestore().collection('convites').doc(inviteId).set(inviteData, { merge: true });
+  
+      const content = `
+        <div style="text-align: center;">
+          <img src="${senderPhotoURL}" alt="${senderName}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; margin-bottom: 10px;">
+          <p>Convite enviado por <strong>${senderName}</strong></p>
+        </div>
+        <p>Olá!</p>
+        <p>Você recebeu um convite para se juntar à ElosCloud, a plataforma onde você pode:</p>
+        <ul>
+          <li>Convidar novos amigos</li>
+          <li>Realizar postagens</li>
+          <li>Criar, participar e gerenciar caixinhas coletivas em grupo</li>
+          <li>Adicionar formas de pagamento e recebimento</li>
+          <li>Efetuar pagamento de colaboração mensal</li>
+          <li>Receber proventos de caixinhas</li>
+          <li>Enviar presentes usando eloscoin</li>
+          <li>Comprar eloscoin</li>
+          <li>Pagar com Pix ou cartão de crédito/débito</li>
+        </ul>
+        <p>Clique no botão abaixo para aceitar o convite e começar a explorar:</p>
+        <p style="text-align: center;">
+          <a href="https://eloscloud.com.br/invite?inviteId=${inviteId}" style="background-color: #345C72; color: #ffffff; padding: 10px 20px; border-radius: 5px; text-decoration: none;">Aceitar Convite</a>
+        </p>
+        <p>Obrigado,</p>
+        <p>Equipe ElosCloud</p>
+      `;
+  
+      await sendEmail(email, 'ElosCloud - Seu convite chegou!', content);
+  
+      const mailData = {
         to: [{ email: email }],
         subject: 'Seu convite chegou!',
         createdAt: createdAt,
         status: 'pending',
         data: {
-            inviteId: inviteId,
-            senderId: senderId,
-            url: `https://eloscloud.com.br/invite?inviteId=${inviteId}`
+          inviteId: inviteId,
+          senderId: senderId,
+          url: `https://eloscloud.com.br/invite?inviteId=${inviteId}`
         }
-    };
-
-    await admin.firestore().collection('mail').add(mailData);
-
-    return { success: true };
-};
+      };
+  
+      await admin.firestore().collection('mail').add(mailData);
+  
+      return { success: true };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: 'Erro ao criar convite.' };
+    }
+  };
 
 exports.validateInvite = async (inviteId, userEmail) => {
     const inviteRef = admin.firestore().collection('convites').doc(inviteId);
