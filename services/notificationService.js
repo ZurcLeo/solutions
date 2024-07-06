@@ -27,16 +27,26 @@ exports.getUserNotifications = async (userId) => {
 };
 
 exports.markAsRead = async (userId, notificationId, type) => {
-    const notificationDocRef = type === 'private'
-      ? db.collection(`notificacoes/${userId}/notifications`).doc(notificationId)
-      : db.collection('notificacoes/global/notifications').doc(notificationId);
+    
+    console.log(`markAsRead service called with userId: ${userId}, notificationId: ${notificationId}, type: ${type}`);
   
-    if (type === 'private') {
-      await notificationDocRef.update({ lida: true });
-    } else {
-      await notificationDocRef.update({
-        [`lida.${userId}`]: FieldValue.serverTimestamp()
-      });
+    try {
+      const notificationDocRef = type === 'private'
+        ? db.collection(`notificacoes/${userId}/notifications`).doc(notificationId)
+        : db.collection('notificacoes/global/notifications').doc(notificationId);
+  
+      if (type === 'private') {
+        await notificationDocRef.update({ lida: true });
+      } else {
+        await notificationDocRef.update({
+          [`lida.${userId}`]: FieldValue.serverTimestamp()
+        });
+      }
+  
+      console.log('Notification marked as read successfully');
+    } catch (error) {
+      console.error('Error updating notification', error);
+      throw error;
     }
   };
 

@@ -4,7 +4,7 @@ const notificationsController = require('../controllers/notificationsController'
 const verifyToken = require('../middlewares/auth');
 
 // Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000', 'https://eloscloudapp-1cefc4b4944e.herokuapp.com'];
 
 // Middleware to add CORS headers for all requests
 router.use((req, res, next) => {

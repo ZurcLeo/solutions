@@ -13,9 +13,12 @@ exports.getUserNotifications = async (req, res) => {
 
   exports.markAsRead = async (req, res) => {
     const { notificationId, type } = req.body;
-    const { userId } = req.params;
+    const { userId } = req.params.userId; // Obter userId dos parâmetros da URL
+  
+    console.log(`markAsRead called with userId: ${userId}, notificationId: ${notificationId}, type: ${type}`);
   
     if (!userId || !notificationId || !type) {
+      console.error('Missing required fields', { userId, notificationId, type });
       return res.status(400).json({ message: 'Missing required fields' });
     }
   
@@ -23,11 +26,10 @@ exports.getUserNotifications = async (req, res) => {
       await notificationService.markAsRead(userId, notificationId, type);
       res.status(200).json({ message: 'Notification marked as read' });
     } catch (error) {
+      console.error('Error marking notification as read', error);
       res.status(500).json({ message: 'Server error', error: error.message });
     }
   };
-  
-  
 
 exports.createNotification = async (req, res) => {
     try {
