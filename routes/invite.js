@@ -1,9 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const { generateInvite, validateInvite, invalidateInvite } = require('../controllers/inviteController');
+const verifyToken = require('../middlewares/auth')
+const { 
+  getSentInvites, 
+  cancelInvite, 
+  sendInvite, 
+  validateInvite, 
+  invalidateInvite 
+} = require('../controllers/inviteController');
 
 // Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const allowedOrigins = [
+  'https://eloscloud.com',
+  'http://localhost:3000'];
 
 // Middleware to add CORS headers for all requests
 router.use((req, res, next) => {
@@ -26,43 +35,16 @@ router.use((req, res, next) => {
 /**
  * @swagger
  * tags:
- *   name: Invite
+ *   name: Convite
  *   description: Gerenciamento de convites
  */
-
-/**
- * @swagger
- * /invite/generate:
- *   post:
- *     summary: Gera um novo convite
- *     tags: [Invite]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               email:
- *                 type: string
- *                 description: Email para o qual o convite será gerado
- *                 example: user@example.com
- *     responses:
- *       201:
- *         description: Convite gerado com sucesso
- *       400:
- *         description: Erro na solicitação
- *       500:
- *         description: Erro no servidor
- */
-router.post('/generate', generateInvite);
 
 /**
  * @swagger
  * /invite/validate:
  *   post:
  *     summary: Valida um convite
- *     tags: [Invite]
+ *     tags: [Convite]
  *     requestBody:
  *       required: true
  *       content:
@@ -89,7 +71,7 @@ router.post('/validate', validateInvite);
  * /invite/invalidate:
  *   post:
  *     summary: Invalida um convite
- *     tags: [Invite]
+ *     tags: [Convite]
  *     requestBody:
  *       required: true
  *       content:
@@ -109,6 +91,65 @@ router.post('/validate', validateInvite);
  *       500:
  *         description: Erro no servidor
  */
-router.post('/invalidate', invalidateInvite);
+router.post('/invalidate', verifyToken, invalidateInvite);
+/**
+ * @swagger
+ * /invite/generate:
+ *   post:
+ *     summary: Gera um novo convite
+ *     tags: [Convite]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: Email para o qual o convite será gerado
+ *                 example: user@/example.com
+ *     responses:
+ *       201:
+ *         description: Convite gerado com sucesso
+ *       400:
+ *         description: Erro na solicitação
+ *       500:
+ *         description: Erro no servidor
+ */
+router.post('/generate', verifyToken, sendInvite);
+/**
+ * @swagger
+ * /invite/sent:
+ *   get:
+ *     summary: Retorna todos os convites enviados pelo usuário autenticado
+ *     tags: [Convite]
+ *     responses:
+ *       200:
+ *         description: Convites enviados retornados com sucesso
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/sent', verifyToken, getSentInvites);
+/**
+ * @swagger
+ * /invite/cancel/{id}:
+ *   put:
+ *     summary: Cancela um convite
+ *     tags: [Convite]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID do convite
+ *     responses:
+ *       200:
+ *         description: Convite cancelado com sucesso
+ *       500:
+ *         description: Erro no servidor
+ */
+router.put('/cancel/:id', verifyToken, cancelInvite);
 
 module.exports = router;

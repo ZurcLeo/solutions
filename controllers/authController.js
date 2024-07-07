@@ -350,18 +350,7 @@ const getProviderInstance = (provider) => {
     }
 };
 
-/**
- * Valida um código de convite.
- * 
- * @param {string} inviteCode - Código de convite a ser validado.
- * @returns {Promise<Object>} - Promessa que resolve com a referência do documento de convite se o convite for válido.
- * @throws {Error} - Lança um erro se o convite for inválido ou já utilizado.
- * 
- * @description
- * Esta função valida um código de convite verificando se ele existe e se seu status é 'pending'.
- * Se o convite for válido, a referência do documento de convite é retornada.
- * Caso contrário, um erro é lançado indicando que o convite é inválido ou já foi utilizado.
- */
+
 async function validateInvite(inviteCode) {
     const inviteRef = admin.firestore().doc(`convites/${inviteCode}`);
     const inviteSnap = await inviteRef.get();
@@ -371,21 +360,7 @@ async function validateInvite(inviteCode) {
     return inviteRef;
 }
 
-/**
- * Invalida um código de convite.
- * 
- * @param {string} inviteId - ID do convite a ser invalidado.
- * @param {string} email - Email do usuário que usou o convite.
- * @returns {Promise<void>} - Promessa que resolve quando o convite é invalidado com sucesso.
- * @throws {Error} - Lança um erro se a invalidação do convite falhar.
- * 
- * @description
- * Esta função invalida um código de convite chamando uma função HTTPS na nuvem.
- * O processo inclui:
- * 1. Obter uma referência às funções HTTPS do Firebase.
- * 2. Chamar a função 'invalidateInvite' passando o ID do convite.
- * 3. Verificar o resultado e lançar um erro se a invalidação falhar.
- */
+
 async function invalidateInvite(inviteId, email) {
     const functions = getFunctions();
     const invalidateInviteFunction = httpsCallable(functions, 'invalidateInvite');
@@ -398,28 +373,6 @@ async function invalidateInvite(inviteId, email) {
         throw new Error('Erro ao invalidar o convite.');
     }
 }
-
-/**
- * Garante que o perfil do usuário exista no Firestore e adiciona logging para monitorar a criação de perfis.
- * 
- * @param {Object} userRecord - Registro do usuário autenticado.
- * @param {string} userRecord.uid - ID do usuário.
- * @param {string} userRecord.email - Email do usuário.
- * @param {string} [userRecord.displayName] - Nome de exibição do usuário.
- * @returns {Promise<void>} - Promessa que resolve quando o perfil do usuário é criado ou confirmado que já existe.
- * 
- * @description
- * Esta função verifica se o perfil do usuário existe no Firestore e, se não existir, cria um novo perfil com dados padrão.
- * O processo inclui:
- * 1. Obter a referência do documento do usuário no Firestore.
- * 2. Verificar se o documento do usuário já existe.
- * 3. Se o documento não existir:
- *    - Preparar um lote de operações para criar o perfil do usuário.
- *    - Definir os dados padrão do perfil do usuário, incluindo email, nome, perfil público, data de criação, tipo de conta, etc.
- *    - Adicionar uma solicitação de conexão padrão para o suporte do Claud.
- *    - Executar o lote de operações para salvar os dados no Firestore.
- * 4. Adicionar logging para monitorar a criação de perfis de usuários.
- */
 
 async function ensureUserProfileExists(userRecord) {
   const userDocRef = admin.firestore().doc(`usuario/${userRecord.uid}`);

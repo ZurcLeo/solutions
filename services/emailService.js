@@ -1,5 +1,6 @@
 //services/emailService.js
 const nodemailer = require('nodemailer');
+const { createNotification } = require('./notificationService');
 require('dotenv').config();
 
 const smtpUser = process.env.SMTP_USER;
@@ -99,7 +100,7 @@ const getEmailTemplate = (subject, content) => {
     `;
   };
 
-const sendEmail = async (to, subject, content) => {
+const sendEmail = async (to, subject, content, userId) => {
     const htmlContent = getEmailTemplate(subject, content);
     const mailOptions = {
         from: 'suporte@eloscloud.com.br',
@@ -112,6 +113,12 @@ const sendEmail = async (to, subject, content) => {
     try {
         await transporter.sendMail(mailOptions);
         console.log(`Email sent to ${to}`);
+        await createNotification({
+            userId,
+            type: 'email_enviado',
+            conteudo: `Email sent to ${to} successfully.`,
+            url: 'https://eloscloud.com'
+        });
     } catch (error) {
         console.error('Error sending email:', error);
     }

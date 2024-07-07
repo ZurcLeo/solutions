@@ -1,6 +1,27 @@
 // services/notificationService.js
 const { db } = require('../firebaseAdmin');
 const { FieldValue } = require('firebase-admin/firestore');
+const Joi = require('joi')
+const { getUserById } = require('../controllers/userController')
+
+const notificationSchema = Joi.object({
+  userId: Joi.string().optional(),
+  type: Joi.string()
+  .valid(
+    'global', 
+    'reacao',
+    'comentario', 
+    'presente', 
+    'postagem',
+    'caixinha',
+    'mensagem',
+    'amizade_aceita',
+    'pedido_amizade',
+    'email_enviado'
+  ).required(),
+  conteudo: Joi.string().required(),
+  url: Joi.string().uri().optional(),
+});
 
 exports.getUserNotifications = async (userId) => {
     const privateNotificationsRef = db.collection(`notificacoes/${userId}/notifications`);
@@ -39,7 +60,9 @@ exports.markAsRead = async (userId, notificationId, type) => {
         [`lida.${userId}`]: FieldValue.serverTimestamp()
       });
     } else {
-      await notificationDocRef.update({ lida: true });
+      await notificationDocRef.update({ 
+        ['lidaEm']: FieldValue.serverTimestamp()
+       });
     }
 
     console.log('Notification marked as read successfully');
@@ -49,32 +72,35 @@ exports.markAsRead = async (userId, notificationId, type) => {
   }
 };
 
-exports.createNotification = async ({ userId, type, conteudo }) => {
-  try {
-    if (type === 'global') {
-      const notification = {
-        conteudo,
-        tipo: type,
-        lida: {}, // Initialize an empty object to store user IDs and timestamps
-        timestamp: FieldValue.serverTimestamp(),
-      };
-      await db.collection('notificacoes/global/notifications').add(notification);
-    } else {
-      const notification = {
-        conteudo,
-        lida: false,
-        tipo: type,
-        timestamp: FieldValue.serverTimestamp(),
-      };
-      await db.collection(`notificacoes/${userId}/notifications`).add(notification);
-    }
-  } catch (error) {
-    console.error(`Error creating notification: ${error.message}`);
-    console.error(error.stack);
-    // Log additional context, such as the user ID and notification type
-    console.error(`User ID: ${userId}, Type: ${type}`);
-    // Return an error response or re-throw the error
-    return { error: 'Failed to create notification' };
-    
+exports.createNotification = async (data) => {
+  const { error, value } = notificationSchema.validate(data);
+  if (error) {
+      console.error(`Validation error: ${error.details[0].message}`);
+      throw new Error('Invalid request parameters');
   }
-}
+
+  const { userId, type, conteudo, url } = value;
+
+  const notification = {
+      conteudo,
+      tipo: type,
+      lida: {},
+      timestamp: FieldValue.serverTimestamp(),
+      userId: type === 'global' ? 'global' : userId,
+      fotoDoPerfil: type === 'global'? process.env.CLAUD_PROFILE_IMG : (await getUserById(userId)).fotoDoPerfil,
+      url: type === 'global'? url : 'url-para-o-evento-que-gerou-a-notificacao'
+  }
+
+  try {
+      if (type === 'global') {
+          await db.collection('notificacoes/global/notifications').add(notification);
+      } else {
+          await db.collection(`notificacoes/${userId}/notifications`).add(notification);
+      }
+  } catch (error) {
+      console.error(`Error creating notification: ${error.message}`);
+      console.error(error.stack);
+      console.error(`User ID: ${userId}, Type: ${type}`);
+      throw new Error('Failed to create notification');
+  }
+};

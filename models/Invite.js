@@ -1,4 +1,4 @@
-const admin = require('firebase-admin');
+const {admin} = require('../firebaseAdmin');
 const firestore = admin.firestore();
 
 class Invite {
@@ -12,6 +12,7 @@ class Invite {
     this.email = data.email;
     this.validatedBy = data.validatedBy || null;
     this.status = data.status;
+    this.lastSentAt = data.lastSentAt ? new Date(data.lastSentAt._seconds * 1000) : null;
   }
 
   static async getById(id) {
@@ -40,6 +41,12 @@ class Invite {
     const inviteRef = firestore.collection('convites').doc(id);
     await inviteRef.delete();
   }
+
+  static async getBySenderId(senderId) {
+    const snapshot = await firestore.collection('convites').where('senderId', '==', senderId).get();
+    return snapshot.docs.map(doc => new Invite(doc.data()));
+  }
+
 }
 
 module.exports = Invite;

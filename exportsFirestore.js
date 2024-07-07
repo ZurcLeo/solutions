@@ -15,19 +15,27 @@ const db = admin.firestore();
 
 // Função para exportar dados de uma coleção, incluindo subcoleções
 async function exportCollection(collectionName) {
-  const collectionRef = db.collection(collectionName);
-  const data = await exportDocuments(collectionRef, collectionName);
-  fs.writeFileSync(`${collectionName}.json`, JSON.stringify(data, null, 2));
-  console.log(`Exported data from ${collectionName} collection.`);
+  try {
+    const collectionRef = db.collection(collectionName);
+    const data = await exportDocuments(collectionRef, collectionName);
+    const json = JSON.stringify(data, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        return { ...value };
+      }
+      return value;
+    }, 2);
+    fs.writeFileSync(`${collectionName}.json`, json);
+    console.log(`Exported data from ${collectionName} collection.`);
+  } catch (error) {
+    console.error(`Error exporting ${collectionName} collection:`, error);
+  }
 }
 
-// Função recursiva para exportar documentos e suas subcoleções
 async function exportDocuments(collectionRef, parentName = '') {
   const snapshot = await collectionRef.get();
   const data = [];
 
   if (snapshot.empty) {
-    // Verificar e exportar subcoleções mesmo se a coleção principal estiver vazia
     const subCollections = await collectionRef.listDocuments().then(docRefs => {
       return Promise.all(docRefs.map(docRef => docRef.listCollections()));
     });
@@ -56,12 +64,10 @@ async function exportDocuments(collectionRef, parentName = '') {
   return data;
 }
 
-// Função para listar todas as coleções
 async function listCollections() {
-  const collections = await db.listCollections();
-  return collections.map((collection) => collection.id);
+  const collections = await db.listCollections().then(collections => collections.map(collection => collection.id));
+  return collections;
 }
-
 // Função principal para o CLI
 async function main() {
   try {
@@ -94,7 +100,7 @@ async function main() {
           choices: collections,
         },
       ]);
-      await exportCollection(collectionName);
+      await exportCollection(collectionName + '_priv');
       return main(); // Rechama o menu principal
     }
 

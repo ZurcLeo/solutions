@@ -71,5 +71,6 @@ yarn-error.log*
 *.srl
 *.csr
 serviceAccountKey.json
+projectStructure.js
 exportsFirestore.js
 firebaseAdmin.js
