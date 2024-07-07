@@ -5,8 +5,7 @@ const allowedOrigins = [
   'https://eloscloud.com',
   'http://localhost:3000',
   'https://www.facebook.com',
-  'https://accounts.google.com',
-  'https://eloscloudapp-1cefc4b4944e.herokuapp.com'
+  'https://accounts.google.com'
 ];
 
 const corsOptions = {

@@ -1,5 +1,7 @@
-//index.js
+// index.js
 const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
 const corsMiddleware = require('./middlewares/cors');
 const { morganMiddleware } = require('./logger');
 const swaggerUi = require('swagger-ui-express');
@@ -8,10 +10,27 @@ const swaggerDocs = require('./swagger');
 // Cria uma instância do aplicativo Express
 const app = express();
 
+// Cria uma instância do servidor HTTP
+const server = http.createServer(app);
+
+// Configura o Socket.io com o servidor HTTP
+const io = socketIo(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
+
 // Configurações de Middleware
 app.use(corsMiddleware);
 app.use(express.json());
 app.use(morganMiddleware);
+
+// Passar io para o middleware
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
 
 // Importação de Rotas
 const authRoutes = require('./routes/auth');
@@ -54,6 +73,6 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
 // Inicialização do Servidor
 const PORT = process.env.PORT || 9000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });

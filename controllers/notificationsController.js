@@ -33,13 +33,13 @@ exports.getUserNotifications = async (req, res) => {
 
 exports.createNotification = async (req, res) => {
     try {
-      const { userId, type, message } = req.body;
+      const { userId, type, conteudo } = req.body;
   
-      if (!type || !message || (type === 'private' && !userId)) {
+      if (!type || !conteudo || (type === 'private' && !userId)) {
         return res.status(400).json({ message: 'Invalid request parameters' });
       }
   
-      await notificationService.createNotification({ userId, type, message });
+      await notificationService.createNotification({ userId, type, conteudo });
       res.status(201).json({ message: 'Notification created successfully' });
     } catch (error) {
       res.status(500).json({ message: 'Server error', error: error.message });

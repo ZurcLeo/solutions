@@ -49,16 +49,32 @@ exports.markAsRead = async (userId, notificationId, type) => {
   }
 };
 
-exports.createNotification = async ({ userId, type, message }) => {
-    const notification = {
-      message,
-      lida: type === 'private' ? false : {},
-      timestamp: FieldValue.serverTimestamp(),
-    };
-  
-    if (type === 'private') {
-      await db.collection(`notificacoes/${userId}/notifications`).add(notification);
-    } else {
+exports.createNotification = async ({ userId, type, conteudo }) => {
+  try {
+    if (type === 'global') {
+      const notification = {
+        conteudo,
+        tipo: type,
+        lida: {}, // Initialize an empty object to store user IDs and timestamps
+        timestamp: FieldValue.serverTimestamp(),
+      };
       await db.collection('notificacoes/global/notifications').add(notification);
+    } else {
+      const notification = {
+        conteudo,
+        lida: false,
+        tipo: type,
+        timestamp: FieldValue.serverTimestamp(),
+      };
+      await db.collection(`notificacoes/${userId}/notifications`).add(notification);
     }
-  };
+  } catch (error) {
+    console.error(`Error creating notification: ${error.message}`);
+    console.error(error.stack);
+    // Log additional context, such as the user ID and notification type
+    console.error(`User ID: ${userId}, Type: ${type}`);
+    // Return an error response or re-throw the error
+    return { error: 'Failed to create notification' };
+    
+  }
+}
