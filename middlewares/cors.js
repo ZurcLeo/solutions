@@ -1,14 +1,13 @@
-//middlewares/cors.js
+// middlewares/cors.js
 const cors = require('cors');
 
 const allowedOrigins = [
   'https://eloscloud.com',
-  'http://localhost:3000',
-  'https://www.facebook.com',
-  'https://accounts.google.com'
+  'http://localhost:3000'
 ];
 
 const corsOptions = {
+  // Função para verificar se a origem é permitida
   origin: (origin, callback) => {
     // Permitir origem null para testes locais sem frontend
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
@@ -17,11 +16,11 @@ const corsOptions = {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-  allowedHeaders: 'Content-Type, Authorization',
-  credentials: true,
-  optionsSuccessStatus: 204,
-  preflightContinue: true,
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS', // Métodos HTTP permitidos
+  allowedHeaders: 'Content-Type, Authorization', // Cabeçalhos permitidos
+  credentials: true, // Permitir cookies e credenciais
+  optionsSuccessStatus: 204, // Status de sucesso para opções
+  preflightContinue: true, // Continuar para o próximo middleware após a resposta preflight
 };
 
 module.exports = cors(corsOptions);

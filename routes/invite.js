@@ -1,14 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const verifyToken = require('../middlewares/auth')
+const verifyToken = require('../middlewares/auth');
 const inviteController = require('../controllers/inviteController');
 
 // Lista de origens permitidas
 const allowedOrigins = [
   'https://eloscloud.com',
-  'http://localhost:3000'];
+  'http://localhost:3000'
+];
 
-// Middleware to add CORS headers for all requests
+// Middleware para adicionar cabeçalhos CORS a todas as solicitações
 router.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
@@ -18,7 +19,7 @@ router.use((req, res, next) => {
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.set('Access-Control-Allow-Credentials', 'true');
 
-  // Handle preflight OPTIONS request
+  // Lidar com solicitações preflight OPTIONS
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
@@ -86,6 +87,7 @@ router.post('/validate', inviteController.validateInvite);
  *         description: Erro no servidor
  */
 router.post('/invalidate', verifyToken, inviteController.invalidateInvite);
+
 /**
  * @swagger
  * /invite/generate:
@@ -102,7 +104,7 @@ router.post('/invalidate', verifyToken, inviteController.invalidateInvite);
  *               email:
  *                 type: string
  *                 description: Email para o qual o convite será gerado
- *                 example: user@/example.com
+ *                 example: user@example.com
  *     responses:
  *       201:
  *         description: Convite gerado com sucesso
@@ -112,12 +114,20 @@ router.post('/invalidate', verifyToken, inviteController.invalidateInvite);
  *         description: Erro no servidor
  */
 router.post('/generate', verifyToken, inviteController.sendInvite);
+
 /**
  * @swagger
- * /invite/sent:
+ * /invite/sent/{senderId}:
  *   get:
  *     summary: Retorna todos os convites enviados pelo usuário autenticado
  *     tags: [Convite]
+ *     parameters:
+ *       - in: path
+ *         name: senderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID do remetente dos convites
  *     responses:
  *       200:
  *         description: Convites enviados retornados com sucesso
@@ -125,6 +135,7 @@ router.post('/generate', verifyToken, inviteController.sendInvite);
  *         description: Erro no servidor
  */
 router.get('/sent', verifyToken, inviteController.getSentInvites);
+
 /**
  * @swagger
  * /invite/cancel/{id}:

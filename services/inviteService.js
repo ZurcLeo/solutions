@@ -57,11 +57,16 @@ exports.sendInvite = async (req, res) => {
   }
 };
 
-exports.getSentInvites = async (senderId) => {
+exports.getSentInvites = async (userId) => {
+  console.log('Fetching sent invites for user:', userId); // Add this line
+  if (!userId) {
+    throw new Error('User ID is required to get sent invites.');
+  }
   try {
-    const invites = await Invite.getBySenderId(senderId);
+    const invites = await Invite.getBySenderId(userId);
     return invites;
   } catch (error) {
+    console.error('Error fetching sent invites:', error);
     throw new Error('Erro ao buscar convites enviados.');
   }
 };
