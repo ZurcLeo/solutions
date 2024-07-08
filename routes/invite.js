@@ -155,6 +155,6 @@ router.get('/sent', verifyToken, inviteController.getSentInvites);
  *       500:
  *         description: Erro no servidor
  */
-router.put('/cancel/:id', verifyToken, inviteController.cancelInvite);
+router.put('/cancel', verifyToken, inviteController.cancelInvite);
 
 module.exports = router;

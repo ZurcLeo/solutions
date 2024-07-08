@@ -30,9 +30,11 @@ class Invite {
   }
 
   static async update(id, data) {
-    const inviteRef = db.collection('convites').doc(id);
-    await inviteRef.update(data);
-    const updatedDoc = await inviteRef.get();
+    const inviteRef = db.collection('convites').where('id', '==', id).get();
+    if (inviteRef.empty) {
+      throw new Error('Nenhum convite encontrado com este código.');
+    }
+    const updatedDoc = inviteRef.docs[0]; // Get the first document
     return new Invite({ ...updatedDoc.data(), id: updatedDoc.id });
   }
 

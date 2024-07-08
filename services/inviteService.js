@@ -58,7 +58,7 @@ exports.sendInvite = async (req, res) => {
 };
 
 exports.getSentInvites = async (userId) => {
-  console.log('Fetching sent invites for user:', userId); // Add this line
+  console.log('Fetching sent invites for user:', userId);
   if (!userId) {
     throw new Error('User ID is required to get sent invites.');
   }
@@ -71,9 +71,11 @@ exports.getSentInvites = async (userId) => {
   }
 };
 
-exports.cancelInvite = async (req, res) => {
-  const { inviteId } = req.params;
-
+exports.cancelInvite = async (inviteId) => {
+  console.log('Fetching sent invites for user:', userId);
+  if (!inviteId) {
+    throw new Error('Código de convite - inviteID - é obrigatório para esta requisição.');
+  }
   try {
     const invite = await Invite.update(inviteId, { status: 'cancelado' });
     res.status(200).json(invite);
