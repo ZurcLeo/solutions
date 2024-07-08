@@ -3,6 +3,20 @@ const { v4: uuidv4 } = require('uuid');
 const { sendEmail } = require('../services/emailService');
 const Invite = require('../models/Invite');
 const { auth } = require('../firebaseAdmin');
+const Joi = require('joi');
+
+const inviteSchema = Joi.object().keys({
+  id: Joi.string().optional(),
+  createdAt: Joi.date().optional(),
+  senderId: Joi.string().required(),
+  senderName: Joi.string().required(),
+  senderPhotoURL: Joi.string().required(),
+  inviteId: Joi.string().required(),
+  email: Joi.string().email().required(),
+  validatedBy: Joi.string().optional(),
+  status: Joi.string().required().valid('pending', 'used', 'cancelado', 'expirado'),
+  lastSentAt: Joi.date().optional()
+});
 
 exports.getInviteById = async (id) => {
   try {
@@ -14,9 +28,13 @@ exports.getInviteById = async (id) => {
 
 exports.createInvite = async (data) => {
   try {
+    const { error } = inviteSchema.validate(data);
+    if (error) {
+      return { status: 400, message: `Invalid invite data: ${error.message}` };
+    }
     return await Invite.create(data);
   } catch (error) {
-    throw new Error('Failed to create invite');
+    return { status: 500, message: 'Failed to create invite' };
   }
 };
 
@@ -39,18 +57,12 @@ exports.sendInvite = async (req, res) => {
   }
 };
 
-exports.getSentInvites = async (req, res) => {
-  if (!req.params.uid) {
-    return res.status(400).json({ message: 'UID is required' });
-  }
-
-  const {uid} = req.params;
-
+exports.getSentInvites = async (senderId) => {
   try {
-    const invites = await Invite.getBySenderId(uid);
-    res.status(200).json(invites);
+    const invites = await Invite.getBySenderId(senderId);
+    return invites;
   } catch (error) {
-    res.status(500).json({ message: 'Erro ao buscar convites enviados.', error: error.message });
+    throw new Error('Erro ao buscar convites enviados.');
   }
 };
 

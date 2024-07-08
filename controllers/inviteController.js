@@ -1,16 +1,12 @@
 const inviteService = require('../services/inviteService');
 
 exports.getSentInvites = async (req, res) => {
-  if (!req.body) {
-    return res.status(401).json({ message: 'Requisição não possui UID.' });
-  }
-  const uid = req.body; 
-
+  const { senderId } = req.params;
   try {
-    const invites = await inviteService.getSentInvites(uid);
+    const invites = await inviteService.getSentInvites(senderId);
     res.status(200).json(invites);
   } catch (error) {
-    res.status(404).json({ message: error.message });
+    res.status(500).json({ message: 'Erro ao buscar convites enviados.', error: error.message });
   }
 };
 

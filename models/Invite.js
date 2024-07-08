@@ -1,3 +1,4 @@
+const { error } = require('winston');
 const {admin} = require('../firebaseAdmin');
 const firestore = admin.firestore();
 
@@ -43,6 +44,11 @@ class Invite {
   }
 
   static async getBySenderId(senderId) {
+    const userRef = firestore.collection('usuario').doc(senderId);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      throw new Error('Usuário não encontrado.', error);
+    }
     const snapshot = await firestore.collection('convites').where('senderId', '==', senderId).get();
     return snapshot.docs.map(doc => new Invite(doc.data()));
   }
