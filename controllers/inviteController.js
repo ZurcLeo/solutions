@@ -1,8 +1,13 @@
 const inviteService = require('../services/inviteService');
 
 exports.getSentInvites = async (req, res) => {
+  if (!req.body) {
+    return res.status(401).json({ message: 'Requisição não possui UID.' });
+  }
+  const uid = req.body; 
+
   try {
-    const invites = await inviteService.getSentInvites(req.params.id);
+    const invites = await inviteService.getSentInvites(uid);
     res.status(200).json(invites);
   } catch (error) {
     res.status(404).json({ message: error.message });

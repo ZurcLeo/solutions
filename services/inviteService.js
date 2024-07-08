@@ -40,6 +40,10 @@ exports.sendInvite = async (req, res) => {
 };
 
 exports.getSentInvites = async (req, res) => {
+  if (!req.params.uid) {
+    return res.status(400).json({ message: 'UID is required' });
+  }
+
   const {uid} = req.params;
 
   try {

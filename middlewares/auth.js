@@ -24,6 +24,7 @@ const verifyToken = async (req, res, next) => {
     const decodedToken = await auth.verifyIdToken(idToken);
     console.log('Decoded Token:', decodedToken); // Adiciona log do token decodificado
     req.user = decodedToken;
+    req.uid = decodedToken.uid;
     return next();
   } catch (error) {
     console.error('Token verification failed:', error.message, error);

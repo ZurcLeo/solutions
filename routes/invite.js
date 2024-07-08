@@ -1,13 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth')
-const { 
-  getSentInvites, 
-  cancelInvite, 
-  sendInvite, 
-  validateInvite, 
-  invalidateInvite 
-} = require('../controllers/inviteController');
+const inviteController = require('../controllers/inviteController');
 
 // Lista de origens permitidas
 const allowedOrigins = [
@@ -64,7 +58,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.post('/validate', validateInvite);
+router.post('/validate', inviteController.validateInvite);
 
 /**
  * @swagger
@@ -91,7 +85,7 @@ router.post('/validate', validateInvite);
  *       500:
  *         description: Erro no servidor
  */
-router.post('/invalidate', verifyToken, invalidateInvite);
+router.post('/invalidate', verifyToken, inviteController.invalidateInvite);
 /**
  * @swagger
  * /invite/generate:
@@ -117,7 +111,7 @@ router.post('/invalidate', verifyToken, invalidateInvite);
  *       500:
  *         description: Erro no servidor
  */
-router.post('/generate', verifyToken, sendInvite);
+router.post('/generate', verifyToken, inviteController.sendInvite);
 /**
  * @swagger
  * /invite/sent:
@@ -130,7 +124,7 @@ router.post('/generate', verifyToken, sendInvite);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/sent', verifyToken, getSentInvites);
+router.get('/sent', verifyToken, inviteController.getSentInvites);
 /**
  * @swagger
  * /invite/cancel/{id}:
@@ -150,6 +144,6 @@ router.get('/sent', verifyToken, getSentInvites);
  *       500:
  *         description: Erro no servidor
  */
-router.put('/cancel/:id', verifyToken, cancelInvite);
+router.put('/cancel/:id', verifyToken, inviteController.cancelInvite);
 
 module.exports = router;
