@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const validate = require('../middlewares/validate');
+const notificationSchema = require('../schemas/notificationSchema');
 const notificationsController = require('../controllers/notificationsController');
 const verifyToken = require('../middlewares/auth');
+const { logger } = require('../logger')
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000', 'https://eloscloudapp-1cefc4b4944e.herokuapp.com'];
@@ -21,6 +24,19 @@ router.use((req, res, next) => {
     return res.status(204).end();
   }
 
+  next();
+});
+
+// Middleware para logar todas as requisições
+router.use((req, res, next) => {
+  logger.info('Requisição recebida', {
+    service: 'api',
+    function: req.originalUrl,
+    method: req.method,
+    url: req.originalUrl,
+    headers: req.headers,
+    body: req.body
+  });
   next();
 });
 
@@ -58,7 +74,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.post('/', verifyToken, notificationsController.createNotification);
+router.post('/', verifyToken, validate(notificationSchema), notificationsController.createNotification);
 
 /**
  * @swagger
@@ -91,7 +107,7 @@ router.post('/', verifyToken, notificationsController.createNotification);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:userId', verifyToken, notificationsController.getUserNotifications);
+router.get('/:userId', verifyToken, validate(notificationSchema), notificationsController.getUserNotifications);
 
 /**
  * @swagger
@@ -135,6 +151,6 @@ router.get('/:userId', verifyToken, notificationsController.getUserNotifications
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:userId/markAsRead', verifyToken, notificationsController.markAsRead);
+router.post('/:userId/markAsRead', verifyToken, validate(notificationSchema), notificationsController.markAsRead);
 
 module.exports = router;

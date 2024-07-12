@@ -3,6 +3,9 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const authController = require('../controllers/authController');
 const verifyToken = require('../middlewares/auth');
+const validate = require('../middlewares/validate');
+const userSchema = require('../schemas/userSchema');
+const { logger } = require('../logger')
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
@@ -22,6 +25,19 @@ router.use((req, res, next) => {
     return res.status(204).end();
   }
 
+  next();
+});
+
+// Middleware para logar todas as requisições
+router.use((req, res, next) => {
+  logger.info('Requisição recebida', {
+    service: 'api',
+    function: req.originalUrl,
+    method: req.method,
+    url: req.originalUrl,
+    headers: req.headers,
+    body: req.body
+  });
   next();
 });
 
@@ -50,7 +66,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.get('/', userController.getUsers);
+router.get('/', verifyToken, userController.getUsers);
 
 /**
  * @swagger
@@ -79,7 +95,7 @@ router.get('/', userController.getUsers);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:id', userController.getUserById);
+router.get('/:id', verifyToken, validate(userSchema), userController.getUserById);
 
 /**
  * @swagger
@@ -105,7 +121,7 @@ router.get('/:id', userController.getUserById);
  *       500:
  *         description: Erro no servidor
  */
-router.post('/add-user', userController.addUser);
+router.post('/add-user', verifyToken, validate(userSchema), userController.addUser);
 
 /**
  * @swagger
@@ -140,7 +156,7 @@ router.post('/add-user', userController.addUser);
  *       500:
  *         description: Erro no servidor
  */
-router.put('/update-user/:id', userController.updateUser);
+router.put('/update-user/:id', verifyToken, validate(userSchema), userController.updateUser);
 
 /**
  * @swagger
@@ -165,7 +181,7 @@ router.put('/update-user/:id', userController.updateUser);
  *       500:
  *         description: Erro no servidor
  */
-router.delete('/delete-user/:id', userController.deleteUser);
+router.delete('/delete-user/:id', verifyToken, validate(userSchema), userController.deleteUser);
 
 /**
  * @swagger
@@ -187,6 +203,6 @@ router.delete('/delete-user/:id', userController.deleteUser);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/me', verifyToken, authController.getCurrentUser);
+router.get('/me', verifyToken, validate(userSchema), authController.getCurrentUser);
 
 module.exports = router;

@@ -1,8 +1,9 @@
-const { admin } = require('../firebaseAdmin');
-const firestore = admin.firestore();
+const { db } = require('../firebaseAdmin');
+const { logger } = require('../logger');
 
 class User {
   constructor(data) {
+    logger.info('Criando nova instância de User', { service: 'userModel', function: 'constructor', data });
     this.id = data.id || data.uid;
     this.uid = data.uid;
     this.nome = data.nome;
@@ -23,33 +24,93 @@ class User {
     this.conversasComMensagensNaoLidas = data.conversasComMensagensNaoLidas || [];
   }
 
-  static async getById(id) {
-    const doc = await firestore.collection('usuario').doc(id).get();
-    if (!doc.exists) {
-      throw new Error('Usuário não encontrado.');
+  toPlainObject() {
+    return {
+      id: this.id,
+      uid: this.uid,
+      nome: this.nome,
+      email: this.email,
+      reacoes: this.reacoes,
+      perfilPublico: this.perfilPublico,
+      ja3Hash: this.ja3Hash,
+      tipoDeConta: this.tipoDeConta,
+      isOwnerOrAdmin: this.isOwnerOrAdmin,
+      fotoDoPerfil: this.fotoDoPerfil,
+      descricao: this.descricao,
+      interessesNegocios: this.interessesNegocios,
+      amigosAutorizados: this.amigosAutorizados,
+      amigos: this.amigos,
+      interessesPessoais: this.interessesPessoais,
+      dataCriacao: this.dataCriacao,
+      saldoElosCoins: this.saldoElosCoins,
+      conversasComMensagensNaoLidas: this.conversasComMensagensNaoLidas
+    };
+  }
+
+  static async getById(userId) {
+    logger.info('getById chamado', { service: 'userModel', function: 'getById', userId });
+    if (!userId) {
+      const error = new Error('userId não fornecido');
+      logger.error('Erro no getById', { service: 'userModel', function: 'getById', error: error.message });
+      throw error;
     }
-    const data = doc.data();
-    data.id = id; // Garante que o ID está no objeto
-    return new User(data);
+
+    try {
+      const userDoc = await db.collection('usuario').doc(userId).get();
+      if (!userDoc.exists) {
+        const error = new Error('Usuário não encontrado.');
+        logger.warn('Usuário não encontrado no getById', { service: 'userModel', function: 'getById', userId });
+        throw error;
+      }
+      const userData = userDoc.data();
+      userData.id = userId;
+      logger.info('Dados do usuário encontrados', { service: 'userModel', function: 'getById', userData });
+      return new User(userData);
+    } catch (error) {
+      logger.error('Erro ao obter usuário por ID', { service: 'userModel', function: 'getById', userId, error: error.message });
+      throw new Error('Erro ao obter usuário por ID');
+    }
   }
 
   static async create(data) {
+    logger.info('create chamado', { service: 'userModel', function: 'create', data });
     const user = new User(data);
-    const docRef = await firestore.collection('usuario').add({ ...user });
-    user.id = docRef.id;
-    return user;
+    try {
+      const docRef = await db.collection('usuario').add(user.toPlainObject());
+      user.id = docRef.id;
+      logger.info('Usuário criado com sucesso', { service: 'userModel', function: 'create', userId: user.id });
+      return user;
+    } catch (error) {
+      logger.error('Erro ao criar usuário', { service: 'userModel', function: 'create', error: error.message });
+      throw new Error('Erro ao criar usuário');
+    }
   }
 
   static async update(id, data) {
-    const userRef = firestore.collection('usuario').doc(id);
-    await userRef.update(data);
-    const updatedDoc = await userRef.get();
-    return new User(updatedDoc.data());
+    logger.info('update chamado', { service: 'userModel', function: 'update', userId: id, data });
+    const userRef = db.collection('usuario').doc(id);
+    try {
+      await userRef.update(data);
+      const updatedDoc = await userRef.get();
+      const updatedUser = new User(updatedDoc.data());
+      logger.info('Usuário atualizado com sucesso', { service: 'userModel', function: 'update', userId: id });
+      return updatedUser;
+    } catch (error) {
+      logger.error('Erro ao atualizar usuário', { service: 'userModel', function: 'update', userId: id, error: error.message });
+      throw new Error('Erro ao atualizar usuário');
+    }
   }
 
   static async delete(id) {
-    const userRef = firestore.collection('usuario').doc(id);
-    await userRef.delete();
+    logger.info('delete chamado', { service: 'userModel', function: 'delete', userId: id });
+    const userRef = db.collection('usuario').doc(id);
+    try {
+      await userRef.delete();
+      logger.info('Usuário deletado com sucesso', { service: 'userModel', function: 'delete', userId: id });
+    } catch (error) {
+      logger.error('Erro ao deletar usuário', { service: 'userModel', function: 'delete', userId: id, error: error.message });
+      throw new Error('Erro ao deletar usuário');
+    }
   }
 }
 

@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth');
+const validate = require('../middlewares/validate');
+const inviteSchema = require('../schemas/inviteSchema');
 const inviteController = require('../controllers/inviteController');
+const { logger } = require('../logger');
 
 // Lista de origens permitidas
 const allowedOrigins = [
@@ -24,6 +27,19 @@ router.use((req, res, next) => {
     return res.status(204).end();
   }
 
+  next();
+});
+
+// Middleware para logar todas as requisições
+router.use((req, res, next) => {
+  logger.info('Requisição recebida', {
+    service: 'api',
+    function: req.originalUrl,
+    method: req.method,
+    url: req.originalUrl,
+    headers: req.headers,
+    body: req.body
+  });
   next();
 });
 
@@ -86,7 +102,7 @@ router.post('/validate', inviteController.validateInvite);
  *       500:
  *         description: Erro no servidor
  */
-router.post('/invalidate', verifyToken, inviteController.invalidateInvite);
+router.post('/invalidate', verifyToken, validate(inviteSchema), inviteController.invalidateInvite);
 
 /**
  * @swagger
@@ -105,6 +121,10 @@ router.post('/invalidate', verifyToken, inviteController.invalidateInvite);
  *                 type: string
  *                 description: Email para o qual o convite será gerado
  *                 example: user@example.com
+ *               nome:
+ *                 type: string
+ *                 description: Nome do amigo
+ *                 example: João Silva
  *     responses:
  *       201:
  *         description: Convite gerado com sucesso
@@ -113,7 +133,7 @@ router.post('/invalidate', verifyToken, inviteController.invalidateInvite);
  *       500:
  *         description: Erro no servidor
  */
-router.post('/generate', verifyToken, inviteController.sendInvite);
+router.post('/generate', verifyToken, validate(inviteSchema), inviteController.sendInvite);
 
 /**
  * @swagger
@@ -134,7 +154,9 @@ router.post('/generate', verifyToken, inviteController.sendInvite);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/sent', verifyToken, inviteController.getSentInvites);
+router.get('/sent', verifyToken, validate(inviteSchema), inviteController.getSentInvites);
+
+router.get('/view/:inviteId', validate(inviteSchema), inviteController.getInviteById);
 
 /**
  * @swagger
@@ -155,6 +177,6 @@ router.get('/sent', verifyToken, inviteController.getSentInvites);
  *       500:
  *         description: Erro no servidor
  */
-router.put('/cancel', verifyToken, inviteController.cancelInvite);
+router.put('/cancel', verifyToken, validate(inviteSchema), inviteController.cancelInvite);
 
 module.exports = router;

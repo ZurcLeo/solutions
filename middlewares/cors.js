@@ -1,5 +1,5 @@
-// middlewares/cors.js
 const cors = require('cors');
+const { logger } = require('../logger');
 
 const allowedOrigins = [
   'https://eloscloud.com',
@@ -7,12 +7,26 @@ const allowedOrigins = [
 ];
 
 const corsOptions = {
-  // Função para verificar se a origem é permitida
   origin: (origin, callback) => {
-    // Permitir origem null para testes locais sem frontend
+    logger.info('Verificação de origem para CORS', {
+      service: 'corsMiddleware',
+      function: 'origin',
+      origin
+    });
+
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      logger.info('Origem permitida por CORS', {
+        service: 'corsMiddleware',
+        function: 'origin',
+        origin
+      });
       callback(null, true);
     } else {
+      logger.warn('Origem não permitida por CORS', {
+        service: 'corsMiddleware',
+        function: 'origin',
+        origin
+      });
       callback(new Error('Not allowed by CORS'));
     }
   },

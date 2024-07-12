@@ -7,37 +7,37 @@ const User = require('../models/User');
 const { addToBlacklist } = require('../services/blacklistService');
 require('dotenv').config();
 
-/**
- * Gera um token JWT para um usuário autenticado.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} res - Resposta HTTP.
- * @returns {Object} - Resposta com o token JWT.
- *  *
- * @description
- * Esta função gera um token JWT para um usuário autenticado.
- */
 exports.getToken = async (req, res) => {
-  const user = req.user; 
-  const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
-  res.status(200).json({ token });
-};
+    const user = req.user; 
+    logger.info('Iniciando geração de token JWT', {
+      service: 'authController',
+      function: 'getToken',
+      user
+    });
+  
+    try {
+      const token = jwt.sign(
+        { id: user.id, email: user.email },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+  
+      logger.info('Token JWT gerado com sucesso', {
+        service: 'authController',
+        function: 'getToken',
+        token
+      });
+      res.status(200).json({ token });
+    } catch (error) {
+      logger.error('Erro ao gerar token JWT', {
+        service: 'authController',
+        function: 'getToken',
+        error: error.message
+      });
+      res.status(500).json({ message: 'Erro ao gerar token', error: error.message });
+    }
+  };
 
-/**
- * Autentica um usuário usando o Facebook.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} req.body - Corpo da requisição.
- * @param {string} req.body.accessToken - Token de acesso do Facebook.
- * @param {Object} res - Resposta HTTP.
- * @returns {Promise<void>} - Promessa que resolve quando o processo de autenticação é concluído.
- * 
- * @description
- * Esta função autentica um usuário usando o token de acesso do Facebook. O processo inclui obter
- * os dados do usuário do Facebook e garantir que o perfil do usuário exista no sistema. Em caso
- * de sucesso, os dados do usuário são retornados na resposta. Em caso de erro, uma mensagem de erro
- * é registrada e retornada na resposta.
- */
 exports.facebookLogin = async (req, res) => {
     const { accessToken } = req.body;
 
@@ -52,20 +52,6 @@ exports.facebookLogin = async (req, res) => {
     }
 };
 
-/**
- * Registra um novo usuário com email e senha.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} req.body - Corpo da requisição.
- * @param {string} req.body.email - Email do usuário.
- * @param {string} req.body.password - Senha do usuário.
- * @param {string} req.body.inviteCode - Código de convite (opcional).
- * @returns {Promise<User>} - Promessa que resolve com o usuário registrado.
- * 
- * @description
- * Esta função registra um novo usuário com email e senha. Se um código de convite for fornecido,
- * o usuário será registrado com o convite associado.
- */
 exports.registerWithEmail = async (req, res) => {
   const { email, password, inviteCode } = req.body;
 
@@ -83,25 +69,6 @@ try {
 }
 }
 
-/**
- * Autentica um usuário usando email e senha.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} req.body - Corpo da requisição.
- * @param {string} req.body.email - Email do usuário.
- * @param {string} req.body.password - Senha do usuário.
- * @param {Object} res - Resposta HTTP.
- * @returns {Promise<void>} - Promessa que resolve quando o processo de autenticação é concluído.
- * 
- * @description
- * Esta função autentica um usuário usando email e senha. O processo inclui:
- * 1. Buscar o registro do usuário pelo email.
- * 2. Criar um token personalizado para o usuário.
- * 3. Verificar se o email do usuário foi verificado.
- * 4. Garantir que o perfil do usuário exista no sistema.
- * Em caso de sucesso, um token de autenticação e uma mensagem de sucesso são retornados na resposta.
- * Em caso de erro, uma mensagem de erro é retornada na resposta.
- */
 exports.signInWithEmail = async (req, res) => {
     const { email, password } = req.body;
 
@@ -122,23 +89,7 @@ exports.signInWithEmail = async (req, res) => {
     }
 };
 
-/**
- * Realiza o logout do usuário e adiciona o token à lista negra.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} req.headers - Cabeçalhos da requisição.
- * @param {string} req.headers.authorization - Cabeçalho de autorização contendo o token.
- * @param {Object} res - Resposta HTTP.
- * @returns {Promise<void>} - Promessa que resolve quando o processo de logout é concluído.
- * 
- * @description
- * Esta função realiza o logout do usuário. O processo inclui:
- * 1. Verificar a presença e o formato do token de autorização no cabeçalho.
- * 2. Extrair o token de autorização.
- * 3. Adicionar o token à lista negra para que não possa mais ser utilizado.
- * Em caso de sucesso, uma mensagem de sucesso é retornada na resposta.
- * Em caso de erro, uma mensagem de erro é retornada na resposta.
- */
+
 exports.logout = async (req, res) => {
     const authHeader = req.headers['authorization'];
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -154,28 +105,6 @@ exports.logout = async (req, res) => {
     }
 };
 
-/**
- * Autentica um usuário usando um provedor externo (Google, Facebook, Microsoft).
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} req.body - Corpo da requisição.
- * @param {string} req.body.idToken - Token de identificação do provedor.
- * @param {string} req.body.provider - Nome do provedor (google, facebook, microsoft).
- * @param {Object} res - Resposta HTTP.
- * @returns {Promise<void>} - Promessa que resolve quando o processo de autenticação é concluído.
- * 
- * @description
- * Esta função autentica um usuário usando um token de identificação de um provedor externo.
- * O processo inclui:
- * 1. Verificar se o provedor fornecido é válido.
- * 2. Verificar e decodificar o token de identificação do provedor.
- * 3. Buscar o registro do usuário com base no UID decodificado.
- * 4. Criar um token JWT personalizado para o usuário.
- * 5. Verificar se o email do usuário foi verificado.
- * 6. Garantir que o perfil do usuário exista no sistema.
- * Em caso de sucesso, um token de autenticação e os dados do usuário são retornados na resposta.
- * Em caso de erro, uma mensagem de erro é retornada na resposta.
- */
 exports.signInWithProvider = async (req, res) => {
     const { idToken, provider } = req.body;
   
@@ -202,28 +131,6 @@ exports.signInWithProvider = async (req, res) => {
     }
 };
 
-/**
- * Registra um usuário usando um provedor externo (Google, Microsoft) e um código de convite.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} req.body - Corpo da requisição.
- * @param {string} req.body.provider - Nome do provedor (google, microsoft).
- * @param {string} req.body.inviteCode - Código de convite.
- * @param {Object} res - Resposta HTTP.
- * @returns {Promise<void>} - Promessa que resolve quando o processo de registro é concluído.
- * 
- * @description
- * Esta função registra um usuário usando um provedor externo e um código de convite.
- * O processo inclui:
- * 1. Validar o código de convite.
- * 2. Determinar o provedor a ser usado com base no parâmetro `provider`.
- * 3. Autenticar o usuário com o provedor externo através de um popup.
- * 4. Garantir que o perfil do usuário exista no sistema.
- * 5. Invalidar o código de convite após o uso.
- * 6. Criar um token JWT personalizado para o usuário.
- * Em caso de sucesso, um token de autenticação e uma mensagem de sucesso são retornados na resposta.
- * Em caso de erro, uma mensagem de erro é retornada na resposta.
- */
 exports.registerWithProvider = async (req, res) => {
     const { provider, inviteCode } = req.body;
 
@@ -250,21 +157,6 @@ exports.registerWithProvider = async (req, res) => {
     }
 };
 
-/**
- * Reenvia o e-mail de verificação para o usuário autenticado.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} res - Resposta HTTP.
- * @returns {Promise<void>} - Promessa que resolve quando o processo de reenvio do e-mail de verificação é concluído.
- * 
- * @description
- * Esta função reenvia o e-mail de verificação para o usuário atualmente autenticado. 
- * O processo inclui:
- * 1. Verificar se há um usuário autenticado.
- * 2. Reenviar o e-mail de verificação para o usuário autenticado.
- * Em caso de sucesso, uma mensagem de sucesso é retornada na resposta.
- * Em caso de erro, uma mensagem de erro é registrada e retornada na resposta.
- */
 exports.resendVerificationEmail = async (req, res) => {
     try {
         if (auth.currentUser) {
@@ -277,24 +169,6 @@ exports.resendVerificationEmail = async (req, res) => {
     }
 };
 
-/**
- * Obtém os dados do usuário autenticado.
- * 
- * @param {Object} req - Requisição HTTP.
- * @param {Object} req.headers - Cabeçalhos da requisição.
- * @param {string} req.headers.authorization - Cabeçalho de autorização contendo o token.
- * @param {Object} res - Resposta HTTP.
- * @returns {Promise<void>} - Promessa que resolve quando o processo de obtenção dos dados do usuário é concluído.
- * 
- * @description
- * Esta função obtém os dados do usuário atualmente autenticado. O processo inclui:
- * 1. Verificar e decodificar o token de identificação do usuário.
- * 2. Buscar o registro do usuário com base no UID decodificado.
- * 3. Buscar o perfil do usuário a partir do banco de dados.
- * 4. Combinar os dados do usuário do registro de autenticação com os dados do perfil do banco de dados.
- * Em caso de sucesso, os dados do usuário são retornados na resposta.
- * Em caso de erro, uma mensagem de erro é registrada e retornada na resposta.
- */
 exports.getCurrentUser = async (req, res) => {
     try {
         const decodedToken = await auth.verifyIdToken(req.headers.authorization.split(' ')[1]);
@@ -321,35 +195,6 @@ exports.getCurrentUser = async (req, res) => {
         res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
     }
 };
-
-/**
- * Retorna uma instância do provedor de autenticação com base no nome do provedor.
- * 
- * @param {string} provider - Nome do provedor (google, facebook, microsoft).
- * @returns {Object} - Instância do provedor de autenticação.
- * @throws {Error} - Lança um erro se o provedor for inválido.
- * 
- * @description
- * Esta função retorna uma instância apropriada do provedor de autenticação com base no nome do provedor fornecido.
- * Os provedores suportados são:
- * 1. Google
- * 2. Facebook
- * 3. Microsoft
- * Se um provedor inválido for fornecido, a função lançará um erro.
- */
-const getProviderInstance = (provider) => {
-    switch (provider) {
-      case 'google':
-        return new firebase.auth.GoogleAuthProvider();
-      case 'facebook':
-        return new firebase.auth.FacebookAuthProvider();
-      case 'microsoft':
-        return new firebase.auth.OAuthProvider('microsoft.com');
-      default:
-        throw new Error(`Invalid provider: ${provider}`);
-    }
-};
-
 
 async function validateInvite(inviteCode) {
     const inviteRef = admin.firestore().doc(`convites/${inviteCode}`);

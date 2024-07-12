@@ -1,106 +1,131 @@
 // services/notificationService.js
-const { db } = require('../firebaseAdmin');
 const { FieldValue } = require('firebase-admin/firestore');
-const Joi = require('joi')
-const { getUserById } = require('../controllers/userController')
+const { logger } = require('../logger');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
 
-const notificationSchema = Joi.object({
-  userId: Joi.string().optional(),
-  type: Joi.string()
-  .valid(
-    'global', 
-    'reacao',
-    'comentario', 
-    'presente', 
-    'postagem',
-    'caixinha',
-    'mensagem',
-    'amizade_aceita',
-    'pedido_amizade',
-    'email_enviado'
-  ).required(),
-  conteudo: Joi.string().required(),
-  url: Joi.string().uri().optional(),
-});
-
-exports.getUserNotifications = async (userId) => {
-    const privateNotificationsRef = db.collection(`notificacoes/${userId}/notifications`);
-    const globalNotificationsRef = db.collection('notificacoes/global/notifications');
-
-    const privateSnapshot = await privateNotificationsRef.where("lida", "==", false).get();
-    const globalSnapshot = await globalNotificationsRef.get();
-
-    const privateNotifications = privateSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-    }));
-
-    const globalNotifications = globalSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-            id: doc.id,
-            ...data,
-            isRead: !!data.lida[userId]
-        };
-    }).filter(notification => !notification.isRead);
-
-    return { privateNotifications, globalNotifications };
+const getUserNotifications = async (userId) => {
+  logger.info('Obtendo notificações do usuário', {
+    service: 'notificationService',
+    function: 'getUserNotifications',
+    userId
+  });
+  
+  try {
+    const data = await Notification.getUserNotifications(userId);
+    logger.info('Notificações obtidas com sucesso', {
+      service: 'notificationService',
+      function: 'getUserNotifications',
+      userId,
+      data
+    });
+    return { success: true, data };
+  } catch (error) {
+    logger.error(`Error getting user notifications: ${error.message}`, {
+      service: 'notificationService',
+      function: 'getUserNotifications',
+      userId
+    });
+    return { success: false, message: `Error getting user notifications: ${error.message}` };
+  }
 };
 
-exports.markAsRead = async (userId, notificationId, type) => {
-  console.log(`markAsRead service called with userId: ${userId}, notificationId: ${notificationId}, type: ${type}`);
+const markAsRead = async (userId, notificationId, type) => {
+  logger.info('Marcando notificação como lida', {
+    service: 'notificationService',
+    function: 'markAsRead',
+    userId,
+    notificationId,
+    type
+  });
 
   try {
-    const notificationDocRef = type === 'global'
-      ? db.collection('notificacoes/global/notifications').doc(notificationId)
-      : db.collection(`notificacoes/${userId}/notifications`).doc(notificationId);
+    const data = type === 'global' ? { [`lida.${userId}`]: FieldValue.serverTimestamp() } : { lidaEm: FieldValue.serverTimestamp() };
+    const notification = await Notification.update(notificationId, data, userId, type);
+    logger.info('Notificação marcada como lida com sucesso', {
+      service: 'notificationService',
+      function: 'markAsRead',
+      userId,
+      notificationId,
+      type,
+      data: notification
+    });
+    return { success: true, message: 'Notification marked as read successfully', data: notification };
+  } catch (error) {
+    logger.error('Error updating notification', {
+      service: 'notificationService',
+      function: 'markAsRead',
+      userId,
+      notificationId,
+      type,
+      error: error.message
+    });
+    return { success: false, message: `Error updating notification: ${error.message}` };
+  }
+};
 
+const createNotification = async (data) => {
+  logger.info('Criando notificação', {
+    service: 'notificationService',
+    function: 'createNotification',
+    data
+  });
+  const { userId, type, conteudo, url } = data;
+  logger.info('imprimindo data.userId no create notification', userId)
+
+  try {
+    let fotoDoPerfil;
     if (type === 'global') {
-      await notificationDocRef.update({
-        [`lida.${userId}`]: FieldValue.serverTimestamp()
-      });
+      fotoDoPerfil = process.env.CLAUD_PROFILE_IMG;
     } else {
-      await notificationDocRef.update({ 
-        ['lidaEm']: FieldValue.serverTimestamp()
-       });
+      try {
+        const user = await User.getById(userId);
+        if (!user) {
+          throw new Error('User not found');
+        }
+        fotoDoPerfil = user.fotoDoPerfil;
+      } catch (userError) {
+        logger.error('Erro ao buscar usuário', {
+          service: 'notificationService',
+          function: 'createNotification',
+          error: userError.message
+        });
+        throw userError;
+      }
     }
 
-    console.log('Notification marked as read successfully');
+    logger.info('Foto de perfil obtida', {
+      service: 'notificationService',
+      function: 'createNotification',
+      fotoDoPerfil
+    });
+
+    const notificationData = { ...data, fotoDoPerfil };
+    logger.info('Dados completos da notificação', {
+      service: 'notificationService',
+      function: 'createNotification',
+      notificationData
+    });
+
+    const notification = await Notification.create(notificationData);
+    logger.info('Notificação criada com sucesso', {
+      service: 'notificationService',
+      function: 'createNotification',
+      notification
+    });
+    return { success: true };
   } catch (error) {
-    console.error('Error updating notification', error);
-    throw error;
+    logger.error('Erro ao criar notificação', {
+      service: 'notificationService',
+      function: 'createNotification',
+      error: error.message
+    });
+    return { success: false };
   }
 };
 
-exports.createNotification = async (data) => {
-  const { error, value } = notificationSchema.validate(data);
-  if (error) {
-      console.error(`Validation error: ${error.details[0].message}`);
-      throw new Error('Invalid request parameters');
-  }
-
-  const { userId, type, conteudo, url } = value;
-
-  const notification = {
-      conteudo,
-      tipo: type,
-      lida: {},
-      timestamp: FieldValue.serverTimestamp(),
-      userId: type === 'global' ? 'global' : userId,
-      fotoDoPerfil: type === 'global'? process.env.CLAUD_PROFILE_IMG : (await getUserById(userId)).fotoDoPerfil,
-      url: type === 'global'? url : 'url-para-o-evento-que-gerou-a-notificacao'
-  }
-
-  try {
-      if (type === 'global') {
-          await db.collection('notificacoes/global/notifications').add(notification);
-      } else {
-          await db.collection(`notificacoes/${userId}/notifications`).add(notification);
-      }
-  } catch (error) {
-      console.error(`Error creating notification: ${error.message}`);
-      console.error(error.stack);
-      console.error(`User ID: ${userId}, Type: ${type}`);
-      throw new Error('Failed to create notification');
-  }
+module.exports = {
+  getUserNotifications,
+  markAsRead,
+  createNotification
 };

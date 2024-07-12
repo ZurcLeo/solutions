@@ -1,43 +1,71 @@
-// middlewares/auth.js
 const { auth } = require('../firebaseAdmin');
+const { logger } = require('../logger');
 const { isTokenBlacklisted } = require('../services/blacklistService');
 
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  console.log('Authorization Header:', authHeader); 
-  
+  logger.info('Verificação de token iniciada', {
+    service: 'authMiddleware',
+    function: 'verifyToken',
+    authHeader
+  });
+
   // Verifica se o cabeçalho de autorização está presente e tem o formato correto
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.error('No token provided or invalid format');
-    return res.status(401).json({ message: 'No token provided or invalid format' });
+    logger.error('Token não fornecido ou formato inválido', {
+      service: 'authMiddleware',
+      function: 'verifyToken'
+    });
+    return res.status(401).json({ message: 'Token não fornecido ou formato inválido' });
   }
 
   // Extrai o token do cabeçalho de autorização
   const idToken = authHeader.split(' ')[1];
-  console.log('Extracted ID Token:', idToken);
+  logger.info('Token extraído', {
+    service: 'authMiddleware',
+    function: 'verifyToken',
+    idToken
+  });
 
   try {
     // Verifica se o token está na lista negra
     const blacklisted = await isTokenBlacklisted(idToken);
     if (blacklisted) {
-      console.error('Token is blacklisted');
-      return res.status(401).json({ message: 'Token is blacklisted' });
+      logger.error('Token está na lista negra', {
+        service: 'authMiddleware',
+        function: 'verifyToken',
+        idToken
+      });
+      return res.status(401).json({ message: 'Token está na lista negra' });
     }
 
     // Verifica e decodifica o token
     const decodedToken = await auth.verifyIdToken(idToken);
-    console.log('Decoded Token:', decodedToken);
+    logger.info('Token decodificado', {
+      service: 'authMiddleware',
+      function: 'verifyToken',
+      decodedToken
+    });
 
     // Adiciona as informações do usuário ao objeto req
     req.user = decodedToken;
     req.uid = decodedToken.uid;
 
     // Chama o próximo middleware ou rota
+    logger.info('Token verificado com sucesso', {
+      service: 'authMiddleware',
+      function: 'verifyToken',
+      userId: decodedToken.uid
+    });
     return next();
   } catch (error) {
     // Trata erros de verificação do token
-    console.error('Token verification failed:', error.message, error);
-    return res.status(401).json({ message: 'Unauthorized', error: error.message });
+    logger.error('Falha na verificação do token', {
+      service: 'authMiddleware',
+      function: 'verifyToken',
+      error: error.message
+    });
+    return res.status(401).json({ message: 'Não autorizado', error: error.message });
   }
 };
 

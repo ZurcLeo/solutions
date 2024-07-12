@@ -1,7 +1,9 @@
-//routes/email.js
+// routes/email.js
 const express = require('express');
 const router = express.Router();
 const emailController = require('../controllers/emailController');
+const verifyToken = require('../middlewares/auth');
+const { logger } = require('../logger');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
@@ -21,6 +23,19 @@ router.use((req, res, next) => {
     return res.status(204).end();
   }
 
+  next();
+});
+
+// Middleware para logar todas as requisições
+router.use((req, res, next) => {
+  logger.info('Requisição recebida', {
+    service: 'api',
+    function: req.originalUrl,
+    method: req.method,
+    url: req.originalUrl,
+    headers: req.headers,
+    body: req.body
+  });
   next();
 });
 
@@ -61,6 +76,6 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.post('/send-invite', emailController.sendInviteEmail);
+router.post('/send-invite', verifyToken, emailController.sendInviteEmail);
 
 module.exports = router;

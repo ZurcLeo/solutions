@@ -8,6 +8,7 @@ class Invite {
     this.senderName = data.senderName;
     this.senderPhotoURL = data.senderPhotoURL;
     this.inviteId = data.inviteId;
+    this.lastSentAt = data.inviteId;
     this.email = data.email;
     this.validatedBy = data.validatedBy || null;
     this.status = data.status;

@@ -1,18 +1,33 @@
-//controllers/emailController.js
+// controllers/emailController.js
+const { logger } = require('../logger');
 const { sendEmail } = require('../services/emailService');
 
-exports.sendInviteEmail = async (req, res) => {
-    const { to, subject, message } = req.body;
+exports.sendInviteEmail = async (emailData) => {
+  const { to, subject, content, userId, inviteId, type } = emailData;
+  console.log('emailData em emailcontroller: ', emailData)
 
-    if (!to || !subject || !message) {
-        return res.status(400).json({ message: 'Parâmetros inválidos' });
-    }
+  logger.info('Requisição em send invite email no controlador de emails', {
+    service: 'emailController',
+    function: 'sendInviteEmail',
+    emailData
+  });
 
-    try {
-        await sendEmail(to, subject, message);
-        res.status(200).json({ message: 'Convite enviado com sucesso' });
-    } catch (error) {
-        console.error('Erro ao enviar convite:', error);
-        res.status(500).json({ message: 'Erro ao enviar convite', error: error.message });
+  try {
+    const result = await sendEmail(to, subject, content, userId, inviteId, type);
+    if (result === true) {
+      logger.info('Email enviado com sucesso', {
+        service: 'emailController',
+        function: 'sendInviteEmail',
+        result
+      });
+      return { status: 201, json: { success: true, message: 'E-mail de convite enviado com sucesso:', result } };
     }
+  } catch (error) {
+    logger.error('Erro ao enviar convite', {
+      service: 'emailController',
+      function: 'sendInviteEmail',
+      error: error.message
+    });
+    return { status: 500, json: { message: 'Internal server error', error: error.message } };
+  }
 };

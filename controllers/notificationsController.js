@@ -1,47 +1,108 @@
-// notificationsController.js
+// controllers/notificationController.js
 const notificationService = require('../services/notificationService');
+const { logger } = require('../logger');
 
-exports.getUserNotifications = async (req, res) => {
-    try {
-      const notifications = await notificationService.getUserNotifications(req.params.userId);
-      res.status(200).json(notifications);
-    } catch (error) {
-      console.error('Error getting user notifications:', error);
-      res.status(500).json({ message: 'Error getting user notifications', error: error.message });
-    }
-  };
+const getUserNotifications = async (req, res) => {
+  const userId = req.uid;
+  logger.info('Requisicao para obter notificacoes do usuario', {
+    service: 'notificationController',
+    function: 'getUserNotifications',
+    userId
+  });
 
-  exports.markAsRead = async (req, res) => {
-    const { notificationId, type } = req.body;
-    const { userId } = req.params; // Obter userId dos parâmetros da URL
-  
-    console.log(`markAsRead called with userId: ${userId}, notificationId: ${notificationId}, type: ${type}`);
-  
-    if (!userId || !notificationId || !type) {
-      console.error('Missing required fields', { userId, notificationId, type });
-      return res.status(400).json({ message: 'Missing required fields' });
-    }
-  
-    try {
-      await notificationService.markAsRead(userId, notificationId, type);
-      res.status(200).json({ message: 'Notification marked as read' });
-    } catch (error) {
-      console.error('Error marking notification as read', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
-    }
-  };
+  try {
+    const result = await notificationService.getUserNotifications(userId);
+    logger.info('Notificacoes obtidas com sucesso', {
+      service: 'notificationController',
+      function: 'getUserNotifications',
+      userId,
+      result
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error('Erro ao obter notificacoes do usuario', {
+      service: 'notificationController',
+      function: 'getUserNotifications',
+      userId,
+      error: error.message
+    });
+    res.status(500).json({ message: 'Erro ao obter notificacoes', error: error.message });
+  }
+};
 
-exports.createNotification = async (req, res) => {
-    try {
-      const { userId, type, conteudo } = req.body;
-  
-      if (!type || !conteudo || (type === 'private' && !userId)) {
-        return res.status(400).json({ message: 'Invalid request parameters' });
-      }
-  
-      await notificationService.createNotification({ userId, type, conteudo });
-      res.status(201).json({ message: 'Notification created successfully' });
-    } catch (error) {
-      res.status(500).json({ message: 'Server error', error: error.message });
-    }
-  };
+const markAsRead = async (req, res) => {
+  const { userId, notificationId, type } = req.body;
+  logger.info('Requisicao para marcar notificacao como lida', {
+    service: 'notificationController',
+    function: 'markAsRead',
+    userId,
+    notificationId,
+    type
+  });
+
+  try {
+    const result = await notificationService.markAsRead(userId, notificationId, type);
+    logger.info('Notificacao marcada como lida com sucesso', {
+      service: 'notificationController',
+      function: 'markAsRead',
+      userId,
+      notificationId,
+      type,
+      result
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error('Erro ao marcar notificacao como lida', {
+      service: 'notificationController',
+      function: 'markAsRead',
+      userId,
+      notificationId,
+      type,
+      error: error.message
+    });
+    res.status(500).json({ message: 'Erro ao marcar notificacao como lida', error: error.message });
+  }
+};
+
+const createNotification = async (req, res) => {
+  const { userId, conteudo, type, url } = req;
+  logger.info('Requisicao para criar notificacao', {
+    service: 'notificationController',
+    function: 'createNotification',
+    userId,
+    conteudo,
+    type,
+    url
+  });
+
+  try {
+    const result = await notificationService.createNotification(req);
+    logger.info('Notificacao criada com sucesso', {
+      service: 'notificationController',
+      function: 'createNotification',
+      userId,
+      conteudo,
+      type,
+      url,
+      result
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    logger.error('Erro ao criar notificacao', {
+      service: 'notificationController',
+      function: 'createNotification',
+      userId,
+      conteudo,
+      type,
+      url,
+      error: error.message
+    });
+    res.status(500).json({ message: 'Erro ao criar notificacao', error: error.message });
+  }
+};
+
+module.exports = {
+  getUserNotifications,
+  markAsRead,
+  createNotification
+};
