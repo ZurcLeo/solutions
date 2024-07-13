@@ -2,8 +2,8 @@
 const Joi = require('joi');
 
 const userSchema = Joi.object({
-  id: Joi.string().optional(),
-  uid: Joi.string().required(),
+  id: Joi.string().required(),
+  uid: Joi.string().optional(),
   nome: Joi.string().required(),
   email: Joi.string().email().required(),
   reacoes: Joi.object().optional(),

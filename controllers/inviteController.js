@@ -4,15 +4,15 @@ const inviteService = require('../services/inviteService');
 exports.validateInvite = async (req, res) => {
   logger.info('Validando convite', { service: 'inviteController', function: 'validateInvite', body: req.body });
 
-  const { inviteToken } = req.body;
+  const { inviteId, email, nome } = req.body;
 
-  if (!inviteToken) {
-    logger.warn('Token de convite não fornecido', { service: 'inviteController', function: 'validateInvite' });
-    return res.status(400).json({ message: 'Token de convite não fornecido' });
+  if (!inviteId || !email || !nome) {
+    logger.warn('Token de convite, nome ou email não fornecidos', { service: 'inviteController', function: 'validateInvite' });
+    return res.status(400).json({ message: 'Token de convite, nome ou email não fornecidos' });
   }
 
   try {
-    const result = await inviteService.validateInvite(inviteToken);
+    const result = await inviteService.validateInvite(inviteId, email, nome);
     logger.info('Convite validado com sucesso', { service: 'inviteController', function: 'validateInvite', result });
     res.status(200).json(result);
   } catch (error) {

@@ -3,7 +3,7 @@ const notificationService = require('../services/notificationService');
 const { logger } = require('../logger');
 
 const getUserNotifications = async (req, res) => {
-  const userId = req.uid;
+  const userId = req.validatedBody;
   logger.info('Requisicao para obter notificacoes do usuario', {
     service: 'notificationController',
     function: 'getUserNotifications',
