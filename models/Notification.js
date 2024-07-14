@@ -30,37 +30,43 @@ class Notification {
     return notification;
   }
 
-  static async update(id, data, userId, type) {
+  static async update(notificationId, data, userId, type) {
     const collectionPath = type === 'global' ? 'notificacoes/global/notifications' : `notificacoes/${userId}/notifications`;
-    const notificationRef = db.collection(collectionPath).doc(id);
+    const notificationRef = db.collection(collectionPath).doc(notificationId);
     await notificationRef.update(data);
     const updatedDoc = await notificationRef.get();
     return new Notification(updatedDoc.data());
   }
 
-  static async getUserNotifications(userId) {
-    const privateNotificationsRef = db.collection(`notificacoes/${userId}/notifications`);
-    const globalNotificationsRef = db.collection('notificacoes/global/notifications');
-
-    const privateSnapshot = await privateNotificationsRef.where("lida", "==", false).get();
-    const globalSnapshot = await globalNotificationsRef.get();
-
-    const privateNotifications = privateSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-
-    const globalNotifications = globalSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-        isRead: !!data.lida[userId]
-      };
-    }).filter(notification => !notification.isRead);
-
-    return { privateNotifications, globalNotifications };
+    static async getUserNotifications(userId) {
+      const privateNotificationsRef = db.collection(`notificacoes/${userId}/notifications`);
+      const globalNotificationsRef = db.collection('notificacoes/global/notifications');
+  
+      const privateSnapshot = await privateNotificationsRef.get();
+      const globalSnapshot = await globalNotificationsRef.get();
+  
+      // Transformar documentos de notificações privadas
+      const privateNotifications = privateSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          isRead: !!data.lida[userId]
+        };
+      }).filter(notification => !notification.isRead);
+  
+      // Transformar documentos de notificações globais
+      const globalNotifications = globalSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          isRead: !!data.lida[userId]
+        };
+      }).filter(notification => !notification.isRead);
+  
+      return { privateNotifications, globalNotifications };
+    }
   }
-}
-
+  
 module.exports = Notification;

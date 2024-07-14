@@ -2,13 +2,12 @@
 const Joi = require('joi');
 
 const inviteSchema = Joi.object({
-  id: Joi.string().optional(),
+  inviteId: Joi.string().optional(),
   createdAt: Joi.date().optional(),
   senderId: Joi.string().optional(),
   friendName: Joi.string().optional(),
   nome: Joi.string().optional(),
   senderPhotoURL: Joi.string().uri().optional(),
-  inviteId: Joi.string().optional(),
   email: Joi.string().email().required().messages({
     'string.email': 'Email deve ser um endereço de email válido.',
     'any.required': 'Email é obrigatório.',

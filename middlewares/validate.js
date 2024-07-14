@@ -8,7 +8,7 @@ const validate = (schema) => (req, res, next) => {
     body: req.body
   });
 
-  const { error, value } = schema.validate(req.body);
+  const { error, value } = req.method === 'GET' ? schema.validate(req.params) : schema.validate(req.body);
 
   if (error) {
     logger.error('Erro de validação', {
