@@ -4,7 +4,7 @@ const Joi = require('joi');
 const userSchema = Joi.object({
   id: Joi.string().required(),
   uid: Joi.string().optional(),
-  nome: Joi.string().required(),
+  nome: Joi.string().optional(),
   email: Joi.string().email().required(),
   reacoes: Joi.object().optional(),
   perfilPublico: Joi.boolean().optional(),

@@ -137,13 +137,13 @@ router.post('/generate', verifyToken, validate(inviteSchema), inviteController.s
 
 /**
  * @swagger
- * /invite/sent/{senderId}:
+ * /invite/sent/{userId}:
  *   get:
  *     summary: Retorna todos os convites enviados pelo usuário autenticado
  *     tags: [Convite]
  *     parameters:
  *       - in: path
- *         name: senderId
+ *         name: userId
  *         required: true
  *         schema:
  *           type: string
@@ -156,6 +156,25 @@ router.post('/generate', verifyToken, validate(inviteSchema), inviteController.s
  */
 router.get('/sent', verifyToken, validate(inviteSchema), inviteController.getSentInvites);
 
+/**
+ * @swagger
+ * /invite/view/{inviteId}:
+ *   get:
+ *     summary: Retorna a visualização de um convite por ID.
+ *     tags: [Convite]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID do remetente dos convites
+ *     responses:
+ *       200:
+ *         description: Convites enviados retornados com sucesso
+ *       500:
+ *         description: Erro no servidor
+ */
 router.get('/view/:inviteId', validate(inviteSchema), inviteController.getInviteById);
 
 /**
@@ -177,6 +196,6 @@ router.get('/view/:inviteId', validate(inviteSchema), inviteController.getInvite
  *       500:
  *         description: Erro no servidor
  */
-router.put('/cancel', verifyToken, validate(inviteSchema), inviteController.cancelInvite);
+router.put('/cancel/:inviteId', verifyToken, validate(inviteSchema), inviteController.cancelInvite);
 
 module.exports = router;

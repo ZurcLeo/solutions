@@ -9,7 +9,7 @@ class Invite {
     this.senderName = data.senderName;
     this.senderPhotoURL = data.senderPhotoURL;
     this.inviteId = data.inviteId;
-    this.nome = data.friendName;
+    this.friendName = data.friendName;
     this.email = data.email;
     this.validatedBy = data.validatedBy || null;
     this.status = data.status;
