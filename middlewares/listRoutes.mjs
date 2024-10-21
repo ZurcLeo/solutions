@@ -1,4 +1,3 @@
-//middlewares/listRoutes.mjs
 import swaggerJsdoc from 'swagger-jsdoc';
 
 const swaggerOptions = {
@@ -34,28 +33,42 @@ export default (app) => {
     for (const method in paths[path]) {
       const route = paths[path][method];
       console.log(`\n${method.toUpperCase()} ${path}`);
-      console.log(`Summary: ${route.summary}`);
+      console.log(`Summary: ${route.summary || 'No summary available'}`);
       console.log(`Parameters:`);
-      if (route.parameters) {
+
+      if (route.parameters && route.parameters.length > 0) {
         route.parameters.forEach((param) => {
-          console.log(`- ${param.name} (${param.in}): ${param.description}`);
+          console.log(`- ${param.name} (${param.in}): ${param.description || 'No description available'}`);
         });
       } else {
         console.log(`- None`);
       }
+
       console.log(`Request Body:`);
-      if (route.requestBody) {
+      if (
+        route.requestBody &&
+        route.requestBody.content &&
+        route.requestBody.content['application/json'] &&
+        route.requestBody.content['application/json'].schema
+      ) {
         const requestBody = route.requestBody.content['application/json'].schema;
         console.log(JSON.stringify(requestBody, null, 2));
       } else {
         console.log(`- None`);
       }
+
       console.log(`Responses:`);
       for (const response in route.responses) {
         console.log(`${response}: ${route.responses[response].description}`);
-        if (route.responses[response].content) {
+        if (
+          route.responses[response].content &&
+          route.responses[response].content['application/json'] &&
+          route.responses[response].content['application/json'].schema
+        ) {
           const responseBody = route.responses[response].content['application/json'].schema;
           console.log(JSON.stringify(responseBody, null, 2));
+        } else {
+          console.log(`- No content schema defined`);
         }
       }
     }

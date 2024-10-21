@@ -154,7 +154,28 @@ router.post('/generate', verifyToken, validate(inviteSchema), inviteController.s
  *       500:
  *         description: Erro no servidor
  */
-router.get('/sent', verifyToken, validate(inviteSchema), inviteController.getSentInvites);
+router.get('/sent/:userId', verifyToken, validate(inviteSchema), inviteController.getSentInvites);
+
+/**
+ * @swagger
+ * /invite/resend/{inviteId}:
+ *   post:
+ *     summary: Reenvia um convite
+ *     tags: [Convite]
+ *     parameters:
+ *       - in: path
+ *         name: inviteId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID do convite a ser reenviado
+ *     responses:
+ *       200:
+ *         description: Convite reenviado com sucesso
+ *       500:
+ *         description: Erro no servidor
+ */
+router.post('/resend/:inviteId', verifyToken, inviteController.resendInvite);
 
 /**
  * @swagger

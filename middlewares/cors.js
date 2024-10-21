@@ -31,7 +31,7 @@ const corsOptions = {
     }
   },
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS', // Métodos HTTP permitidos
-  allowedHeaders: 'Content-Type, Authorization', // Cabeçalhos permitidos
+  allowedHeaders: ['Content-Type', 'Authorization', 'userId', 'email'], // Cabeçalhos permitidos
   credentials: true, // Permitir cookies e credenciais
   optionsSuccessStatus: 204, // Status de sucesso para opções
   preflightContinue: true, // Continuar para o próximo middleware após a resposta preflight

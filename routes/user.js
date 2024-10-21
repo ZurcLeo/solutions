@@ -1,3 +1,4 @@
+//routes/user.js
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
@@ -5,10 +6,26 @@ const authController = require('../controllers/authController');
 const verifyToken = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
 const userSchema = require('../schemas/userSchema');
-const { logger } = require('../logger')
+const { upload, errorHandler } = require('../middlewares/upload.cjs');
+const { logger } = require('../logger');
+
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+
+const cleanRequestBody = (req, res, next) => {
+  if (req.body.providerData) {
+    delete req.body.providerData;
+  }
+  next();
+};
+
+const convertDataCriacao = (req, res, next) => {
+  if (req.body.dataCriacao && typeof req.body.dataCriacao === 'string') {
+    req.body.dataCriacao = new Date(req.body.dataCriacao);
+  }
+  next();
+};
 
 // Middleware to add CORS headers for all requests
 router.use((req, res, next) => {
@@ -35,6 +52,7 @@ router.use((req, res, next) => {
     function: req.originalUrl,
     method: req.method,
     url: req.originalUrl,
+    params: req.params,
     headers: req.headers,
     body: req.body
   });
@@ -66,7 +84,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.get('/', verifyToken, userController.getUsers);
+router.get('/', verifyToken, validate(userSchema), userController.getUsers);
 
 /**
  * @swagger
@@ -95,7 +113,7 @@ router.get('/', verifyToken, userController.getUsers);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:id', verifyToken, validate(userSchema), userController.getUserById);
+router.get('/:userId', verifyToken, validate(userSchema), userController.getUserById);
 
 /**
  * @swagger
@@ -121,7 +139,7 @@ router.get('/:id', verifyToken, validate(userSchema), userController.getUserById
  *       500:
  *         description: Erro no servidor
  */
-router.post('/add-user', verifyToken, validate(userSchema), userController.addUser);
+router.post('/add-user', verifyToken, cleanRequestBody, validate(userSchema), userController.addUser);
 
 /**
  * @swagger
@@ -156,7 +174,53 @@ router.post('/add-user', verifyToken, validate(userSchema), userController.addUs
  *       500:
  *         description: Erro no servidor
  */
-router.put('/update-user/:id', verifyToken, validate(userSchema), userController.updateUser);
+router.put('/update-user/:userId', verifyToken, convertDataCriacao, cleanRequestBody, validate(userSchema), userController.updateUser);
+
+/**
+ * @swagger
+ * /users/upload-profile-picture/{userId}:
+ *   put:
+ *     summary: Faz upload da foto de perfil do usuário
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do usuário
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               profilePicture:
+ *                 type: string
+ *                 format: binary
+ *                 description: Imagem da foto de perfil do usuário
+ *     responses:
+ *       200:
+ *         description: Imagem carregada com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 publicUrl:
+ *                   type: string
+ *                   description: URL pública da imagem carregada
+ *       400:
+ *         description: Erro na solicitação
+ *       500:
+ *         description: Erro no servidor
+ */
+router.put('/upload-profile-picture/:userId', 
+  verifyToken, 
+  upload.single('profilePicture'), 
+  errorHandler, 
+  userController.uploadProfilePicture);
 
 /**
  * @swagger

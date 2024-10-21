@@ -1,72 +1,71 @@
-// models/Notification.js
 const { db } = require('../firebaseAdmin');
-const { FieldValue } = require('firebase-admin/firestore');
-const { logger } = require('../logger');
 
 class Notification {
-  constructor(data) {
-    // this.id = data.id;
-    this.conteudo = data.conteudo;
-    this.tipo = data.type;
-    this.lida = data.lida || {};
-    this.timestamp = data.timestamp || FieldValue.serverTimestamp();
-    this.userId = data.userId;
-    this.fotoDoPerfil = data.fotoDoPerfil || process.env.CLAUD_PROFILE_IMG;
-    this.url = data.url || 'https://eloscloud.com';
+  constructor(userId, type, content, url, createdAt = new Date(), read = false) {
+    this.userId = userId;
+    this.type = type;
+    this.content = content;
+    this.url = url;
+    this.createdAt = createdAt;
+    this.read = read;
   }
 
-  static async create(userId, type, conteudo, url) {
-    logger.info('[Notification.js][create][data] = ', conteudo)
-    const data = {
+  static async create(userId, type, content, url) {
+    const notificationData = {
       userId,
       type,
-      conteudo,
+      content,
       url,
+      createdAt: new Date(),
+      read: false
     };
-    const notification = new Notification(data);
-    const collectionPath = type === 'global' ? 'notificacoes/global/notifications' : `notificacoes/${userId}/notifications`;
-    const docRef = await db.collection(collectionPath).add({ ...notification });
-    notification.id = docRef.id;
-    return notification;
+
+    // Refere-se ao caminho correto no Firestore: db/notificacoes/${userId}/notifications/notificationId
+    const notificationRef = db.collection('notificacoes')
+      .doc(userId)
+      .collection('notifications')
+      .doc(); // Cria um novo documento com um ID gerado automaticamente
+    await notificationRef.set(notificationData);
+
+    return new Notification(userId, type, content, url, notificationData.createdAt);
   }
 
-  static async update(notificationId, data, userId, type) {
-    const collectionPath = type === 'global' ? 'notificacoes/global/notifications' : `notificacoes/${userId}/notifications`;
-    const notificationRef = db.collection(collectionPath).doc(notificationId);
-    await notificationRef.update(data);
-    const updatedDoc = await notificationRef.get();
-    return new Notification(updatedDoc.data());
+  static async getByUserId(userId) {
+    const notificationsRef = db.collection('notificacoes')
+      .doc(userId)
+      .collection('notifications');
+  
+    const notificationsSnapshot = await notificationsRef
+      .orderBy('timestamp', 'desc')
+      .get();
+  
+    console.log("Total de documentos recuperados: ", notificationsSnapshot.size);
+  
+    notificationsSnapshot.forEach(doc => {
+      console.log(doc.id, '=>', doc.data());
+    });
+  
+    return notificationsSnapshot.docs.map(doc => ({
+      id: doc.id, // Inclui o ID da notificação para referência
+      ...doc.data()
+    }));
   }
 
-    static async getUserNotifications(userId) {
-      const privateNotificationsRef = db.collection(`notificacoes/${userId}/notifications`);
-      const globalNotificationsRef = db.collection('notificacoes/global/notifications');
-  
-      const privateSnapshot = await privateNotificationsRef.get();
-      const globalSnapshot = await globalNotificationsRef.get();
-  
-      // Transformar documentos de notificações privadas
-      const privateNotifications = privateSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          isRead: !!data.lida[userId]
-        };
-      }).filter(notification => !notification.isRead);
-  
-      // Transformar documentos de notificações globais
-      const globalNotifications = globalSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          isRead: !!data.lida[userId]
-        };
-      }).filter(notification => !notification.isRead);
-  
-      return { privateNotifications, globalNotifications };
+  static async markAsRead(userId, notificationId) {
+    // Refere-se ao caminho correto no Firestore: db/notificacoes/${userId}/notifications/notificationId
+    const notificationRef = db.collection('notificacoes')
+      .doc(userId)
+      .collection('notifications')
+      .doc(notificationId);
+      
+    const doc = await notificationRef.get();
+    
+    if (!doc.exists) {
+      throw new Error(`No document to update: ${notificationId}`);
     }
+
+    await notificationRef.update({ read: true, readAt: new Date() });
   }
-  
+}
+
 module.exports = Notification;

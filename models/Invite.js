@@ -24,7 +24,7 @@ class Invite {
     });
 
     try {
-      const inviteRef = db.collection('convites').where('inviteId', '==', inviteId);
+      const inviteRef = db.collection('convites')
       const snapshot = await inviteRef.get();
       
       if (snapshot.empty) {
@@ -152,35 +152,35 @@ class Invite {
     }
   }
 
-  static async getBySenderId(senderId) {
-    logger.info(`Iniciando a busca por convites do usuário com senderId ${senderId}`, {
+  static async getBySenderId(userId) {
+    logger.info(`Iniciando a busca por convites do usuário com senderId ${userId}`, {
       service: 'inviteService',
       function: 'getBySenderId',
-      senderId
+      userId
     });
 
     try {
-      const snapshot = await db.collection('convites').where('senderId', '==', senderId).get();
-
+      const snapshot = await db.collection('convites').where('senderId', '==', userId).get();
+      logger.warn('::::::::::::::::::::SNAPSHOT:::::::::::[/models/Invite.js]::::::::::', snapshot)
       if (snapshot.empty) {
         throw new Error('Nenhum convite encontrado para este usuário.');
       }
 
       const invites = snapshot.docs.map(doc => new Invite({ ...doc.data(), id: doc.id }));
 
-      logger.info(`Convites do usuário com senderId ${senderId} encontrados com sucesso`, {
+      logger.info(`Convites do usuário com senderId ${userId} encontrados com sucesso`, {
         service: 'inviteService',
         function: 'getBySenderId',
-        senderId,
+        userId,
         invites
       });
 
       return invites;
     } catch (error) {
-      logger.error(`Erro ao buscar convites do usuário com senderId ${senderId}`, {
+      logger.error(`Erro ao buscar convites do usuário com senderId ${userId}`, {
         service: 'inviteService',
         function: 'getBySenderId',
-        senderId,
+        userId,
         error: error.message
       });
 

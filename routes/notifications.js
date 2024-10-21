@@ -1,10 +1,11 @@
+// src/routes/notifications.js
 const express = require('express');
 const router = express.Router();
 const validate = require('../middlewares/validate');
 const notificationSchema = require('../schemas/notificationSchema');
 const notificationsController = require('../controllers/notificationsController');
 const verifyToken = require('../middlewares/auth');
-const { logger } = require('../logger')
+const { logger } = require('../logger');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000', 'https://eloscloudapp-1cefc4b4944e.herokuapp.com'];
@@ -107,7 +108,7 @@ router.post('/', verifyToken, validate(notificationSchema), notificationsControl
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:userId', verifyToken, validate(notificationSchema), notificationsController.getUserNotifications);
+router.get('/:userId', verifyToken, notificationsController.getUserNotifications);
 
 /**
  * @swagger
@@ -151,6 +152,6 @@ router.get('/:userId', verifyToken, validate(notificationSchema), notificationsC
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:userId/markAsRead', verifyToken, validate(notificationSchema), notificationsController.markAsRead);
+router.post('/:userId/markAsRead', verifyToken, validate(notificationSchema), notificationsController.markNotificationAsRead);
 
 module.exports = router;

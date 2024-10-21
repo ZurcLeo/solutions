@@ -1,40 +1,51 @@
-// controllers/notificationController.js
+// src/controllers/notificationsController.js
 const notificationService = require('../services/notificationService');
 const { logger } = require('../logger');
 
 const getUserNotifications = async (req, res) => {
-  const userId = req.params;
+  const userId = req.params.userId;
   logger.info('Requisicao para obter notificacoes do usuario', {
-    service: 'notificationController',
+    service: 'notificationsController',
     function: 'getUserNotifications',
     userId
   });
 
   try {
     const result = await notificationService.getUserNotifications(userId);
-    logger.info('Notificacoes obtidas com sucesso', {
-      service: 'notificationController',
-      function: 'getUserNotifications',
-      userId,
-      result
-    });
-    res.status(200).json(result);
+    if (result.success) {
+      logger.info('Notificacoes obtidas com sucesso', {
+        service: 'notificationsController',
+        function: 'getUserNotifications',
+        userId,
+        result: result.data
+      });
+      return res.status(200).json(result.data);
+    } else {
+      logger.error('Erro ao obter notificacoes do usuario', {
+        service: 'notificationsController',
+        function: 'getUserNotifications',
+        userId,
+        error: result.message
+      });
+      return res.status(500).json({ message: 'Erro ao obter notificacoes', error: result.message });
+    }
   } catch (error) {
     logger.error('Erro ao obter notificacoes do usuario', {
-      service: 'notificationController',
+      service: 'notificationsController',
       function: 'getUserNotifications',
       userId,
       error: error.message
     });
-    res.status(500).json({ message: 'Erro ao obter notificacoes', error: error.message });
+    return res.status(500).json({ message: 'Erro ao obter notificacoes', error: error.message });
   }
 };
 
-const markAsRead = async (req, res) => {
-  const { userId, notificationId, type } = req.body;
+const markNotificationAsRead = async (req, res) => {
+  const userId = req.params.userId;
+  const { notificationId, type } = req.body;
   logger.info('Requisicao para marcar notificacao como lida', {
-    service: 'notificationController',
-    function: 'markAsRead',
+    service: 'notificationsController',
+    function: 'markNotificationAsRead',
     userId,
     notificationId,
     type
@@ -42,67 +53,78 @@ const markAsRead = async (req, res) => {
 
   try {
     const result = await notificationService.markAsRead(userId, notificationId, type);
-    logger.info('Notificacao marcada como lida com sucesso', {
-      service: 'notificationController',
-      function: 'markAsRead',
-      userId,
-      notificationId,
-      type,
-      result
-    });
-    res.status(200).json(result);
+    if (result.success) {
+      logger.info('Notificacao marcada como lida com sucesso', {
+        service: 'notificationsController',
+        function: 'markNotificationAsRead',
+        userId,
+        notificationId
+      });
+      return res.status(200).json({ message: 'Notificação marcada como lida' });
+    } else {
+      logger.error('Erro ao marcar notificacao como lida', {
+        service: 'notificationsController',
+        function: 'markNotificationAsRead',
+        userId,
+        notificationId,
+        error: result.message
+      });
+      return res.status(500).json({ message: 'Erro ao marcar notificacao como lida', error: result.message });
+    }
   } catch (error) {
     logger.error('Erro ao marcar notificacao como lida', {
-      service: 'notificationController',
-      function: 'markAsRead',
+      service: 'notificationsController',
+      function: 'markNotificationAsRead',
       userId,
       notificationId,
-      type,
       error: error.message
     });
-    res.status(500).json({ message: 'Erro ao marcar notificacao como lida', error: error.message });
+    return res.status(500).json({ message: 'Erro ao marcar notificacao como lida', error: error.message });
   }
 };
 
 const createNotification = async (req, res) => {
-  const { userId, conteudo, type, url } = req;
+  const userId = req.params.userId;
+  const notificationData = req.body;
   logger.info('Requisicao para criar notificacao', {
-    service: 'notificationController',
+    service: 'notificationsController',
     function: 'createNotification',
     userId,
-    conteudo,
-    type,
-    url
+    notificationData
   });
 
   try {
-    const result = await notificationService.createNotification(req);
-    logger.info('Notificacao criada com sucesso', {
-      service: 'notificationController',
-      function: 'createNotification',
-      userId,
-      conteudo,
-      type,
-      url,
-      result
-    });
-    res.status(201).json(result);
+    const result = await notificationService.createNotification(userId, notificationData);
+    if (result.success) {
+      logger.info('Notificacao criada com sucesso', {
+        service: 'notificationsController',
+        function: 'createNotification',
+        userId,
+        notificationData
+      });
+      return res.status(200).json({ message: 'Notificação criada com sucesso' });
+    } else {
+      logger.error('Erro ao criar notificacao', {
+        service: 'notificationsController',
+        function: 'createNotification',
+        userId,
+        error: result.message
+      });
+      return res.status(500).json({ message: 'Erro ao criar notificacao', error: result.message });
+    }
   } catch (error) {
     logger.error('Erro ao criar notificacao', {
-      service: 'notificationController',
+      service: 'notificationsController',
       function: 'createNotification',
       userId,
-      conteudo,
-      type,
-      url,
       error: error.message
     });
-    res.status(500).json({ message: 'Erro ao criar notificacao', error: error.message });
+    return res.status(500).json({ message: 'Erro ao criar notificacao', error: error.message });
   }
 };
 
 module.exports = {
   getUserNotifications,
-  markAsRead,
+  markNotificationAsRead,
   createNotification
 };

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <!-- Base do logo: Terra/horta com mais detalhes -->
+  <rect x="0" y="220" width="300" height="80" fill="#7C4A28" />
+  <path d="M0 220 Q75 210, 150 220 Q225 230, 300 220 L300 300 L0 300 Z" fill="#8B5E3C" />
+  
+  <!-- Plantas estilizadas: Formas mais reconhecíveis -->
+  <path d="M120 220 C110 200, 130 180, 120 160 C110 180, 130 200, 120 220 Z" fill="#4CAF50" stroke="#388E3C" stroke-width="2" />
+  <circle cx="120" cy="160" r="5" fill="#2E7D32" />
+  
+  <path d="M180 220 C170 200, 190 180, 180 160 C170 180, 190 200, 180 220 Z" fill="#4CAF50" stroke="#388E3C" stroke-width="2" />
+  <circle cx="180" cy="160" r="5" fill="#2E7D32" />
+  
+  <path d="M150 200 C140 180, 160 160, 150 140 C140 160, 160 180, 150 200 Z" fill="#66BB6A" stroke="#43A047" stroke-width="2" />
+  <circle cx="150" cy="140" r="5" fill="#2E7D32" />
+  
+  <!-- Prato de cerâmica mais detalhado -->
+  <circle cx="150" cy="140" r="60" fill="#F0E2D3" stroke="#D4A373" stroke-width="5" />
+  <circle cx="150" cy="140" r="55" fill="#FFF8E7" />
+  <path d="M95 140 A55 55 0 0 1 205 140" fill="none" stroke="#E6D2B5" stroke-width="3" />
+  
+  <!-- Talheres mais detalhados e reconhecíveis -->
+  <path d="M125 130 L125 90 M120 90 Q125 85, 130 90 L125 110" fill="none" stroke="#555" stroke-width="3" />
+  <circle cx="125" cy="85" r="3" fill="#555" />
+  
+  <path d="M175 130 L175 90 M170 105 L180 105 M170 95 L180 95" fill="none" stroke="#555" stroke-width="3" />
+  <circle cx="175" cy="85" r="3" fill="#555" />
+  
+  <!-- Nome "Terra & Mesa" com estilo aprimorado -->
+  <text x="50%" y="270" font-family="Georgia, serif" font-size="28" font-weight="bold" text-anchor="middle" fill="#FFF8E7">
+    Terra &amp; Mesa
+  </text>
+</svg>

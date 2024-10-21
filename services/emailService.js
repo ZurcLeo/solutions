@@ -6,19 +6,6 @@ require('dotenv').config();
 const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.office365.com',
-    port: 587,
-    secure: false,
-    auth: {
-        user: smtpUser,
-        pass: smtpPass
-    },
-    tls: {
-        ciphers: 'SSLv3'
-    }
-});
-
 const templateFunctions = {
   convite: (subject, content) => {
         return(
@@ -136,6 +123,131 @@ const templateFunctions = {
 </html>
   `);
   },
+  convite_lembrete: (subject, content) => {
+    return (
+      `<!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+        <style>
+          body {
+            font-family: 'Poppins', Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            color: #333333;
+          }
+          .email-container {
+            max-width: 600px;
+            margin: auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+          }
+          .email-header {
+            background-color: #345C72;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            font-size: 24px;
+            font-weight: bold;
+          }
+          .email-body {
+            padding: 20px;
+            font-size: 16px;
+            color: #333333;
+          }
+          .email-body p {
+            margin: 10px 0;
+          }
+          .cta-button {
+            display: block;
+            width: 80%;
+            margin: 20px auto;
+            padding: 12px;
+            background-color: #fd8c5e;
+            color: white;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 18px;
+          }
+          .cta-button:hover {
+            background-color: #e57b50;
+          }
+          .highlight {
+            background-color: #ffcc00;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+          }
+          .email-footer {
+            background-color: #333333;
+            color: white;
+            text-align: center;
+            padding: 15px;
+            font-size: 14px;
+          }
+          .email-footer a {
+            color: #ffffff;
+            text-decoration: underline;
+            margin: 0 5px;
+          }
+          @media screen and (max-width: 600px) {
+            .email-container {
+              width: 100% !important;
+            }
+            .email-body {
+              padding: 10px !important;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+          <tr>
+            <td align="center" valign="top">
+              <table class="email-container" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td class="email-header">
+                    Lembrete de Convite - ElosCloud
+                  </td>
+                </tr>
+                <tr>
+                  <td class="email-body">
+                    <p>Olá ${content.friendName},</p>
+                    <p>Você recebeu um convite de <strong>${content.senderName}</strong> para se juntar ao ElosCloud!</p>
+                    <p>Não perca a oportunidade de fazer parte da nossa rede. Clique no botão abaixo para aceitar o convite:</p>
+                    <a href="https://eloscloud.com/invite?inviteId=${content.inviteId}" class="cta-button">Aceitar Convite</a>
+                    <p class="highlight">Este convite é válido por tempo limitado. Não perca!</p>
+                    <p>Atenciosamente,</p>
+                    <p>Equipe ElosCloud</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="email-footer">
+                    Copyright &copy; 2024 | ElosCloud
+                    <br>
+                    <a href="https://eloscloud.com">Visitar ElosCloud</a> |
+                    <a href="https://eloscloud.com/terms">Termos de Uso</a> |
+                    <a href="https://eloscloud.com/privacy">Política de Privacidade</a>
+                    <p style="font-size: 12px; margin: 10px 0 0 0;">
+                      Ao aceitar o convite, alguns dados serão compartilhados com o remetente. Consulte os termos.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>`
+    );
+  },  
   padrao: (subject, content) => {
   return (`
   <!DOCTYPE html>
@@ -281,97 +393,104 @@ const getEmailTemplate = (subject, content, type) => {
   return templateFunction(subject, content);
 };
 
-  const emailService = {
-    sendEmail: async (req) => {
+ // Função de envio de e-mail
+const emailService = {
+  sendEmail: async (req) => {
       const { to, subject, content, userId, inviteId, type } = req;
       logger.info(`:::::::::::::DEBBUG:::::::::::`, {
-        service: 'emailService',
-        function: 'sendEmail',
-        to,
-        subject,
-        userId,
-        inviteId,
-        type
+          service: 'emailService',
+          function: 'sendEmail',
+          to,
+          subject,
+          userId,
+          inviteId,
+          type
       });
-      const htmlContent = getEmailTemplate(subject, content, type);
-  
-      const mailOptions = {
-        from: "'ElosCloud' <suporte@eloscloud.com.br>",
-        to: to,
-        subject: subject,
-        html: htmlContent,
-        attachDataUrls: true,
-        text: content.replace(/<[^>]*>?/gm, '')
-      };
-  
-      try {
-        logger.info(`Enviando email para ${to}`, {
-          service: 'emailService',
-          function: 'sendEmail',
-          to,
-          subject,
-          userId,
-          inviteId,
-          type
-        });
-  
-        const isEmailOK = await transporter.sendMail(mailOptions);
-  
-        if (isEmailOK === true) {
-          logger.info(`Email enviado com sucesso para ${to}`, {
-            service: 'emailService',
-            function: 'sendEmail',
-            to,
-            subject,
-            userId,
-            inviteId,
-            type
-          });
-  
-          const notificationData = {
-            userId,
-            type,
-            inviteId,
-            conteudo: `Email enviado para ${to} com sucesso.`,
-            url: 'https://eloscloud.com'
-          };
 
-          logger.info(`Criando notifição com:
-             >>>>userId<<<<: ${userId},
-             >>>>type<<<< ${type},
-             >>>>inviteId<<<< ${inviteId},
-             >>>>conteudo<<<< ${conteudo},
-             >>>>url<<<< ${url}`, {
-            service: 'emailService',
-            function: 'sendEmail',
-            notificationData
+ // Configuração do transport SMTP usando o Hostinger
+ const transporter = nodemailer.createTransport({
+  host: 'smtp.hostinger.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: smtpUser,
+    pass: smtpPass
+  },
+  tls: {
+    rejectUnauthorized: true // Permite conexões TLS não autorizadas (caso seja necessário)
+  }
+});
+
+      logger.info('Configuração do transporte:', transporter); // Verifique a configuração do transporte
+
+      const htmlContent = getEmailTemplate(subject, content, type);
+
+      const mailOptions = {
+          from: "'ElosCloud' <suporte@eloscloud.com.br>",
+          to: to,
+          subject: subject,
+          html: htmlContent,
+          attachDataUrls: true,
+          text: content.replace(/<[^>]*>?/gm, '')
+      };
+
+      try {
+          logger.info(`Enviando email para ${to}`, {
+              service: 'emailService',
+              function: 'sendEmail',
+              to,
+              subject,
+              userId,
+              inviteId,
+              type
           });
-  
-          await Notification.create(notificationData, type, userId);
-  
-          logger.info(`Notificação criada para o usuário ${userId}`, {
-            service: 'emailService',
-            function: 'sendEmail',
-            notificationData
-          });
-        }
-  
-        return { status: true };
+
+          const isEmailOK = await transporter.sendMail(mailOptions);
+
+          if (isEmailOK === true) {
+              logger.info(`Email enviado com sucesso para ${to}`, {
+                  service: 'emailService',
+                  function: 'sendEmail',
+                  to,
+                  subject,
+                  userId,
+                  inviteId,
+                  type
+              });
+
+              const notificationData = {
+                  userId,
+                  type,
+                  inviteId,
+                  conteudo: `Email enviado para ${to} com sucesso.`,
+                  url: 'https://eloscloud.com'
+              };
+
+              await Notification.create(notificationData, type, userId);
+
+              logger.info(`Notificação criada para o usuário ${userId}`, {
+                  service: 'emailService',
+                  function: 'sendEmail',
+                  notificationData
+              });
+          }
+
+          return { status: true };
       } catch (error) {
-        logger.error('Erro ao enviar email', {
-          service: 'emailService',
-          function: 'sendEmail',
-          error: error.message,
-          to,
-          subject,
-          userId,
-          inviteId,
-          type
-        });
-  
-        return { status: false, message: `Erro ao criar convite: ${error.message}` };
+          logger.error('Erro ao enviar email', {
+              service: 'emailService',
+              function: 'sendEmail',
+              error: error.message,
+              to,
+              subject,
+              userId,
+              inviteId,
+              type
+          });
+
+          return { status: false, message: `Erro ao criar convite: ${error.message}` };
       }
-    }
-  };
+  }
+};
   
   module.exports = emailService;

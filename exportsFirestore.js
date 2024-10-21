@@ -12,7 +12,7 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
-
+ 
 // Função para exportar dados de uma coleção, incluindo subcoleções
 async function exportCollection(collectionName) {
   try {

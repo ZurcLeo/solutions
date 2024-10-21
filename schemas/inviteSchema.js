@@ -9,13 +9,14 @@ const inviteSchema = Joi.object({
   senderName: Joi.string().optional(),
   friendName: Joi.string().optional(),
   senderPhotoURL: Joi.string().uri().optional(),
-  email: Joi.string().email().required().messages({
+  email: Joi.string().email().optional().messages({
     'string.email': 'Email deve ser um endereço de email válido.',
     'any.required': 'Email é obrigatório.',
   }),
   validatedBy: Joi.string().optional(),
   status: Joi.string().valid('pending', 'accepted', 'rejected').optional(),
   lastSentAt: Joi.date().optional(),
+  headers: Joi.date().optional()
 });
 
 module.exports = inviteSchema;

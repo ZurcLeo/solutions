@@ -3,6 +3,8 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const verifyToken = require('../middlewares/auth');
+const validate = require('../middlewares/validate');
+const userSchema = require('../schemas/userSchema');
 const { logger } = require('../logger')
 
 // Lista de origens permitidas
@@ -80,6 +82,46 @@ router.use((req, res, next) => {
  *                   description: Mensagem de sucesso
  */
 router.post('/facebook-login', authController.facebookLogin);
+
+/**
+ * @swagger
+ * /auth/refresh-token:
+ *   post:
+ *     summary: Renovar token de acesso
+ *     tags: [Auth]
+ *     description: Gera um novo token de acesso usando o refresh token.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 description: O token de refresh válido.
+ *     responses:
+ *       200:
+ *         description: Token renovado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: O novo token JWT.
+ *                 message:
+ *                   type: string
+ *                   description: Mensagem de sucesso.
+ *       400:
+ *         description: Token de refresh não foi fornecido.
+ *       403:
+ *         description: Token inválido ou expirado.
+ *       500:
+ *         description: Erro no servidor.
+ */
+router.post('/refresh-token', verifyToken, authController.refreshToken);
 
 /**
   * @swagger
@@ -198,7 +240,7 @@ router.post('/login', authController.signInWithEmail);
  *       500:
  *         description: Erro no servidor.
  */
-router.post('/logout', verifyToken, authController.logout);
+router.post('/logout', verifyToken, validate(userSchema), authController.logout);
 
 /**
   * @swagger

@@ -1,6 +1,9 @@
-const { admin } = require('../firebaseAdmin');
+//controllers/userController.js
+const { db, storage } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const User = require('../models/User');
+const multer = require('multer');
+const path = require('path');
 
 const addUser = async (req, res) => {
   logger.info('Requisição para adicionar usuário', {
@@ -34,7 +37,7 @@ const getUsers = async (req, res) => {
   });
 
   try {
-    const usersCollection = await admin.firestore().collection('usuario').get();
+    const usersCollection = await db.collection('usuario').get();
     const users = usersCollection.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     logger.info('Usuários obtidos com sucesso', {
       service: 'userController',
@@ -52,14 +55,13 @@ const getUsers = async (req, res) => {
   }
 };
 
-const getUserById = async (userId, res) => {
+const getUserById = async (req, res) => {
+  const userId = req.params.id;
   logger.info('Requisição para obter usuário por ID', {
     service: 'userController',
     function: 'getUserById',
     userId
   });
-
-
 
   try {
     const user = await User.getById(userId);
@@ -81,7 +83,13 @@ const getUserById = async (userId, res) => {
 };
 
 const updateUser = async (req, res) => {
-  const { userId } = req.params;  // Assuming userId is passed as a path parameter
+  const userId = req.params.userId;
+  const updateData = req.body;
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: "Nenhum dado fornecido para atualizar" });
+  }
+
   logger.info('Requisição para atualizar usuário', {
     service: 'userController',
     function: 'updateUser',
@@ -103,6 +111,59 @@ const updateUser = async (req, res) => {
       function: 'updateUser',
       userId,
       error: error.message
+    });
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// const upload = multer({
+//   storage: multer.memoryStorage(),
+//   fileFilter: (req, file, cb) => {
+//     const filetypes = /jpeg|jpg|png/;
+//     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+//     const mimetype = filetypes.test(file.mimetype);
+
+//     if (mimetype && extname) {
+//       return cb(null, true);
+//     } else {
+//       cb(new Error('Only images are allowed'));
+//     }
+//   }
+// });
+
+const uploadProfilePicture = async (req, res) => {
+  const userId = req.user.uid;
+  const file = req.file;
+
+  logger.info('file: ', file);
+
+  if (!file) {
+    return res.status(400).json({ message: 'Nenhum arquivo foi enviado.' });
+  }
+
+  try {
+    // Caminho do arquivo no bucket do Firebase
+    const fileName = `fotoDePerfil/${userId}/profile_picture_${Date.now()}.png`;
+    const fileRef = storage.file(fileName);
+
+    // Salva o arquivo no bucket do Firebase
+    await fileRef.save(file.buffer, {
+      contentType: file.mimetype,
+      public: true,
+    });
+
+    // URL pública do arquivo
+    const publicUrl = `https://storage.googleapis.com/${storage.name}/${fileName}`;
+
+    // Atualize o usuário com a URL da foto de perfil
+    await User.update(userId, { fotoDoPerfil: publicUrl });
+
+    res.status(200).json({ publicUrl });
+  } catch (error) {
+    logger.error('Erro ao fazer upload da foto de perfil:', {
+      service: 'userController',
+      function: 'uploadProfilePicture',
+      error: error.message,
     });
     res.status(500).json({ message: error.message });
   }
@@ -140,5 +201,6 @@ module.exports = {
   getUsers,
   getUserById,
   updateUser,
-  deleteUser
+  deleteUser,
+  uploadProfilePicture
 };

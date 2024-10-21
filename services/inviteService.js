@@ -7,6 +7,7 @@ const Notification = require('../models/Notification');
 const crypto = require('crypto');
 const {logger} = require('../logger');
 const QRCode = require('qrcode');
+const moment = require('moment');
 
 const logoURL = process.env.PLACE_HOLDER_IMG;
 
@@ -67,6 +68,11 @@ exports.getSentInvites = async (userId) => {
   }
   try {
     const invites = await Invite.getBySenderId(userId);
+    invites.forEach(invite => {
+      if (invite.status === 'pending' && moment(invite.createdAt).isBefore(moment().subtract(5, 'days'))) {
+        invite.status = 'expired';
+      }
+    });
     return invites;
   } catch (error) {
     console.error('Error fetching sent invites:', error);
@@ -97,7 +103,8 @@ exports.deleteInvite = async (id) => {
 
 exports.canSendInvite = async (req) => {
   const userId = req.uid;
-  logger.info('Iniciando verificação se pode enviar convite', { service: 'inviteService', function: 'canSendInvite', userId });
+  const email = req.body.email; // Supondo que o email seja enviado no corpo da requisição
+  logger.info('Iniciando verificação se pode enviar convite', { service: 'inviteService', function: 'canSendInvite', userId, email });
 
   try {
     const user = await getUserById(userId);
@@ -105,17 +112,46 @@ exports.canSendInvite = async (req) => {
       logger.warn('Usuário não encontrado', { service: 'inviteService', function: 'canSendInvite', userId });
       throw new Error('User not found');
     }
-    
+
     const userPlainObject = user.toPlainObject();
     logger.info('Usuário encontrado', { service: 'inviteService', function: 'canSendInvite', user: userPlainObject });
 
     const invitesSnapshot = await db.collection('convites')
-      .where('userId', '==', userPlainObject.uid)
+      .where('email', '==', email)
+      .orderBy('createdAt', 'desc') // Ordena por data de criação para pegar o último convite
+      .limit(1)
       .get();
 
-    const canSend = invitesSnapshot.empty;
-    logger.info('Verificação de envio de convite concluída', { service: 'inviteService', function: 'canSendInvite', userId, canSend });
-    return { canSend, user: userPlainObject };
+    if (invitesSnapshot.empty) {
+      logger.info('Nenhum convite encontrado para o email', { service: 'inviteService', function: 'canSendInvite', email });
+      return { canSend: true, user: userPlainObject };
+    }
+
+    const invite = invitesSnapshot.docs[0].data();
+    const now = new Date();
+
+    // Verifica o estado do convite
+    if (invite.status === 'canceled' || invite.status === 'used') {
+      logger.info('Convite já cancelado ou utilizado. Não pode reenviar.', { service: 'inviteService', function: 'canSendInvite', invite });
+      return { canSend: false, message: `Convite já ${invite.status}. Não pode ser reenviado.` };
+    }
+
+    // Verifica se o convite expirou
+    if (invite.status === 'expired') {
+      logger.info('Convite expirado. Pode ser reenviado.', { service: 'inviteService', function: 'canSendInvite', invite });
+      return { canSend: true, user: userPlainObject };
+    }
+
+    // Verifica se pode reenviar (1 hora após o último envio)
+    const lastSentAt = invite.lastSentAt.toDate();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    if (lastSentAt > oneHourAgo) {
+      logger.info('Convite foi enviado há menos de 1 hora. Não pode ser reenviado ainda.', { service: 'inviteService', function: 'canSendInvite', invite });
+      return { canSend: false, message: 'Convite foi enviado há menos de 1 hora. Aguarde para reenviar.' };
+    }
+
+    logger.info('Convite pode ser reenviado.', { service: 'inviteService', function: 'canSendInvite', invite });
+    return { canSend: true, user: userPlainObject };
   } catch (error) {
     logger.error('Erro na verificação se pode enviar convite', { service: 'inviteService', function: 'canSendInvite', userId, error: error.message });
     return { canSend: false, message: `Error in canSendInvite: ${error.message}` };
@@ -414,7 +450,7 @@ exports.validateInvite = async (inviteId, email, nome) => {
           nome,
           inviteEmail: inviteData.email
         });
-        throw new Error('[invalid-email]E-mail não confere.');
+        throw new Error('[invalid-email] E-mail não confere.');
       }
       
       if (inviteData.nome !== nome) {
@@ -482,6 +518,73 @@ exports.validateInvite = async (inviteId, email, nome) => {
   }
 };
 
+exports.resendInvite = async (inviteId, userId) => {
+  logger.info('Reenviando convite', { service: 'inviteService', function: 'resendInvite', inviteId, userId });
+
+  try {
+
+    const { inviteRef, invite } = await Invite.getById(inviteId);
+
+    logger.info(`Convite ${inviteId} encontrado com sucesso`, {
+      service: 'inviteService',
+      function: 'getInviteById',
+      inviteId,
+      inviteRef
+    });
+
+    return await db.runTransaction(async (transaction) => {
+      const inviteDoc = await transaction.get(inviteRef);
+      
+      if (!inviteDoc.exists) {
+        logger.error('Convite não encontrado', { service: 'inviteService', function: 'resendInvite', inviteId });
+        throw new Error('Convite não encontrado');
+      }
+      
+      const inviteData = inviteDoc.data();
+      
+      if (inviteData.senderId !== userId) {
+        logger.error('Usuário não autorizado a reenviar este convite', { service: 'inviteService', function: 'resendInvite', inviteId, userId });
+        throw new Error('Usuário não autorizado a reenviar este convite');
+      }
+      
+      if (inviteData.status !== 'pending') {
+        logger.error('Convite não pode ser reenviado', { service: 'inviteService', function: 'resendInvite', inviteId, status: inviteData.status });
+        throw new Error('Convite não pode ser reenviado');
+      }
+      
+      const now = admin.firestore.Timestamp.now();
+      const oneHourAgo = new admin.firestore.Timestamp(now.seconds - 3600, now.nanoseconds);
+      
+      if (inviteData.lastSentAt && inviteData.lastSentAt > oneHourAgo) {
+        logger.error('Convite foi reenviado recentemente', { service: 'inviteService', function: 'resendInvite', inviteId, lastSentAt: inviteData.lastSentAt });
+        throw new Error('Convite foi reenviado recentemente. Aguarde uma hora antes de reenviar.');
+      }
+      
+      //Update the invite document
+      transaction.update(inviteRef, { 
+        lastSentAt: now,
+        resendCount: admin.firestore.FieldValue.increment(1)
+      });
+      
+      // Resend the email
+      await sendEmail({
+        to: inviteData.email,
+        subject: '[ElosCloud] Lembrete de Convite',
+        content: `Olá ${inviteData.friendName}, este é um lembrete do seu convite para se juntar ao ElosCloud. Clique no link abaixo para aceitar o convite: https://eloscloud.com/invite?inviteId=${inviteId}`,
+        userId: userId,
+        friendName: inviteData.friendName,
+        inviteId: inviteId,
+        type: 'convite_lembrete'
+      });
+      
+      logger.info('Convite reenviado com sucesso', { service: 'inviteService', function: 'resendInvite', inviteId });
+      return { success: true, message: 'Convite reenviado com sucesso' };
+    });
+  } catch (error) {
+    logger.error('Erro ao reenviar convite', { service: 'inviteService', function: 'resendInvite', inviteId, error: error.message });
+    throw new Error(`Erro ao reenviar convite: ${error.message}`);
+  }
+};
 
 exports.invalidateInvite = async (inviteId, newUserId) => {
   try {

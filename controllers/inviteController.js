@@ -42,6 +42,24 @@ exports.invalidateInvite = async (req, res) => {
   }
 };
 
+exports.resendInvite = async (req, res) => {
+  const inviteId = req.params.inviteId;
+  const userId = req.uid;
+  logger.error('userId', userId)
+
+  
+  logger.info('Reenviando convite', { service: 'inviteController', function: 'resendInvite', inviteId, userId });
+
+  try {
+    const result = await inviteService.resendInvite(inviteId, userId);
+    logger.info('Convite reenviado com sucesso', { service: 'inviteController', function: 'resendInvite', inviteId, userId });
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error('Erro ao reenviar convite', { service: 'inviteController', function: 'resendInvite', inviteId, userId, error: error.message });
+    res.status(500).json({ message: 'Erro ao reenviar convite', error: error.message });
+  }
+};
+
 exports.sendInvite = async (req, res) => {
   const { email, friendName } = req.validatedBody;
   logger.info('Enviando convite', {
@@ -65,6 +83,7 @@ exports.sendInvite = async (req, res) => {
 
 exports.getSentInvites = async (req, res) => {
   const userId = req.user.uid;
+  
   logger.info('Buscando convites enviados', { service: 'inviteController', function: 'getSentInvites', userId });
 
   try {

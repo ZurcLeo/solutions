@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
+const cookieParser = require('cookie-parser');
 const corsMiddleware = require('./middlewares/cors');
 const { logger, morganMiddleware } = require('./logger');
 const swaggerUi = require('swagger-ui-express');
@@ -11,7 +12,9 @@ const swaggerDocs = require('./swagger');
 const app = express();
 
 // Middleware para ler o corpo da requisição em JSON
+app.use(cookieParser());
 app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // Middleware para logar o corpo da requisição
 app.use((req, res, next) => {
@@ -43,6 +46,15 @@ const io = socketIo(server, {
     origin: '*',
     methods: ['GET', 'POST'],
   },
+});
+
+app.use((req, res, next) => {
+  logger.info('Verificando cookies na requisição:', {
+    service: 'cookie-checker',
+    function: 'cookie-checker',
+    cookies: req.cookies
+  });
+  next();
 });
 
 app.use((req, res, next) => {
