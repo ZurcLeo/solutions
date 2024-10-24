@@ -20,6 +20,7 @@ logger.error('FIREBASE_CREDENTIALS:', serviceAccount)
   });
 
   const db = admin.firestore();
+  console.log('Firestore inicializado:', db);
   const auth = admin.auth();
   const storage = admin.storage().bucket();
 
