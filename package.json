@@ -24,6 +24,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "fb": "^2.0.0",
+    "firebase": "^11.0.1",
     "firebase-admin": "^12.1.1",
     "hls.js": "^1.5.11",
     "image-type": "^5.2.0",
