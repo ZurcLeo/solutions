@@ -53,7 +53,7 @@ const notificationService = {
 
     try {
       const notificationRef = Notification.markAsRead(userId, notificationId, type);
-      const doc = await notificationRef.get();
+      const doc = await notificationRef;
       console.log(doc)
 
       if (!doc.exists) {

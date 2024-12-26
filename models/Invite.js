@@ -1,4 +1,4 @@
-const { db } = require('../firebaseAdmin');
+const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 
 class Invite {
@@ -17,6 +17,7 @@ class Invite {
   }
 
   static async getById(inviteId) {
+    const db = getFirestore(); // Garante a inicialização do Firestore
     logger.info(`Iniciando a busca pelo convite com inviteId ${inviteId}`, {
       service: 'inviteService',
       function: 'getById',
@@ -55,6 +56,7 @@ class Invite {
   }
 
   static async create(data) {
+    const db = getFirestore(); // Garante a inicialização do Firestore
     logger.info('Iniciando a criação de um novo convite', {
       service: 'inviteService',
       function: 'create',
@@ -85,6 +87,7 @@ class Invite {
   }
 
   static async update(id, data) {
+    const db = getFirestore(); // Garante a inicialização do Firestore
     logger.info(`Iniciando a atualização do convite com ID ${id}`, {
       service: 'inviteService',
       function: 'update',
@@ -125,6 +128,7 @@ class Invite {
   }
 
   static async delete(id) {
+    const db = getFirestore(); // Garante a inicialização do Firestore
     logger.info(`Iniciando a exclusão do convite com ID ${id}`, {
       service: 'inviteService',
       function: 'delete',
@@ -153,6 +157,7 @@ class Invite {
   }
 
   static async getBySenderId(userId) {
+    const db = getFirestore(); // Garante a inicialização do Firestore
     logger.info(`Iniciando a busca por convites do usuário com senderId ${userId}`, {
       service: 'inviteService',
       function: 'getBySenderId',

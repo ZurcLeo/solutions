@@ -1,11 +1,11 @@
 // services/messageService.js
-const { admin } = require('../firebaseAdmin');
+const { getFirestore } = require('../firebaseAdmin'); // Use getFirestore para inicialização lazy
 const Message = require('../models/Message');
 
 class MessageService {
   static async getAllMessages(userId) {
     try {
-      const db = admin.firestore();
+      const db = getFirestore(); // Inicialização correta do Firestore
       const messagesRef = db.collectionGroup('mensagens');
       const collections = await messagesRef.get();
       const userSubcollections = collections.docs.filter(doc => {

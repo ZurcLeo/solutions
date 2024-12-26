@@ -1,4 +1,4 @@
-const { admin, db } = require('../firebaseAdmin');
+const { admin, getFirestore } = require('../firebaseAdmin');
 const { v4: uuidv4 } = require('uuid');
 const { sendEmail } = require('../services/emailService')
 const User = require('../models/User');
@@ -12,6 +12,7 @@ const moment = require('moment');
 const logoURL = process.env.PLACE_HOLDER_IMG;
 
 exports.getInviteById = async (inviteId) => {
+  
   logger.info(`Iniciando a busca pelo convite ${inviteId}`, {
     service: 'inviteService',
     function: 'getInviteById',
@@ -102,6 +103,7 @@ exports.deleteInvite = async (id) => {
 };
 
 exports.canSendInvite = async (req) => {
+  const db = getFirestore(); // Garante a inicialização do Firestore
   const userId = req.uid;
   const email = req.body.email; // Supondo que o email seja enviado no corpo da requisição
   logger.info('Iniciando verificação se pode enviar convite', { service: 'inviteService', function: 'canSendInvite', userId, email });
@@ -159,6 +161,7 @@ exports.canSendInvite = async (req) => {
 };
 
 exports.generateInvite = async (req) => {
+  const db = await getFirestore(); // Garante a inicialização do Firestore
   const inviteData = await req;
   const userId = req.userId; 
   const friendFoto = process.env.CLAUD_PROFILE_IMG;
@@ -168,6 +171,7 @@ exports.generateInvite = async (req) => {
   const conteudo = `O convite foi enviado com sucesso para ${friendName}`;
   const url = `https://eloscloud.com`;
   let senderName, senderPhotoURL;
+  
   
   logger.info('inviteData no generateInvite:', { service: 'inviteService', function: 'generateInvite', inviteData });
 
@@ -402,6 +406,7 @@ exports.generateInvite = async (req) => {
 };
 
 exports.validateInvite = async (inviteId, email, nome) => {
+  const db = getFirestore(); // Garante a inicialização do Firestore
   try {
     const { invite, inviteRef } = await Invite.getById(inviteId);
 
@@ -492,7 +497,7 @@ exports.validateInvite = async (inviteId, email, nome) => {
           validatedBy: email, 
           status: 'used',
           nome: nome,
-          validatedAt: admin.firestore.FieldValue.serverTimestamp()
+          validatedAt: db.FieldValue.serverTimestamp()
          });
 
       logger.info(`Convite ${inviteId} validado com sucesso`, {
@@ -519,6 +524,8 @@ exports.validateInvite = async (inviteId, email, nome) => {
 };
 
 exports.resendInvite = async (inviteId, userId) => {
+  const db = getFirestore(); // Garante a inicialização do Firestore
+
   logger.info('Reenviando convite', { service: 'inviteService', function: 'resendInvite', inviteId, userId });
 
   try {
@@ -552,7 +559,7 @@ exports.resendInvite = async (inviteId, userId) => {
         throw new Error('Convite não pode ser reenviado');
       }
       
-      const now = admin.firestore.Timestamp.now();
+      const now = admin.firestore.Timestamp.fromDate(new Date(Date.now()))
       const oneHourAgo = new admin.firestore.Timestamp(now.seconds - 3600, now.nanoseconds);
       
       if (inviteData.lastSentAt && inviteData.lastSentAt > oneHourAgo) {
@@ -587,9 +594,10 @@ exports.resendInvite = async (inviteId, userId) => {
 };
 
 exports.invalidateInvite = async (inviteId, newUserId) => {
+  const db = getFirestore(); // Garante a inicialização do Firestore
   try {
-    await firestore.runTransaction(async (transaction) => {
-      const inviteRef = firestore.collection('convites').doc(inviteId);
+    await db.runTransaction(async (transaction) => {
+      const inviteRef = db.collection('convites').doc(inviteId);
       const inviteDoc = await transaction.get(inviteRef);
 
       if (!inviteDoc.exists) {
@@ -715,25 +723,25 @@ exports.invalidateInvite = async (inviteId, newUserId) => {
 
       `;
 
-      const newUserRef = firestore.collection('usuario').doc(newUserId);
+      const newUserRef = db.collection('usuario').doc(newUserId);
       const comprasRef = newUserRef.collection('compras');
       const ancestralidadeRef = newUserRef.collection('ancestralidade');
 
       transaction.set(comprasRef.doc(), {
         quantidade: 500,
         valorPago: 0,
-        dataCompra: admin.firestore.FieldValue.serverTimestamp(),
+        dataCompra: db.FieldValue.serverTimestamp(),
         meioPagamento: 'oferta-boas-vindas'
       });
 
       transaction.set(ancestralidadeRef.doc(), {
         inviteId: inviteId,
         senderId: inviteData.senderId,
-        dataAceite: admin.firestore.FieldValue.serverTimestamp(),
+        dataAceite: db.FieldValue.serverTimestamp(),
         fotoDoUsuario: inviteData.senderPhotoURL
       });
 
-      const senderRef = firestore.collection('usuario').doc(inviteData.senderId);
+      const senderRef = db.collection('usuario').doc(inviteData.senderId);
       const descendentesRef = senderRef.collection('descendentes');
 
       transaction.set(descendentesRef.doc(), {
@@ -741,13 +749,13 @@ exports.invalidateInvite = async (inviteId, newUserId) => {
         nome: inviteData.senderName,
         email: inviteData.email,
         fotoDoPerfil: inviteData.senderPhotoURL,
-        dataAceite: admin.firestore.FieldValue.serverTimestamp()
+        dataAceite: db.FieldValue.serverTimestamp()
       });
 
-      transaction.set(firestore.collection('mail').doc(), {
+      transaction.set(db.collection('mail').doc(), {
         to: [{ email: inviteData.email }],
         subject: 'ElosCloud - Boas-vindas!',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: db.FieldValue.serverTimestamp(),
         status: 'sent',
         data: {
           inviteId: inviteId,

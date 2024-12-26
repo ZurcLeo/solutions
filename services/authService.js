@@ -1,10 +1,36 @@
-const { auth } = require('../firebaseAdmin');
+const { getAuth, auth } = require('../firebaseAdmin');
+const { logger } = require('../logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { getFacebookUserData } = require('./facebookService');
 const { addToBlacklist, isTokenBlacklisted } = require('./blacklistService');
 const { validateInvite, invalidateInvite } = require('./inviteService');
 require('dotenv').config();
+
+/**
+ * Verifica e decodifica um token usando o Firebase Admin.
+ * @param {string} idToken - O token de ID a ser verificado.
+ * @returns {Promise<Object>} - Os dados decodificados do token.
+ */
+const verifyIdToken = async (idToken) => {
+  try {
+    const auth = getAuth(); // Obtenha a instância de Auth
+    const decodedToken = await auth.verifyIdToken(idToken); // Verifica e decodifica o token
+    logger.info('Token verificado com sucesso no authService', {
+      service: 'authService',
+      function: 'verifyIdToken',
+      userId: decodedToken.uid,
+    });
+    return decodedToken;
+  } catch (error) {
+    logger.error('Erro ao verificar o token no authService', {
+      service: 'authService',
+      function: 'verifyIdToken',
+      error: error.message,
+    });
+    throw error;
+  }
+};
 
 const generateToken = (user) => {
   // Gerar access token com tempo de expiração curto
@@ -175,23 +201,33 @@ const resendVerificationEmail = async () => {
 };
 
 const getCurrentUser = async (userId) => {
-  const userRecord = await auth.getUser(userId);
-  const userProfile = await User.getById(userId);
+  try {
+    // Utilize o método estático `getById` do modelo `User` para buscar os dados
+    const userProfile = await User.getById(userId);
 
-  const userData = {
-    uid: userRecord.uid,
-    email: userRecord.email,
-    emailVerified: userRecord.emailVerified,
-    phoneNumber: userRecord.phoneNumber,
-    displayName: userRecord.displayName,
-    photoURL: userRecord.photoURL,
-    providerData: userRecord.providerData,
-    ...userProfile
-  };
-  return userData;
+    // Crie o objeto com os dados que serão retornados
+    const userData = userProfile.toPlainObject();
+
+    logger.info('Dados do usuário recuperados com sucesso no getCurrentUser', {
+      service: 'authService',
+      function: 'getCurrentUser',
+      userId,
+    });
+
+    return userData;
+  } catch (error) {
+    logger.error(`Erro ao buscar dados do usuário no getCurrentUser: ${error.message}`, {
+      service: 'authService',
+      function: 'getCurrentUser',
+      userId,
+    });
+    throw new Error(`Erro ao buscar dados do usuário: ${error.message}`);
+  }
 };
 
+
 module.exports = {
+  verifyIdToken,
   generateToken,
   generateRefreshToken,
   verifyAndGenerateNewToken,

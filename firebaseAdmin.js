@@ -2,17 +2,21 @@ const admin = require('firebase-admin');
 const { logger } = require('./logger');
 require('dotenv').config();
 
-let firebaseApp;
-let db;
-let auth;
-let storage;
+let firebaseApp = null;
+let db = null;
+let auth = null;
+let storage = null;
 
-function initializeFirebaseAdmin() {
+/**
+ * Inicializa o Firebase Admin apenas uma vez, se ainda não foi inicializado.
+ * Responsável apenas por inicializar o aplicativo Firebase.
+ */
+function initializeFirebaseApp() {
+  if (firebaseApp) {
+    return firebaseApp;
+  }
+
   try {
-    if (firebaseApp) {
-      return firebaseApp;
-    }
-
     const serviceAccount = process.env.FIREBASE_CREDENTIALS;
 
     if (!serviceAccount) {
@@ -24,54 +28,87 @@ function initializeFirebaseAdmin() {
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(parsedServiceAccount),
       databaseURL: process.env.FIREBASE_DATABASE_URL,
-      apiKey: process.env.FIREBASE_API_KEY,
-      authDomain: process.env.FIREBASE_AUTH_DOMAIN,
       projectId: process.env.FIREBASE_PROJECT_ID,
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-      appId: process.env.FIREBASE_APP_ID,
-      measurementId: process.env.FIREBASE_MEASUREMENT_ID
     });
 
-    db = admin.firestore();
-    console.log(db);
-    auth = admin.auth();
-    storage = admin.storage().bucket();
-
-    logger.info('Firebase Admin inicializado com sucesso', firebaseApp);
-
-    return firebaseApp;
+    logger.info('Firebase App inicializado com sucesso');
   } catch (error) {
-    logger.error('Erro ao inicializar Firebase Admin:', error);
+    logger.error('Erro ao inicializar o Firebase App:', {
+      message: error.message,
+      credentials: process.env.FIREBASE_CREDENTIALS
+    });
     throw error;
   }
+
+  return firebaseApp;
 }
 
-// Função para verificar token
-async function verifyToken(token) {
-  try {
-      const app = initializeFirebaseAdmin();
-      const decodedToken = await app.auth().verifyIdToken(token);
-      return decodedToken;
-  } catch (error) {
-      console.error('Erro ao verificar token:', error);
-      throw error;
-  }
-}
-
-// Getter para garantir que o `db` seja acessado corretamente
+/**
+ * Obtém uma instância do Firestore, inicializando-o se necessário.
+ * Retorna uma instância única de Firestore.
+ */
 function getFirestore() {
-  if (!db) {
-    initializeFirebaseAdmin();
+  if (!firebaseApp) {
+    initializeFirebaseApp();
   }
+
+  if (!db) {
+    db = admin.firestore();
+    logger.info('Firestore inicializado com sucesso');
+  }
+
   return db;
 }
 
+/**
+ * Obtém uma instância do Auth, inicializando-o se necessário.
+ * Retorna uma instância única de Auth.
+ */
+function getAuth() {
+  if (!firebaseApp) {
+    initializeFirebaseApp();
+  }
+
+  if (!auth) {
+    auth = admin.auth();
+    logger.info('Auth inicializado com sucesso');
+  }
+
+  return auth;
+}
+
+/**
+ * Obtém uma instância do Storage, inicializando-o se necessário.
+ * Retorna uma instância única de Storage.
+ */
+function getStorage() {
+  if (!firebaseApp) {
+    initializeFirebaseApp();
+  }
+
+  if (!storage) {
+    storage = admin.storage().bucket();
+    logger.info('Storage inicializado com sucesso');
+  }
+
+  return storage;
+}
+
+/**
+ * Retorna a instância do aplicativo Firebase, inicializando se necessário.
+ */
+function getApp() {
+  if (!firebaseApp) {
+    initializeFirebaseApp();
+  }
+  return firebaseApp;
+}
+
 module.exports = {
-  initializeFirebaseAdmin,
-  verifyToken,
-  getApp: () => firebaseApp,
-  getFirestore, // Use este getter para acessar o Firestore
-  auth,
-  storage
+  admin,
+  getApp,
+  getFirestore,
+  getAuth,
+  getStorage
 };

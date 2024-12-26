@@ -4,6 +4,7 @@ const { isTokenBlacklisted } = require('../services/blacklistService');
 const authService = require('../services/authService');
 
 const verifyToken = async (req, res, next) => {
+
   const authHeader = req.headers['authorization'];
   logger.info('Verificação de token iniciada', {
     service: 'authMiddleware',
@@ -38,8 +39,10 @@ const verifyToken = async (req, res, next) => {
     }
 
     let decodedToken;
+
     try {
-      decodedToken = await auth.verifyIdToken(idToken);
+      decodedToken = await authService.verifyIdToken(idToken);
+
       req.user = decodedToken;
       req.uid = decodedToken.uid;
 
@@ -56,8 +59,7 @@ const verifyToken = async (req, res, next) => {
           function: 'verifyToken',
         });
 
-        // Check for the refresh token in cookies
-        const refreshToken = req.cookies?.refreshToken;
+        const refreshToken = req.cookies?.refreshToken; // Recupera o refresh token do cookie
         if (!refreshToken) {
           logger.error('Refresh token não fornecido', {
             service: 'authMiddleware',
@@ -67,24 +69,22 @@ const verifyToken = async (req, res, next) => {
         }
 
         try {
-          // Generate new tokens using the refresh token
-          const newTokens = await authService.verifyAndGenerateNewToken(refreshToken);
+          const newTokens = await authService.verifyAndGenerateNewToken(refreshToken); // Renova os tokens
           if (!newTokens) {
             return res.status(403).json({ message: 'Token inválido ou expirado' });
           }
 
-          // Set new access token in the header and refresh token in cookies
+          // Atualize o token de acesso e o refresh token
           res.setHeader('Authorization', `Bearer ${newTokens.accessToken}`);
           res.cookie('refreshToken', newTokens.refreshToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'Strict',
-            maxAge: 24 * 60 * 60 * 1000, // 1 day
+            maxAge: 24 * 60 * 60 * 1000,
           });
 
-          // Attach the new token to the request
-          req.user = await auth.verifyIdToken(newTokens.accessToken);
-          req.uid = req.user.uid;
+          req.user = await authService.verifyIdToken(newTokens.accessToken);
+          req.uid = req.user.uid; 
 
           logger.info('Token renovado e verificado com sucesso', {
             service: 'authMiddleware',

@@ -104,16 +104,22 @@ exports.resendVerificationEmail = async (req, res) => {
 
 exports.getCurrentUser = async (req, res) => {
   try {
-    const userId = req.uid;
-    logger.info('userId no getCurrentUser: ', userId)
+    const userId = req.uid; // `req.uid` é definido pelo middleware de autenticação
+    if (!userId) {
+      throw new Error('ID do usuário não encontrado no request.');
+    }
+
+    logger.info('userId no getCurrentUser:', { service: 'authController', function: 'getCurrentUser', userId });
     const userData = await authService.getCurrentUser(userId);
-    logger.info('UserData no getCurrentUser: ', userData)
+
+    logger.info('UserData no getCurrentUser: ', userData);
     res.status(200).json(userData);
   } catch (error) {
     logger.error(`Erro ao obter dados do usuário: ${error.message}`);
     res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
   }
 };
+
 
 exports.refreshToken = async (req, res) => {
   try {

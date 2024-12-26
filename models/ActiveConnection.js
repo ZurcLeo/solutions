@@ -1,4 +1,4 @@
-const {db} = require('../firebaseAdmin');
+const {getFirestore} = require('../firebaseAdmin');
 
 class ActiveConnection {
   constructor(data) {
@@ -13,6 +13,7 @@ class ActiveConnection {
   }
 
   static async getConnectionsByUserId(userId) {
+    const db = getFirestore();
     const userDoc = await db.collection('usuario').doc(userId).get();
     if (!userDoc.exists) {
       throw new Error('Usuário não encontrado.');
@@ -50,6 +51,7 @@ class ActiveConnection {
   }
 
   static async getById(id) {
+    const db = getFirestore();
     const doc = await db.collection('ativas').doc(id).get();
     if (!doc.exists) {
       throw new Error('Conexão ativa não encontrada.');
@@ -58,6 +60,8 @@ class ActiveConnection {
   }
 
   static async create(data) {
+    const db = getFirestore();
+
     const connection = new ActiveConnection(data);
     const docRef = await db.collection('ativas').add({ ...connection });
     connection.id = docRef.id;
@@ -65,6 +69,8 @@ class ActiveConnection {
   }
 
   static async update(id, data) {
+    const db = getFirestore();
+
     const connectionRef = db.collection('ativas').doc(id);
     await connectionRef.update(data);
     const updatedDoc = await connectionRef.get();
@@ -72,6 +78,8 @@ class ActiveConnection {
   }
 
   static async delete(id) {
+    const db = getFirestore();
+
     const connectionRef = db.collection('ativas').doc(id);
     await connectionRef.delete();
   }

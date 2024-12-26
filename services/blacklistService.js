@@ -1,16 +1,29 @@
-// services/blacklistService.js
-const Blacklist = require('../models/BlackList');
+const Blacklist = require('../models/Blacklist');
 
 const blacklist = new Blacklist();
 
+/**
+ * Adiciona um token à blacklist.
+ * @param {string} token - O token a ser adicionado.
+ */
 const addToBlacklist = async (token) => {
   await blacklist.addToBlacklist(token);
 };
 
+/**
+ * Verifica se um token está na blacklist.
+ * @param {string} token - O token a ser verificado.
+ * @returns {boolean} - Retorna true se o token estiver na blacklist.
+ */
 const isTokenBlacklisted = async (token) => {
-  return await blacklist.isTokenBlacklisted(token);
+  const result = await blacklist.isTokenBlacklisted(token);
+  console.log('Resultado da checagem de blacklist:', result);
+  return result;
 };
 
+/**
+ * Remove tokens expirados da blacklist.
+ */
 const removeExpiredTokens = async () => {
   await blacklist.removeExpiredTokens();
 };

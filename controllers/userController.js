@@ -56,7 +56,7 @@ const getUsers = async (req, res) => {
 };
 
 const getUserById = async (req, res) => {
-  const userId = req.params.id;
+  const userId = req.params.userId;
   logger.info('Requisição para obter usuário por ID', {
     service: 'userController',
     function: 'getUserById',

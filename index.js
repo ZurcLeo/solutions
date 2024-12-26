@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cookieParser = require('cookie-parser');
-const corsMiddleware = require('./middlewares/cors');
+const { corsMiddleware, allowedOrigins } = require('./middlewares/cors');
 const { logger, morganMiddleware } = require('./logger');
 const swaggerUi = require('swagger-ui-express');
 const bodyParser = require('body-parser');
@@ -43,8 +43,10 @@ app.use((req, res, next) => {
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'userId', 'email']
   },
 });
 

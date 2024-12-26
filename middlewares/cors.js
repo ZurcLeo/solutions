@@ -3,7 +3,8 @@ const { logger } = require('../logger');
 
 const allowedOrigins = [
   'https://eloscloud.com',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'https://backend-elos.onrender.com'
 ];
 
 const corsOptions = {
@@ -37,4 +38,7 @@ const corsOptions = {
   preflightContinue: true, // Continuar para o próximo middleware após a resposta preflight
 };
 
-module.exports = cors(corsOptions);
+module.exports = {
+  corsMiddleware: cors(corsOptions),
+  allowedOrigins
+}
