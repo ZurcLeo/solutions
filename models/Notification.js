@@ -1,4 +1,5 @@
 const { getFirestore } = require('../firebaseAdmin');
+const { logger } = require('../logger');
 
 class Notification {
   constructor(userId, type, content, url, createdAt = new Date(), read = false) {
@@ -11,6 +12,7 @@ class Notification {
   }
 
   static async create(userId, type, content, url) {
+    logger.info('userId:', userId)
     const db = getFirestore(); // Garante a inicialização do Firestore
     const notificationData = {
       userId,

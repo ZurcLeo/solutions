@@ -1,4 +1,5 @@
 const {getFirestore} = require('../firebaseAdmin');
+const { logger } = require('../logger');
 
 class ActiveConnection {
   constructor(data) {
@@ -10,6 +11,71 @@ class ActiveConnection {
     this.email = data.email;
     this.status = data.status;
     this.dataDoAceite = data.dataDoAceite ? new Date(data.dataDoAceite.seconds * 1000) : null;
+  }
+
+  static async findOne(conditions) {
+    const db = getFirestore();
+    try {
+      // Create a compound query based on conditions
+      let query = db.collection('ativas');
+      
+      // Add conditions to query
+      if (conditions.userId) {
+        query = query.where('userId', '==', conditions.userId);
+      }
+      if (conditions.friendId) {
+        query = query.where('friendId', '==', conditions.friendId);
+      }
+
+      // Execute query
+      const snapshot = await query.limit(1).get();
+
+      // If no documents found, return null
+      if (snapshot.empty) {
+        return null;
+      }
+
+      // Return first matching document
+      const doc = snapshot.docs[0];
+      return new ActiveConnection({ id: doc.id, ...doc.data() });
+
+    } catch (error) {
+      logger.error('Error in ActiveConnection.findOne', {
+        service: 'ActiveConnection',
+        method: 'findOne',
+        conditions,
+        error: error.message
+      });
+      throw new Error(`Failed to find connection: ${error.message}`);
+    }
+  }
+
+  // Additional helper method to check if connection exists
+  static async exists(userId, friendId) {
+    try {
+      // Check in user document's friends array
+      const db = getFirestore();
+      const userDoc = await db.collection('usuario').doc(userId).get();
+      
+      if (!userDoc.exists) {
+        return false;
+      }
+
+      const userData = userDoc.data();
+      const friends = userData.amigos || [];
+      
+      return friends.includes(friendId);
+
+    } catch (error) {
+      logger.error('Error checking connection existence', {
+        service: 'ActiveConnection',
+        method: 'exists',
+        userId,
+        friendId,
+        error: error.message
+      });
+      throw error;
+    }
   }
 
   static async getConnectionsByUserId(userId) {

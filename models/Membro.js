@@ -1,5 +1,6 @@
-const admin = require('firebase-admin');
-const firestore = admin.firestore();
+const {getFirestore} = require('../firebaseAdmin');
+
+const db = getFirestore();
 
 class Membro {
   constructor(data) {
@@ -10,7 +11,7 @@ class Membro {
   }
 
   static async getById(caixinhaId, id) {
-    const doc = await firestore.collection('caixinhas').doc(caixinhaId).collection('membros').doc(id).get();
+    const doc = await db.collection('caixinhas').doc(caixinhaId).collection('membros').doc(id).get();
     if (!doc.exists) {
       throw new Error('Membro não encontrado.');
     }
@@ -19,20 +20,20 @@ class Membro {
 
   static async create(data) {
     const membro = new Membro(data);
-    const docRef = await firestore.collection('caixinhas').doc(data.caixinhaId).collection('membros').add({ ...membro });
+    const docRef = await db.collection('caixinhas').doc(data.caixinhaId).collection('membros').add({ ...membro });
     membro.id = docRef.id;
     return membro;
   }
 
   static async update(caixinhaId, id, data) {
-    const membroRef = firestore.collection('caixinhas').doc(caixinhaId).collection('membros').doc(id);
+    const membroRef = db.collection('caixinhas').doc(caixinhaId).collection('membros').doc(id);
     await membroRef.update(data);
     const updatedDoc = await membroRef.get();
     return new Membro(updatedDoc.data());
   }
 
   static async delete(caixinhaId, id) {
-    const membroRef = firestore.collection('caixinhas').doc(caixinhaId).collection('membros').doc(id);
+    const membroRef = db.collection('caixinhas').doc(caixinhaId).collection('membros').doc(id);
     await membroRef.delete();
   }
 }

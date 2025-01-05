@@ -88,6 +88,103 @@ router.get('/', verifyToken, validate(userSchema), userController.getUsers);
 
 /**
  * @swagger
+ * /search:
+ *   get:
+ *     summary: Search users
+ *     description: Searches for users based on provided query parameters.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: [] # If verifyToken uses Bearer authentication
+ *     parameters:
+ *       - in: query
+ *         name: name
+ *         schema:
+ *           type: string
+ *         description: Search by user's name (partial or full).
+ *       - in: query
+ *         name: email
+ *         schema:
+ *           type: string
+ *         description: Search by user's email (partial or full).
+ *       # Add other search parameters as needed (e.g., city, country, etc.)
+ *     responses:
+ *       200:
+ *         description: Successful search. Returns an array of users.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   _id:
+ *                     type: string
+ *                     description: User ID
+ *                   name:
+ *                     type: string
+ *                     description: User name
+ *                   email:
+ *                     type: string
+ *                     description: User email
+ *       400:
+ *         description: Bad request. Invalid query parameters.
+ *       401:
+ *         description: Unauthorized. Missing or invalid token.
+ *       500:
+ *         description: Internal server error.
+ */
+router.get('/search', verifyToken, userController.searchUsers);
+
+/**
+ * @swagger
+ * /users/add-user:
+ *   post:
+ *     summary: Adiciona um novo usuário
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/User'
+ *     responses:
+ *       201:
+ *         description: Usuário criado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Erro na solicitação
+ *       500:
+ *         description: Erro no servidor
+ */
+router.post('/add-user', verifyToken, cleanRequestBody, validate(userSchema), userController.addUser);
+
+/**
+ * @swagger
+ * /users/me:
+ *   get:
+ *     summary: Retorna o perfil do usuário autenticado
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Perfil do usuário retornado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/User'
+ *       401:
+ *         description: Não autorizado
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/me', verifyToken, validate(userSchema), authController.getCurrentUser);
+
+/**
+ * @swagger
  * /users/{id}:
  *   get:
  *     summary: Retorna um usuário pelo ID
@@ -115,31 +212,6 @@ router.get('/', verifyToken, validate(userSchema), userController.getUsers);
  */
 router.get('/:userId', verifyToken, validate(userSchema), userController.getUserById);
 
-/**
- * @swagger
- * /users/add-user:
- *   post:
- *     summary: Adiciona um novo usuário
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/User'
- *     responses:
- *       201:
- *         description: Usuário criado com sucesso
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/User'
- *       400:
- *         description: Erro na solicitação
- *       500:
- *         description: Erro no servidor
- */
-router.post('/add-user', verifyToken, cleanRequestBody, validate(userSchema), userController.addUser);
 
 /**
  * @swagger
@@ -175,6 +247,7 @@ router.post('/add-user', verifyToken, cleanRequestBody, validate(userSchema), us
  *         description: Erro no servidor
  */
 router.put('/update-user/:userId', verifyToken, convertDataCriacao, cleanRequestBody, validate(userSchema), userController.updateUser);
+
 
 /**
  * @swagger
@@ -216,6 +289,7 @@ router.put('/update-user/:userId', verifyToken, convertDataCriacao, cleanRequest
  *       500:
  *         description: Erro no servidor
  */
+
 router.put('/upload-profile-picture/:userId', 
   verifyToken, 
   upload.single('profilePicture'), 
@@ -247,26 +321,5 @@ router.put('/upload-profile-picture/:userId',
  */
 router.delete('/delete-user/:id', verifyToken, validate(userSchema), userController.deleteUser);
 
-/**
- * @swagger
- * /users/me:
- *   get:
- *     summary: Retorna o perfil do usuário autenticado
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Perfil do usuário retornado com sucesso
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/User'
- *       401:
- *         description: Não autorizado
- *       500:
- *         description: Erro no servidor
- */
-router.get('/me', verifyToken, validate(userSchema), authController.getCurrentUser);
 
 module.exports = router;

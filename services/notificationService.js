@@ -94,7 +94,8 @@ const notificationService = {
     });
 
     try {
-      const notificationRef = Notification.createNotificationRef(userId);
+      logger.info('userID:', userId)
+      const notificationRef = Notification.create(userId);
       await notificationRef.set({
         ...notificationData,
         createdAt: FieldValue.serverTimestamp(),

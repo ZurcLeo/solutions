@@ -6,7 +6,7 @@ class AtividadeBonus {
     this.id = data.id;
     this.caixinhaId = data.caixinhaId;
     this.description = data.description;
-    this.bonus = data.bonus;
+    this.valorArrecadado = data.valorArrecadado;
     this.dataAtividade = data.dataAtividade ? new Date(data.dataAtividade.seconds * 1000) : new Date();
   }
 

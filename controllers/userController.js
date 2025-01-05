@@ -1,9 +1,10 @@
 //controllers/userController.js
-const { db, storage } = require('../firebaseAdmin');
+const { getFirestore, getStorage } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const User = require('../models/User');
-const multer = require('multer');
-const path = require('path');
+
+const storage = getStorage();
+const db = getFirestore();
 
 const addUser = async (req, res) => {
   logger.info('Requisição para adicionar usuário', {
@@ -135,7 +136,13 @@ const uploadProfilePicture = async (req, res) => {
   const userId = req.user.uid;
   const file = req.file;
 
-  logger.info('file: ', file);
+logger.info(file)
+  logger.info('File Inicial', {
+    service: 'userController',
+    function: 'uploadProfilePicture',
+    req_file: req.file,
+    req_user: req.user
+  });
 
   if (!file) {
     return res.status(400).json({ message: 'Nenhum arquivo foi enviado.' });
@@ -146,14 +153,26 @@ const uploadProfilePicture = async (req, res) => {
     const fileName = `fotoDePerfil/${userId}/profile_picture_${Date.now()}.png`;
     const fileRef = storage.file(fileName);
 
+    logger.info('FileRef', {
+      service: 'userController',
+      function: 'uploadProfilePicture',
+      fileRef
+    });
+
     // Salva o arquivo no bucket do Firebase
     await fileRef.save(file.buffer, {
-      contentType: file.mimetype,
-      public: true,
+      metadata: { contentType: file.mimetype },
+      public: true, // Torne o arquivo público
     });
 
     // URL pública do arquivo
     const publicUrl = `https://storage.googleapis.com/${storage.name}/${fileName}`;
+
+    logger.info('publicUrl', {
+      service: 'userController',
+      function: 'uploadProfilePicture',
+      publicUrl
+    });
 
     // Atualize o usuário com a URL da foto de perfil
     await User.update(userId, { fotoDoPerfil: publicUrl });
@@ -196,11 +215,30 @@ const deleteUser = async (req, res) => {
   }
 };
 
+const searchUsers = async (req, res) => {
+  try {
+    const { q: searchQuery } = req.query;
+    const currentUserId = req.user.uid; // Obtido do middleware de autenticação
+
+    if (!searchQuery) {
+      return res.status(400).json({ message: 'Search query is required' });
+    }
+
+    const users = await User.searchUsers(searchQuery, currentUserId);
+    res.json(users);
+  } catch (error) {
+    console.error('Error searching users:', error);
+    res.status(500).json({ message: 'Error searching users' });
+  }
+};
+
+
 module.exports = {
   addUser,
   getUsers,
   getUserById,
   updateUser,
   deleteUser,
-  uploadProfilePicture
+  uploadProfilePicture,
+  searchUsers
 };

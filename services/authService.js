@@ -1,4 +1,5 @@
-const { getAuth, auth } = require('../firebaseAdmin');
+const { getAuth, getFirestore, auth } = require('../firebaseAdmin');
+const { FieldValue } = require('firebase-admin/firestore');
 const { logger } = require('../logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
@@ -78,44 +79,51 @@ const verifyAndGenerateNewToken = async (refreshToken) => {
   }
 };
 
-const ensureUserProfileExists = async (userRecord) => {
-  const userDocRef = auth.firestore().doc(`usuario/${userRecord.uid}`);
-  const docSnap = await userDocRef.get();
+const ensureUserProfileExists = async (userRecord, inviteId, transaction) => {
+  const db = getFirestore();
+  const userDocRef = db.collection('usuario').doc(userRecord.uid);
+  
+  const docSnap = await transaction.get(userDocRef);
 
   if (!docSnap.exists) {
-    const batch = auth.firestore().batch();
     const email = userRecord.email;
     const defaultName = email.substring(0, email.indexOf('@'));
 
-    batch.set(userDocRef, {
+    // Define os dados do usuário
+    const userData = {
       email: userRecord.email,
       nome: userRecord.displayName || defaultName || 'ElosCloud.Cliente',
       perfilPublico: false,
-      dataCriacao: auth.firestore.FieldValue.serverTimestamp(),
+      dataCriacao: FieldValue.serverTimestamp(),
       uid: userRecord.uid,
       tipoDeConta: 'Cliente',
       isOwnerOrAdmin: false,
+      inviteId,
       fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-      amigos: [],
+      amigos: [process.env.CLAUD_PROFILE],
       amigosAutorizados: [],
       conversasComMensagensNaoLidas: [],
-    });
+    };
 
-    batch.set(auth.firestore().doc(`conexoes/${userRecord.uid}/solicitadas/${process.env.CLAUD_PROFILE}`), {
-      dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
-      nome: 'Claud Suporte',
-      uid: process.env.CLAUD_PROFILE,
-      status: 'pendente',
-      fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-      descricao: 'Gostaria de conectar com você.',
-      amigos: [],
-    });
+    // Set do perfil do usuário
+    transaction.set(userDocRef, userData);
 
-    try {
-      await batch.commit();
-    } catch (error) {
-      throw new Error(`Erro ao criar perfil para o usuário: ${userRecord.email}`);
-    }
+    // Set da solicitação do Claud
+    transaction.set(
+      db.collection('conexoes')
+        .doc(userRecord.uid)
+        .collection('solicitadas')
+        .doc(process.env.CLAUD_PROFILE),
+      {
+        dataSolicitacao: FieldValue.serverTimestamp(),
+        nome: 'Claud Suporte',
+        uid: process.env.CLAUD_PROFILE,
+        status: 'pendente',
+        fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
+        descricao: 'Gostaria de conectar com você.',
+        amigos: [],
+      }
+    );
   }
 };
 
@@ -125,17 +133,44 @@ const facebookLogin = async (accessToken) => {
   return userData;
 };
 
-const registerWithEmail = async (email, password, inviteCode) => {
-  const inviteRef = await validateInvite(inviteCode);
-  const userRecord = await auth.createUser({ email, password });
-  await sendEmailVerification(userRecord.uid);
-  await ensureUserProfileExists(userRecord);
-  await invalidateInvite(inviteCode, email);
+const registerWithEmail = async (email, password, validationId) => {
+  const db = getFirestore();
 
-  const accessToken = generateToken({ uid: userRecord.uid });
-  const refreshToken = generateRefreshToken({ uid: userRecord.uid });
-  return { message: 'Conta criada com sucesso', accessToken, refreshToken };
+  try {
+    // Recuperar o documento de validação
+    const validationRef = db.collection('tempValidations').doc(validationId);
+    const validationDoc = await validationRef.get();
+
+    if (!validationDoc.exists) throw new Error('Validação não encontrada ou expirada');
+
+    const validationData = validationDoc.data();
+
+    if (new Date(validationData.expiresAt.toDate()) < new Date()) {
+      throw new Error('Validação expirada');
+    }
+
+    // Criar usuário no Firebase Auth
+    const userRecord = await auth.createUser({ email, password });
+
+    // Criar perfil do usuário no Firestore
+    const userRef = db.collection('usuario').doc(userRecord.uid);
+    await userRef.set({
+      email: userRecord.email,
+      nome: validationData.nome,
+      inviteId: validationData.inviteId,
+      dataCriacao: FieldValue.serverTimestamp(),
+    });
+
+    // Atualizar o status da validação
+    await validationRef.update({ status: 'used' });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Erro ao registrar com email:', error);
+    throw new Error('Falha ao registrar usuário');
+  }
 };
+
 
 const signInWithEmail = async (email, password) => {
   const userRecord = await auth.getUserByEmail(email);
@@ -171,25 +206,84 @@ const signInWithProvider = async (idToken, provider) => {
   return { message: 'Login com provedor bem-sucedido', accessToken, refreshToken, user: userRecord };
 };
 
-const registerWithProvider = async (provider, inviteCode) => {
-  const inviteRef = await validateInvite(inviteCode);
-  let providerToUse;
+const registerWithProvider = async (provider, validationId) => {
+  const db = getFirestore();
+  
+  try {
+    const { GoogleAuthProvider, OAuthProvider, signInWithPopup } = require('firebase/auth');
 
-  if (provider === 'google') {
-    providerToUse = new GoogleAuthProvider();
-    providerToUse.setCustomParameters({ prompt: 'select_account' });
-  } else if (provider === 'microsoft') {
-    providerToUse = new OAuthProvider('microsoft.com');
-    providerToUse.setCustomParameters({ prompt: 'select_account' });
+    // Recupera a validação temporária
+    const validationRef = db.collection('tempValidations').doc(validationId);
+    const validationDoc = await validationRef.get();
+
+    if (!validationDoc.exists) {
+      throw new Error('Validação não encontrada ou expirada');
+    }
+
+    const validationData = validationDoc.data();
+
+    // Verifica a expiração da validação
+    if (new Date(validationData.expiresAt.toDate()) < new Date()) {
+      throw new Error('Validação expirada');
+    }
+
+    // Configura o provedor de autenticação
+    let providerToUse;
+    if (provider === 'google') {
+      providerToUse = new GoogleAuthProvider();
+      providerToUse.setCustomParameters({ prompt: 'select_account' });
+    } else if (provider === 'microsoft') {
+      providerToUse = new OAuthProvider('microsoft.com');
+      providerToUse.setCustomParameters({ prompt: 'select_account' });
+    } else {
+      throw new Error('Provedor inválido');
+    }
+
+    // Realiza a autenticação com o provedor
+    const userCredential = await signInWithPopup(auth, providerToUse);
+    const user = userCredential.user;
+
+    // Transação para persistir dados e garantir consistência
+    await db.runTransaction(async (transaction) => {
+      const userProfileRef = db.collection('usuario').doc(user.uid);
+      const userProfileDoc = await transaction.get(userProfileRef);
+
+      if (!userProfileDoc.exists) {
+        await ensureUserProfileExists(user, validationData.inviteId, transaction);
+      }
+
+      // Atualiza o status do convite original
+      const inviteRef = db.collection('convites').doc(validationData.inviteId);
+      const inviteDoc = await transaction.get(inviteRef);
+
+      if (!inviteDoc.exists) {
+        throw new Error('Convite associado não encontrado');
+      }
+
+      transaction.update(inviteRef, {
+        status: 'used',
+        validatedBy: user.email,
+        validatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Remove a validação temporária
+      transaction.delete(validationRef);
+    });
+
+    // Gera tokens de autenticação
+    const accessToken = generateToken({ uid: user.uid });
+    const refreshToken = generateRefreshToken({ uid: user.uid });
+
+    return {
+      success: true,
+      message: 'Registro com provedor bem-sucedido',
+      accessToken,
+      refreshToken,
+    };
+  } catch (error) {
+    logger.error('Erro no registro com provedor:', { error: error.message });
+    throw new Error('Falha ao completar o registro com provedor');
   }
-
-  const userCredential = await signInWithPopup(auth, providerToUse);
-  await ensureUserProfileExists(userCredential);
-  await invalidateInvite(inviteCode, userCredential.user.email);
-
-  const accessToken = generateToken({ uid: userCredential.user.uid });
-  const refreshToken = generateRefreshToken({ uid: userCredential.user.uid });
-  return { message: 'Registro com provedor bem-sucedido', accessToken, refreshToken };
 };
 
 const resendVerificationEmail = async () => {

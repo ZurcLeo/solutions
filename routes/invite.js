@@ -75,7 +75,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.post('/validate', inviteController.validateInvite);
+router.post('/validate/:inviteId', inviteController.validateInvite);
 
 /**
  * @swagger

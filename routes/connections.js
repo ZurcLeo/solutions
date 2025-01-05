@@ -2,12 +2,12 @@ const express = require('express');
 const router = express.Router();
 const connectionsController = require('../controllers/connectionsController');
 const verifyToken = require('../middlewares/auth');
-const { logger } = require('../logger')
+const { logger } = require('../logger');
 
 // Lista de origens permitidas
 const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
 
-// Middleware to add CORS headers for all requests
+// Middleware CORS e Logger
 router.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
@@ -17,15 +17,10 @@ router.use((req, res, next) => {
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.set('Access-Control-Allow-Credentials', 'true');
 
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
+  if (req.method === 'OPTIONS') return res.status(204).end();
   next();
 });
 
-// Middleware para logar todas as requisições
 router.use((req, res, next) => {
   logger.info('Requisição recebida', {
     service: 'api',
@@ -38,118 +33,92 @@ router.use((req, res, next) => {
   next();
 });
 
-/**
- * @swagger
- * tags:
- *   name: Conexões
- *   description: Rotas para gerenciamento de conexões
- */
-
-/**
- * @swagger
- * /connections/active/{id}:
- *   get:
- *     summary: Retorna uma conexão ativa pelo ID
- *     tags: [Conexões]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: ID da conexão ativa
- *     responses:
- *       200:
- *         description: Conexão ativa encontrada
- *       404:
- *         description: Conexão ativa não encontrada
- */
-router.get('/active/:id', verifyToken, connectionsController.getActiveConnectionById);
-
+// Conexões Ativas
+router.route('/active')
 /**
  * @swagger
  * /connections/active:
  *   post:
  *     summary: Cria uma nova conexão ativa
  *     tags: [Conexões]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               interessesPessoais:
- *                 type: array
- *                 items:
- *                   type: string
- *               nome:
- *                 type: string
- *               fotoDoPerfil:
- *                 type: string
- *               interessesNegocios:
- *                 type: array
- *                 items:
- *                   type: string
- *               email:
- *                 type: string
- *               status:
- *                 type: string
- *               dataDoAceite:
- *                 type: string
- *                 format: date-time
+ *             $ref: '#/components/schemas/ActiveConnection'
  *     responses:
  *       201:
- *         description: Conexão ativa criada com sucesso
+ *         description: Conexão criada com sucesso.
+ *       400:
+ *         description: Erro de validação ou dados inválidos.
  *       500:
- *         description: Erro ao criar conexão ativa
+ *         description: Erro no servidor.
  */
-router.post('/active', verifyToken, connectionsController.createActiveConnection);
+  .post(verifyToken, connectionsController.createActiveConnection);
 
+router.route('/active/user/:userId')
 /**
  * @swagger
  * /connections/active/user/{userId}:
  *   get:
- *     summary: Retorna todas as conexões ativas de um usuário específico
+ *     summary: Lista todas as conexões de um usuário
  *     tags: [Conexões]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: userId
+ *         required: true
  *         schema:
  *           type: string
- *         required: true
  *         description: ID do usuário
  *     responses:
  *       200:
- *         description: Conexões ativas retornadas com sucesso
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 friends:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/ActiveConnection'
- *                 bestFriends:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/ActiveConnection'
- *       400:
- *         description: Erro na solicitação
+ *         description: Lista de conexões retornada com sucesso.
  *       404:
- *         description: Usuário não encontrado
+ *         description: Usuário não encontrado.
  *       500:
- *         description: Erro no servidor
+ *         description: Erro no servidor.
  */
-router.get('/active/user/:userId', verifyToken, connectionsController.getConnectionsByUserId);
+  .get(verifyToken, connectionsController.getConnectionsByUserId);
+
+router.route('/active/:id')
+/**
+ * @swagger
+ * /connections/active/{id}:
+ *   get:
+ *     summary: Obtém uma conexão ativa específica
+ *     tags: [Conexões]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID da conexão ativa
+ *     responses:
+ *       200:
+ *         description: Conexão retornada com sucesso.
+ *       404:
+ *         description: Conexão não encontrada.
+ *       500:
+ *         description: Erro no servidor.
+ */
+  .get(verifyToken, connectionsController.getActiveConnectionById)
 
 /**
  * @swagger
  * /connections/active/{id}:
  *   put:
- *     summary: Atualiza uma conexão ativa pelo ID
+ *     summary: Atualiza uma conexão ativa
  *     tags: [Conexões]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -162,41 +131,25 @@ router.get('/active/user/:userId', verifyToken, connectionsController.getConnect
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               interessesPessoais:
- *                 type: array
- *                 items:
- *                   type: string
- *               nome:
- *                 type: string
- *               fotoDoPerfil:
- *                 type: string
- *               interessesNegocios:
- *                 type: array
- *                 items:
- *                   type: string
- *               email:
- *                 type: string
- *               status:
- *                 type: string
- *               dataDoAceite:
- *                 type: string
- *                 format: date-time
+ *             $ref: '#/components/schemas/ActiveConnection'
  *     responses:
  *       200:
- *         description: Conexão ativa atualizada com sucesso
+ *         description: Conexão atualizada com sucesso.
+ *       404:
+ *         description: Conexão não encontrada.
  *       500:
- *         description: Erro ao atualizar conexão ativa
+ *         description: Erro no servidor.
  */
-router.put('/active/:id', verifyToken, connectionsController.updateActiveConnection);
+  .put(verifyToken, connectionsController.updateActiveConnection)
 
 /**
  * @swagger
  * /connections/active/{id}:
  *   delete:
- *     summary: Deleta uma conexão ativa pelo ID
+ *     summary: Remove uma conexão ativa
  *     tags: [Conexões]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -206,256 +159,91 @@ router.put('/active/:id', verifyToken, connectionsController.updateActiveConnect
  *         description: ID da conexão ativa
  *     responses:
  *       204:
- *         description: Conexão ativa deletada com sucesso
- *       500:
- *         description: Erro ao deletar conexão ativa
- */
-router.delete('/active/:id', verifyToken, connectionsController.deleteActiveConnection);
-
-/**
- * @swagger
- * /connections/inactive/{id}:
- *   get:
- *     summary: Retorna uma conexão inativa pelo ID
- *     tags: [Conexões]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: ID da conexão inativa
- *     responses:
- *       200:
- *         description: Conexão inativa encontrada
+ *         description: Conexão removida com sucesso.
  *       404:
- *         description: Conexão inativa não encontrada
- */
-router.get('/inactive/:id', verifyToken, connectionsController.getInactiveConnectionById);
-
-/**
- * @swagger
- * /connections/inactive:
- *   post:
- *     summary: Cria uma nova conexão inativa
- *     tags: [Conexões]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               nome:
- *                 type: string
- *               fotoDoPerfil:
- *                 type: string
- *               status:
- *                 type: string
- *               dataSolicitacao:
- *                 type: string
- *                 format: date-time
- *               dataDesfeita:
- *                 type: string
- *                 format: date-time
- *               dataAmizadeDesfeita:
- *                 type: string
- *                 format: date-time
- *     responses:
- *       201:
- *         description: Conexão inativa criada com sucesso
+ *         description: Conexão não encontrada.
  *       500:
- *         description: Erro ao criar conexão inativa
+ *         description: Erro no servidor.
  */
-router.post('/inactive', verifyToken, connectionsController.createInactiveConnection);
+  .delete(verifyToken, connectionsController.deleteActiveConnection);
 
-/**
- * @swagger
- * /connections/inactive/{id}:
- *   put:
- *     summary: Atualiza uma conexão inativa pelo ID
- *     tags: [Conexões]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: ID da conexão inativa
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               nome:
- *                 type: string
- *               fotoDoPerfil:
- *                 type: string
- *               status:
- *                 type: string
- *               dataSolicitacao:
- *                 type: string
- *                 format: date-time
- *               dataDesfeita:
- *                 type: string
- *                 format: date-time
- *               dataAmizadeDesfeita:
- *                 type: string
- *                 format: date-time
- *     responses:
- *       200:
- *         description: Conexão inativa atualizada com sucesso
- *       500:
- *         description: Erro ao atualizar conexão inativa
- */
-router.put('/inactive/:id', verifyToken, connectionsController.updateInactiveConnection);
-
-/**
- * @swagger
- * /connections/inactive/{id}:
- *   delete:
- *     summary: Deleta uma conexão inativa pelo ID
- *     tags: [Conexões]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: ID da conexão inativa
- *     responses:
- *       204:
- *         description: Conexão inativa deletada com sucesso
- *       500:
- *         description: Erro ao deletar conexão inativa
- */
-router.delete('/inactive/:id', verifyToken, connectionsController.deleteInactiveConnection);
-
-/**
- * @swagger
- * /connections/requested/{id}:
- *   get:
- *     summary: Retorna uma conexão solicitada pelo ID
- *     tags: [Conexões]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: ID da conexão solicitada
- *     responses:
- *       200:
- *         description: Conexão solicitada encontrada
- *       404:
- *         description: Conexão solicitada não encontrada
- */
-router.get('/requested/:id', verifyToken, connectionsController.getRequestedConnectionById);
-
+// Conexões Solicitadas
+router.route('/requested')
 /**
  * @swagger
  * /connections/requested:
  *   post:
- *     summary: Cria uma nova conexão solicitada
+ *     summary: Cria uma nova solicitação de conexão
  *     tags: [Conexões]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               nome:
- *                 type: string
- *               fotoDoPerfil:
- *                 type: string
- *               email:
- *                 type: string
- *               status:
- *                 type: string
- *               dataSolicitacao:
- *                 type: string
- *                 format: date-time
- *               dataDoAceite:
- *                 type: string
- *                 format: date-time
- *               dataDesfeita:
- *                 type: string
- *                 format: date-time
+ *             $ref: '#/components/schemas/RequestedConnection'
  *     responses:
  *       201:
- *         description: Conexão solicitada criada com sucesso
+ *         description: Solicitação criada com sucesso.
+ *       400:
+ *         description: Solicitação já existente.
  *       500:
- *         description: Erro ao criar conexão solicitada
+ *         description: Erro no servidor.
  */
-router.post('/requested', verifyToken, connectionsController.createRequestedConnection);
+  .post(verifyToken, connectionsController.createRequestedConnection);
 
+router.route('/requested/:id')
 /**
  * @swagger
  * /connections/requested/{id}:
- *   put:
- *     summary: Atualiza uma conexão solicitada pelo ID
+ *   get:
+ *     summary: Obtém uma solicitação de conexão específica
  *     tags: [Conexões]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: ID da conexão solicitada
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               nome:
- *                 type: string
- *               fotoDoPerfil:
- *                 type: string
- *               email:
- *                 type: string
- *               status:
- *                 type: string
- *               dataSolicitacao:
- *                 type: string
- *                 format: date-time
- *               dataDoAceite:
- *                 type: string
- *                 format: date-time
- *               dataDesfeita:
- *                 type: string
- *                 format: date-time
+ *         description: ID da solicitação de conexão
  *     responses:
  *       200:
- *         description: Conexão solicitada atualizada com sucesso
+ *         description: Solicitação retornada com sucesso.
+ *       404:
+ *         description: Solicitação não encontrada.
  *       500:
- *         description: Erro ao atualizar conexão solicitada
+ *         description: Erro no servidor.
  */
-router.put('/requested/:id', verifyToken, connectionsController.updateRequestedConnection);
+  .get(verifyToken, connectionsController.getRequestedConnectionById)
+  .put(verifyToken, connectionsController.updateRequestedConnection)
+  .delete(verifyToken, connectionsController.deleteRequestedConnection);
 
-/**
- * @swagger
- * /connections/requested/{id}:
- *   delete:
- *     summary: Deleta uma conexão solicitada pelo ID
- *     tags: [Conexões]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: ID da conexão solicitada
- *     responses:
- *       204:
- *         description: Conexão solicitada deletada com sucesso
- *       500:
- *         description: Erro ao deletar conexão solicitada
- */
-router.delete('/requested/:id', verifyToken, connectionsController.deleteRequestedConnection);
+// Conexões Inativas
+router.route('/inactive')
+  /**
+   * @swagger
+   * /connections/inactive:
+   *   post:
+   *     summary: Registra uma conexão inativa
+   */
+  .post(verifyToken, connectionsController.createInactiveConnection);
+
+router.route('/inactive/:id')
+  /**
+   * @swagger
+   * /connections/inactive/{id}:
+   *   get:
+   *     summary: Obtém uma conexão inativa
+   *   put:
+   *     summary: Atualiza uma conexão inativa
+   *   delete:
+   *     summary: Remove uma conexão inativa
+   */
+  .get(verifyToken, connectionsController.getInactiveConnectionById)
+  .put(verifyToken, connectionsController.updateInactiveConnection)
+  .delete(verifyToken, connectionsController.deleteInactiveConnection);
 
 module.exports = router;

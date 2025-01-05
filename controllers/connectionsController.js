@@ -1,7 +1,8 @@
 const ActiveConnection = require('../models/ActiveConnection');
 const InactiveConnection = require('../models/InactiveConnection');
 const RequestedConnection = require('../models/RequestedConnection');
-const connectionService = require('../services/connectionService')
+const notificationService = require('../services/notificationService')
+const { logger } = require('../logger');
 
 exports.getActiveConnectionById = async (req, res) => {
   try {
@@ -16,7 +17,7 @@ exports.getConnectionsByUserId = async (req, res) => {
   const { userId } = req.params;
 
   try {
-    const { friends, bestFriends } = await connectionService.getConnectionsByUserId(userId);
+    const { friends, bestFriends } = await ActiveConnection.getConnectionsByUserId(userId);
     res.status(200).json({ friends, bestFriends });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -96,11 +97,73 @@ exports.getRequestedConnectionById = async (req, res) => {
 };
 
 exports.createRequestedConnection = async (req, res) => {
+  const { userId, friendId } = req.body;
+
   try {
-    const connection = await RequestedConnection.create(req.body);
-    res.status(201).json(connection);
+    // First check if connection already exists using the exists method
+    const connectionExists = await ActiveConnection.exists(userId, friendId);
+    if (connectionExists) {
+      return res.status(400).json({ 
+        message: 'Conexão já existe' 
+      });
+    }
+
+    // Check for existing pending request
+    const existingRequest = await RequestedConnection.findOne({ 
+      userId, 
+      friendId,
+      status: 'pending' 
+    });
+    if (existingRequest) {
+      return res.status(400).json({ 
+        message: 'Solicitação já enviada' 
+      });
+    }
+
+    // Create new request
+    const connection = await RequestedConnection.create({
+      userId,
+      friendId,
+      status: 'pending',
+      createdAt: new Date()
+    });
+
+    // Create notification
+    await notificationService.createNotification({
+      userId: friendId,
+      data: {
+        senderId: userId,
+        type: 'friendRequest',
+        requestId: connection.id
+      }
+    });
+
+    logger.info('Solicitação de conexão criada com sucesso', {
+      service: 'connectionsController',
+      method: 'createRequestedConnection',
+      connectionId: connection.id,
+      userId,
+      friendId
+    });
+
+    res.status(201).json({
+      message: 'Solicitação enviada com sucesso',
+      connection
+    });
+
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    logger.error('Erro ao criar solicitação de conexão', {
+      service: 'connectionsController',
+      method: 'createRequestedConnection',
+      error: error.message,
+      userId,
+      friendId
+    });
+
+    res.status(500).json({ 
+      message: 'Erro ao criar solicitação',
+      error: error.message 
+    });
   }
 };
 

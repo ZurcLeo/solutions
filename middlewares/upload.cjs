@@ -7,6 +7,7 @@ const { logger } = require('../logger');
 
 // Configuração centralizada do armazenamento do multer
 const storage = multer.memoryStorage();
+logger.info('Storage bucket configurado:', { bucket: storage.name });
 
 // Função para garantir que o diretório exista
 const ensureDirectoryExistence = (dir) => {
@@ -121,7 +122,9 @@ const fileFilter = async (req, file, cb) => {
       function: 'fileFilter',
       fileName: file.originalname,
     });
+    
     cb(null, true);
+
   } catch (error) {
     logger.error('Erro ao validar imagem', {
       service: 'uploadMiddleware',
@@ -134,7 +137,7 @@ const fileFilter = async (req, file, cb) => {
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB por exemplo
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
@@ -143,6 +146,9 @@ const upload = multer({
     }
   },
 });
+
+
+
 
 // // Middleware de upload usando multer
 // const upload = multer({

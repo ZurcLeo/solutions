@@ -16,44 +16,68 @@ class Invite {
     this.lastSentAt = data.lastSentAt ? new Date(data.lastSentAt._seconds * 1000) : null;
   }
 
-  static async getById(inviteId) {
+  static async getById(inviteId, email = null, nome = null) {
     const db = getFirestore(); // Garante a inicialização do Firestore
+  
     logger.info(`Iniciando a busca pelo convite com inviteId ${inviteId}`, {
       service: 'inviteService',
       function: 'getById',
-      inviteId
+      inviteId,
+      email,
+      nome
     });
-
+  
     try {
-      const inviteRef = db.collection('convites')
-      const snapshot = await inviteRef.get();
-      
+      // Construção da consulta com critérios
+      let query = db.collection('convites').where('inviteId', '==', inviteId);
+  
+      if (email) {
+        query = query.where('email', '==', email);
+      }
+  
+      if (nome) {
+        query = query.where('friendName', '==', nome);
+      }
+  
+      const snapshot = await query.get();
+  
+      // Verificação de resultados
       if (snapshot.empty) {
+        logger.error('Convite não encontrado com os critérios fornecidos.', {
+          service: 'inviteService',
+          function: 'getById',
+          inviteId,
+          email,
+          nome
+        });
         throw new Error('Convite não encontrado.');
       }
-
+  
+      // Extração do primeiro documento correspondente
       const inviteDoc = snapshot.docs[0];
       const invite = new Invite({ ...inviteDoc.data(), id: inviteDoc.id });
-
+  
       logger.info(`Convite com inviteId ${inviteId} encontrado com sucesso`, {
         service: 'inviteService',
         function: 'getById',
         inviteId,
         inviteData: invite
       });
-
+  
       return { invite, inviteRef: inviteDoc.ref };
     } catch (error) {
       logger.error(`Erro ao buscar convite com inviteId ${inviteId}`, {
         service: 'inviteService',
         function: 'getById',
         inviteId,
+        email,
+        nome,
         error: error.message
       });
-
-      throw new Error('Convite não encontrado.');
+  
+      throw new Error('Erro ao buscar convite.');
     }
-  }
+  }  
 
   static async create(data) {
     const db = getFirestore(); // Garante a inicialização do Firestore

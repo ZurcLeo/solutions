@@ -1,5 +1,6 @@
-const admin = require('firebase-admin');
-const firestore = admin.firestore();
+const {getFirestore} = require('../firebaseAdmin');
+
+const db = getFirestore();
 
 class Transacao {
   constructor(data) {
@@ -12,7 +13,7 @@ class Transacao {
   }
 
   static async getById(caixinhaId, id) {
-    const doc = await firestore.collection('caixinhas').doc(caixinhaId).collection('transacoes').doc(id).get();
+    const doc = await db.collection('caixinhas').doc(caixinhaId).collection('transacoes').doc(id).get();
     if (!doc.exists) {
       throw new Error('Transação não encontrada.');
     }
@@ -21,20 +22,20 @@ class Transacao {
 
   static async create(data) {
     const transacao = new Transacao(data);
-    const docRef = await firestore.collection('caixinhas').doc(data.caixinhaId).collection('transacoes').add({ ...transacao });
+    const docRef = await db.collection('caixinhas').doc(data.caixinhaId).collection('transacoes').add({ ...transacao });
     transacao.id = docRef.id;
     return transacao;
   }
 
   static async update(caixinhaId, id, data) {
-    const transacaoRef = firestore.collection('caixinhas').doc(caixinhaId).collection('transacoes').doc(id);
+    const transacaoRef = db.collection('caixinhas').doc(caixinhaId).collection('transacoes').doc(id);
     await transacaoRef.update(data);
     const updatedDoc = await transacaoRef.get();
     return new Transacao(updatedDoc.data());
   }
 
   static async delete(caixinhaId, id) {
-    const transacaoRef = firestore.collection('caixinhas').doc(caixinhaId).collection('transacoes').doc(id);
+    const transacaoRef = db.collection('caixinhas').doc(caixinhaId).collection('transacoes').doc(id);
     await transacaoRef.delete();
   }
 }

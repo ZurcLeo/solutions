@@ -41,17 +41,13 @@ router.use((req, res, next) => {
 
 /**
  * @swagger
- * tags:
- *   name: Blacklist
- *   description: Rotas para gerenciamento de tokens na blacklist
- */
-
-/**
- * @swagger
  * /blacklist:
  *   post:
  *     summary: Adiciona um token à blacklist
+ *     description: Esta rota permite adicionar um token à blacklist para evitar seu uso.
  *     tags: [Blacklist]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -61,15 +57,34 @@ router.use((req, res, next) => {
  *             properties:
  *               token:
  *                 type: string
- *                 description: Token a ser adicionado à blacklist
+ *                 description: O token a ser adicionado à blacklist.
+ *                 example: "eyJhbGciOiJIUzI1..."
  *     responses:
  *       200:
- *         description: Token adicionado à blacklist com sucesso
+ *         description: Token adicionado à blacklist com sucesso.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   description: Confirmação da adição.
+ *                   example: "Token added to blacklist"
  *       400:
- *         description: Erro na requisição
+ *         description: Erro na requisição. Parâmetros ausentes ou inválidos.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
- *         description: Erro no servidor
+ *         description: Erro interno do servidor.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
+
 router.post('/blacklist', verifyToken, addTokenToBlacklist);
 
 /**
@@ -77,17 +92,21 @@ router.post('/blacklist', verifyToken, addTokenToBlacklist);
  * /blacklist/{token}:
  *   get:
  *     summary: Verifica se um token está na blacklist
+ *     description: Permite verificar se um token específico está presente na blacklist.
  *     tags: [Blacklist]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: token
  *         required: true
  *         schema:
  *           type: string
- *         description: Token a ser verificado
+ *         description: O token a ser verificado.
+ *         example: "eyJhbGciOiJIUzI1..."
  *     responses:
  *       200:
- *         description: Token verificado com sucesso
+ *         description: Verificação realizada com sucesso.
  *         content:
  *           application/json:
  *             schema:
@@ -95,11 +114,20 @@ router.post('/blacklist', verifyToken, addTokenToBlacklist);
  *               properties:
  *                 blacklisted:
  *                   type: boolean
- *                   description: Indica se o token está na blacklist
+ *                   description: Indica se o token está ou não na blacklist.
+ *                   example: true
  *       400:
- *         description: Erro na requisição
+ *         description: Erro na requisição. Parâmetros ausentes ou inválidos.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
- *         description: Erro no servidor
+ *         description: Erro interno do servidor.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/blacklist/:token', verifyToken, checkTokenBlacklist);
 

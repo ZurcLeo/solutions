@@ -13,6 +13,22 @@ exports.getToken = async (req, res) => {
   }
 };
 
+exports.signInWithProvider = async (req, res) => {
+  const { idToken, provider } = req.body;
+
+  if (typeof provider !== 'string' || !['google', 'facebook', 'microsoft'].includes(provider)) {
+    return res.status(400).json({ message: 'Invalid provider' });
+  }
+
+  try {
+    const response = await authService.signInWithProvider(idToken, provider);
+    res.status(200).json(response);
+  } catch (error) {
+    logger.error('Erro durante o login com provedor', { service: 'authController', function: 'signInWithProvider', error: error.message });
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
 exports.facebookLogin = async (req, res) => {
   const { accessToken } = req.body;
 
@@ -26,10 +42,10 @@ exports.facebookLogin = async (req, res) => {
 };
 
 exports.registerWithEmail = async (req, res) => {
-  const { email, password, inviteCode } = req.body;
+  const { email, password, inviteId } = req.body;
 
   try {
-    const response = await authService.registerWithEmail(email, password, inviteCode);
+    const response = await authService.registerWithEmail(email, password, inviteId);
     res.status(200).json(response);
   } catch (error) {
     logger.error('Erro ao criar conta', { service: 'authController', function: 'registerWithEmail', error: error.message });
@@ -64,31 +80,41 @@ exports.logout = async (req, res) => {
   }
 };
 
-exports.signInWithProvider = async (req, res) => {
-  const { idToken, provider } = req.body;
-
-  if (typeof provider !== 'string' || !['google', 'facebook', 'microsoft'].includes(provider)) {
-    return res.status(400).json({ message: 'Invalid provider' });
+exports.registerWithProvider = async (req, res) => {
+  const { provider, validationId } = req.body;
+  
+  if (!validationId) {
+    return res.status(400).json({ 
+      error: 'validation_required',
+      message: 'Validação do convite é necessária antes do registro' 
+    });
   }
 
   try {
-    const response = await authService.signInWithProvider(idToken, provider);
+    const response = await authService.registerWithProvider(provider, validationId);
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Erro durante o login com provedor', { service: 'authController', function: 'signInWithProvider', error: error.message });
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    logger.error('Erro no registro com provedor', { error: error.message });
+    res.status(500).json({ message: 'Erro no registro com provedor' });
   }
 };
 
 exports.registerWithProvider = async (req, res) => {
-  const { provider, inviteCode } = req.body;
+  const { provider, inviteId, validationId } = req.body;
+  
+  if (!validationId) {
+    return res.status(400).json({ 
+      error: 'validation_required',
+      message: 'Validação do convite é necessária antes do registro' 
+    });
+  }
 
   try {
-    const response = await authService.registerWithProvider(provider, inviteCode);
+    const response = await authService.registerWithProvider(provider, inviteId, validationId);
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Erro no registro com provedor', { service: 'authController', function: 'registerWithProvider', error: error.message });
-    res.status(500).json({ message: 'Erro no registro com provedor', error: error.message });
+    logger.error('Erro no registro com provedor', { error: error.message });
+    res.status(500).json({ message: 'Erro no registro com provedor' });
   }
 };
 
