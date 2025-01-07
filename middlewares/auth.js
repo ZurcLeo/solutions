@@ -1,4 +1,3 @@
-const { auth } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const { isTokenBlacklisted } = require('../services/blacklistService');
 const authService = require('../services/authService');
