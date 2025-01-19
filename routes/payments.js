@@ -146,4 +146,7 @@ router.get('/session-status', paymentsController.sessionStatus);
  */
 router.get('/purchases', paymentsController.getPurchases);
 
+router.post('/pix', verifyToken, paymentsController.createPixPayment);
+router.get('/status/:paymentId', verifyToken, paymentsController.checkPixPaymentStatus);
+
 module.exports = router;

@@ -19,6 +19,7 @@ class User {
     this.interessesNegocios = data.interessesNegocios || [];
     this.amigosAutorizados = data.amigosAutorizados || [];
     this.amigos = data.amigos || [];
+    this.caixinhas = data.caixinhas || [];
     this.interessesPessoais = data.interessesPessoais || [];
     this.dataCriacao = data.dataCriacao ? new Date(data.dataCriacao.seconds * 1000) : new Date();
     this.saldoElosCoins = data.saldoElosCoins || 0;
@@ -41,6 +42,7 @@ class User {
       interessesNegocios: this.interessesNegocios,
       amigosAutorizados: this.amigosAutorizados,
       amigos: this.amigos,
+      caixinhas : this.caixinhas,
       interessesPessoais: this.interessesPessoais,
       dataCriacao: this.dataCriacao,
       saldoElosCoins: this.saldoElosCoins,
@@ -73,6 +75,102 @@ class User {
     } catch (error) {
       logger.error('Erro ao obter usuário por ID', { service: 'userModel', function: 'getById', userId, error: error.message });
       throw new Error('Erro ao obter usuário por ID');
+    }
+  }
+
+  static async searchUsers(query, currentUserId) {
+    const db = getFirestore();
+    logger.info('searchUsers chamado', { 
+      service: 'userModel', 
+      function: 'searchUsers', 
+      query,
+      currentUserId 
+    });
+  
+    if (!query) {
+      const error = new Error('Query de busca não fornecida');
+      logger.error('Erro no searchUsers', { 
+        service: 'userModel', 
+        function: 'searchUsers', 
+        error: error.message 
+      });
+      throw error;
+    }
+  
+    try {
+      const queryLower = query.toLowerCase();
+      logger.info('Realizando busca case-insensitive', { 
+        service: 'userModel', 
+        function: 'searchUsers', 
+        queryLower 
+      });
+      
+      // Primeiro obtemos todos os documentos de usuário
+      const mainUserCollection = db.collection('usuario');
+      const userDocs = await mainUserCollection.get();
+      
+      // Array para armazenar as promessas de busca
+      const searchPromises = [];
+  
+      // Para cada documento de usuário, buscamos nos dados
+      userDocs.forEach(userDoc => {
+        const userDataRef = db.collection('usuario').doc(userDoc.id);
+        searchPromises.push(userDataRef.get());
+      });
+  
+      // Aguarda todas as buscas serem concluídas
+      const userDataSnapshots = await Promise.all(searchPromises);
+  
+      // Verificar conexões ativas do usuário atual
+      const connectionsRef = db.collection('conexoes').doc(currentUserId).collection('ativas');
+      const activeConnections = await connectionsRef.get();
+      const activeConnectionIds = new Set(activeConnections.docs.map(doc => doc.id));
+  
+      // Filtra os resultados baseado na query e nas regras de privacidade
+      const users = userDataSnapshots
+        .filter(doc => {
+          if (!doc.exists) return false;
+          const userData = doc.data();
+          
+          // Verifica se o nome corresponde à busca
+          const nameMatches = userData.nome && 
+                            userData.nome.toLowerCase().includes(queryLower);
+          
+          if (!nameMatches) return false;
+  
+          // Se for o próprio usuário, mostrar
+          if (doc.id === currentUserId) return true;
+  
+          // Se o perfil for público, mostrar
+          if (userData.perfilPublico) return true;
+  
+          // Se for uma conexão ativa, mostrar
+          if (activeConnectionIds.has(doc.id)) return true;
+  
+          // Se não atender nenhuma condição acima, não mostrar
+          return false;
+        })
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .slice(0, 20);
+  
+      logger.info('Busca realizada com sucesso', { 
+        service: 'userModel', 
+        function: 'searchUsers',
+        resultsCount: users.length 
+      });
+  
+      return users;
+    } catch (error) {
+      logger.error('Erro ao buscar usuários', { 
+        service: 'userModel', 
+        function: 'searchUsers', 
+        query,
+        error: error.message 
+      });
+      throw new Error('Erro ao buscar usuários');
     }
   }
 

@@ -172,6 +172,9 @@ exports.generateInvite = async (req) => {
   const url = `https://eloscloud.com`;
   let senderName, senderPhotoURL;
   
+  const baseUrl = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:3000'
+  : 'https://eloscloud.com';
   
   logger.info('inviteData no generateInvite:', { service: 'inviteService', function: 'generateInvite', inviteData });
 
@@ -208,6 +211,8 @@ exports.generateInvite = async (req) => {
         expiresAt
       };
 
+      logger.info('Salvando convite com os seguintes dados:', { inviteDataMail });
+
       transaction.set(inviteRef, inviteDataMail, { merge: true });
       logger.info('Convite criado', { service: 'inviteService', function: 'generateInvite', inviteData: inviteDataMail });
 
@@ -221,15 +226,16 @@ exports.generateInvite = async (req) => {
           inviteId,
           senderId: userId,
           friendName,
-          url: `https://eloscloud.com.br/invite?inviteId=${inviteId}`,
+          url: `${baseUrl}/invite/validate/${inviteId}`,
         }
       };
 
+      logger.info('Salvando email com os seguintes dados:', { mailData });
       transaction.set(mailRef, mailData);
       logger.info('Dados de email criados', { service: 'inviteService', function: 'generateInvite', mailData });
     });
 
-    const qrCodeBuffer = await QRCode.toDataURL(`https://eloscloud.com/invite?inviteId=${inviteId}`);
+    const qrCodeBuffer = await QRCode.toDataURL(`${baseUrl}/invite/validate/${inviteId}`);
     console.log(qrCodeBuffer)
     const hashedInviteId = crypto.createHash('sha256').update(inviteId).digest('hex');
     const maskedHashedInviteId = hashedInviteId.substring(0, 4) + '******' + hashedInviteId.substring(hashedInviteId.length - 4);
@@ -343,7 +349,7 @@ exports.generateInvite = async (req) => {
     </tr>
     <tr>
       <td align="center" valign="top" style="padding: 10px;">
-        <a href="https://eloscloud.com/invite?inviteId=${inviteId}" class="button">
+      <a href="${baseUrl}/invite/validate/${inviteId}" class="button">
           Aceitar Convite
         </a>
       </td>
@@ -410,6 +416,8 @@ exports.validateInvite = async (inviteId, email, nome) => {
   try {
     const { invite, inviteRef } = await Invite.getById(inviteId);
 
+    logger.info('Dados do convite recuperados do Firestore:', { invite });
+
     await db.runTransaction(async (transaction) => {
       logger.info(`Iniciando transação para validar o convite ${inviteId}`, {
         service: 'inviteService',
@@ -458,31 +466,48 @@ exports.validateInvite = async (inviteId, email, nome) => {
         throw new Error('[invalid-email] E-mail não confere.');
       }
       
-      if (inviteData.nome !== nome) {
+      if (inviteData.friendName.trim().toLowerCase() !== nome.trim().toLowerCase()) {
         logger.error(`Nome ${nome} não confere para o convite ${inviteId}`, {
           service: 'inviteService',
           function: 'validateInvite',
           inviteId,
           email,
           nome,
-          inviteNome: inviteData.nome
+          inviteNome: inviteData.friendName
         });
         throw new Error('[invalid-name]O nome não confere.');
       }
       
+      
       const expiresAt = inviteData.expiresAt;
 
-      if (expiresAt && expiresAt < Date.now()) {
-        logger.error(`Convite ${inviteId} expirou em ${expiresAt}`, {
+      if (expiresAt && expiresAt.toMillis() < Date.now()) {
+        logger.error(`Convite ${inviteId} expirou em ${expiresAt.toDate()}`, {
           service: 'inviteService',
           function: 'validateInvite',
           inviteId,
           email,
           nome,
-          expiresAt
+          expiresAt: expiresAt.toDate()
         });
         throw new Error('[invalid-expired]Convite expirado.');
       }
+
+      logger.info('Comparando validade do convite:', {
+        expiresAtMillis: expiresAt.toMillis(),
+        currentMillis: Date.now(),
+        expiresAtDate: expiresAt.toDate(),
+        currentDate: new Date()
+      });
+      
+
+      logger.info('Comparando os nomes:', {
+        nomeInformado: nome,
+        nomeArmazenado: inviteData.friendName,
+        nomeInformadoNormalizado: nome.trim().toLowerCase(),
+        nomeArmazenadoNormalizado: inviteData.friendName.trim().toLowerCase()
+      });
+      
 
       logger.info(`Validando convite ${inviteId} para o e-mail ${email}`, {
         service: 'inviteService',
@@ -497,7 +522,7 @@ exports.validateInvite = async (inviteId, email, nome) => {
           validatedBy: email, 
           status: 'used',
           nome: nome,
-          validatedAt: db.FieldValue.serverTimestamp()
+          validatedAt: admin.firestore.FieldValue.serverTimestamp()
          });
 
       logger.info(`Convite ${inviteId} validado com sucesso`, {

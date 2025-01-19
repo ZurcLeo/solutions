@@ -8,15 +8,12 @@ const swaggerUi = require('swagger-ui-express');
 const bodyParser = require('body-parser');
 const swaggerDocs = require('./swagger');
 
-// Cria uma instância do aplicativo Express
 const app = express();
 
-// Middleware para ler o corpo da requisição em JSON
 app.use(cookieParser());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Middleware para logar o corpo da requisição
 app.use((req, res, next) => {
   logger.info('Corpo da Requisição:', {
     service: 'request-body-logger',
@@ -26,11 +23,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Configurações de Middleware
 app.use(corsMiddleware);
 app.use(morganMiddleware);
 
-// Middleware para adicionar informações de serviço e função aos logs
 app.use((req, res, next) => {
   req.logMetadata = {
     service: req.baseUrl || 'unknown-service',
@@ -39,12 +34,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Passar io para o middleware
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'userId', 'email']
   },
@@ -64,7 +58,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Função para envolver rotas com o logger
 const logRoute = (routeHandler) => (req, res, next) => {
   logger.info(`Rota chamada: ${req.method} ${req.originalUrl}`, req.logMetadata);
   routeHandler(req, res, next);
@@ -85,6 +78,8 @@ const recaptchaRoutes = require('./routes/recaptcha');
 const userRoutes = require('./routes/user');
 const videoSdkRoutes = require('./routes/videosdk');
 const connectionsRoutes = require('./routes/connections');
+const sellerRoutes = require('./routes/seller');
+const bankAccountRoutes = require('./routes/bankAccount'); 
 
 // Definição de Rotas com logRoute
 app.use('/api/auth', (req, res, next) => logRoute(authRoutes)(req, res, next));
@@ -101,15 +96,15 @@ app.use('/api/recaptcha', (req, res, next) => logRoute(recaptchaRoutes)(req, res
 app.use('/api/users', (req, res, next) => logRoute(userRoutes)(req, res, next));
 app.use('/api/video-sdk', (req, res, next) => logRoute(videoSdkRoutes)(req, res, next));
 app.use('/api/connections', (req, res, next) => logRoute(connectionsRoutes)(req, res, next));
+app.use('/api/sellers', (req, res, next) => logRoute(sellerRoutes)(req, res, next));
+app.use('/api/banking', (req, res, next) => logRoute(bankAccountRoutes)(req, res, next));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
-// Load listRoutes dynamically
 (async () => {
   const { default: listRoutes } = await import('./middlewares/listRoutes.mjs');
   listRoutes(app);
 })();
 
-// Inicialização do Servidor
 const PORT = process.env.PORT || 9000;
 server.listen(PORT, () => {
   logger.info(`Servidor rodando na porta ${PORT}`, { service: 'server', function: 'listen' });

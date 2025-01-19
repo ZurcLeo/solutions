@@ -1,5 +1,6 @@
 // controllers/messageController.js
 const MessageService = require('../services/messageService');
+const { logger } = require('../logger');
 
 exports.getMessageById = async (req, res) => {
   try {
@@ -24,6 +25,7 @@ exports.getMessagesByUserId = async (req, res) => {
 exports.createMessage = async (req, res) => {
   try {
     const newMessage = req.body;
+    logger.info('Mensagem recebida:', newMessage)
     const message = await MessageService.createMessage(newMessage);
     res.status(201).json(message);
   } catch (error) {

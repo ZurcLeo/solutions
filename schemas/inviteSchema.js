@@ -8,6 +8,7 @@ const inviteSchema = Joi.object({
   userId: Joi.string().optional(),
   senderName: Joi.string().optional(),
   friendName: Joi.string().optional(),
+  nome: Joi.string().optional(),
   senderPhotoURL: Joi.string().uri().optional(),
   email: Joi.string().email().optional().messages({
     'string.email': 'Email deve ser um endereço de email válido.',

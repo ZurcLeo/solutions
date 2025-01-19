@@ -1,9 +1,8 @@
 const ActiveConnection = require('../models/ActiveConnection');
 const InactiveConnection = require('../models/InactiveConnection');
 const RequestedConnection = require('../models/RequestedConnection');
-const connectionService = require('../services/connectionService')
+const notificationService = require('../services/notificationService')
 const { logger } = require('../logger');
-
 
 exports.getActiveConnectionById = async (req, res) => {
   try {
@@ -18,7 +17,7 @@ exports.getConnectionsByUserId = async (req, res) => {
   const { userId } = req.params;
 
   try {
-    const { friends, bestFriends } = await connectionService.getConnectionsByUserId(userId);
+    const { friends, bestFriends } = await ActiveConnection.getConnectionsByUserId(userId);
     res.status(200).json({ friends, bestFriends });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -130,11 +129,11 @@ exports.createRequestedConnection = async (req, res) => {
     });
 
     // Create notification
-    await notificationService.create({
+    await notificationService.createNotification({
       userId: friendId,
-      type: 'friendRequest',
       data: {
         senderId: userId,
+        type: 'friendRequest',
         requestId: connection.id
       }
     });

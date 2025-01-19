@@ -16,7 +16,12 @@ const swaggerOptions = {
       servers: [
         {
           url: 'http://localhost:9000',
+          description: 'Development server'
         },
+        {
+          url: 'https://backend-elos.onrender.com',
+          description: 'Production server'
+        }
       ],
     },
     components: {
@@ -193,6 +198,199 @@ const swaggerOptions = {
               type: 'string',
               format: 'date-time',
               description: 'Data e hora da compra',
+            },
+          },
+        },
+        ErrorResponse: {
+          type: 'object',
+          properties: {
+            message: {
+              type: 'string',
+              description: 'Mensagem de erro.',
+            },
+            error: {
+              type: 'string',
+              description: 'Detalhes do erro.',
+            },
+          },
+        },
+        BlacklistRequest: {
+          type: 'object',
+          properties: {
+            token: {
+              type: 'string',
+              description: 'O token a ser adicionado à blacklist.',
+              example: 'eyJhbGciOiJIUzI1...',
+            },
+          },
+        },
+        BlacklistResponse: {
+          type: 'object',
+          properties: {
+            blacklisted: {
+              type: 'boolean',
+              description: 'Indica se o token está na blacklist.',
+              example: true,
+            },
+          },
+        },
+        Caixinha: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'ID único da caixinha.',
+              example: 'caixinha123',
+            },
+            name: {
+              type: 'string',
+              description: 'Nome da caixinha.',
+              example: 'Caixinha do João',
+            },
+            description: {
+              type: 'string',
+              description: 'Descrição da caixinha.',
+              example: 'Caixinha para despesas coletivas.',
+            },
+            adminId: {
+              type: 'string',
+              description: 'ID do administrador da caixinha.',
+              example: 'admin123',
+            },
+            members: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description: 'Lista de IDs dos membros.',
+              example: ['user123', 'user456'],
+            },
+            contribuicaoMensal: {
+              type: 'number',
+              description: 'Contribuição mensal para a caixinha.',
+              example: 50.0,
+            },
+            saldoTotal: {
+              type: 'number',
+              description: 'Saldo total da caixinha.',
+              example: 500.0,
+            },
+            distribuicaoTipo: {
+              type: 'string',
+              description: 'Tipo de distribuição da caixinha.',
+              example: 'padrão',
+            },
+            duracaoMeses: {
+              type: 'integer',
+              description: 'Duração da caixinha em meses.',
+              example: 12,
+            },
+            dataCriacao: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Data de criação da caixinha.',
+              example: '2023-01-01T12:00:00Z',
+            },
+          },
+        },
+        ActiveConnection: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'ID único da conexão ativa.',
+            },
+            interessesPessoais: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Interesses pessoais do usuário.',
+            },
+            interessesNegocios: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Interesses de negócios do usuário.',
+            },
+            status: {
+              type: 'string',
+              description: 'Status da conexão ativa.',
+            },
+            dataDoAceite: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Data de aceite da conexão.',
+            },
+          },
+        },
+        RequestedConnection: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              description: 'ID do usuário solicitante.',
+            },
+            friendId: {
+              type: 'string',
+              description: 'ID do usuário solicitado.',
+            },
+            status: {
+              type: 'string',
+              description: 'Status da solicitação.',
+              enum: ['pending', 'accepted', 'rejected'],
+            },
+            dataSolicitacao: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Data da solicitação.',
+            },
+          },
+        },
+        RegisterRequest: {
+          type: 'object',
+          properties: {
+            email: {
+              type: 'string',
+              description: 'Email do usuário.',
+              example: 'user@example.com',
+            },
+            password: {
+              type: 'string',
+              description: 'Senha do usuário.',
+              example: 'senhaSegura123!',
+            },
+            inviteId: {
+              type: 'string',
+              description: 'ID do convite.',
+              example: 'invite123',
+            },
+          },
+        },
+        LoginRequest: {
+          type: 'object',
+          properties: {
+            email: {
+              type: 'string',
+              description: 'Email do usuário.',
+              example: 'user@example.com',
+            },
+            password: {
+              type: 'string',
+              description: 'Senha do usuário.',
+              example: 'senhaSegura123!',
+            },
+          },
+        },
+        AuthResponse: {
+          type: 'object',
+          properties: {
+            accessToken: {
+              type: 'string',
+              description: 'Token JWT de acesso.',
+              example: 'eyJhbGciOiJIUzI1...',
+            },
+            refreshToken: {
+              type: 'string',
+              description: 'Token JWT de refresh.',
+              example: 'eyJhbGciOiJIUzI1...',
             },
           },
         },

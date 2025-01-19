@@ -125,12 +125,12 @@ const facebookLogin = async (accessToken) => {
   return userData;
 };
 
-const registerWithEmail = async (email, password, inviteCode) => {
-  const inviteRef = await validateInvite(inviteCode);
+const registerWithEmail = async (email, password, inviteId) => {
+  const inviteRef = await validateInvite(inviteId);
   const userRecord = await auth.createUser({ email, password });
   await sendEmailVerification(userRecord.uid);
   await ensureUserProfileExists(userRecord);
-  await invalidateInvite(inviteCode, email);
+  await invalidateInvite(inviteId, email);
 
   const accessToken = generateToken({ uid: userRecord.uid });
   const refreshToken = generateRefreshToken({ uid: userRecord.uid });
@@ -171,8 +171,8 @@ const signInWithProvider = async (idToken, provider) => {
   return { message: 'Login com provedor bem-sucedido', accessToken, refreshToken, user: userRecord };
 };
 
-const registerWithProvider = async (provider, inviteCode) => {
-  const inviteRef = await validateInvite(inviteCode);
+const registerWithProvider = async (provider, inviteId) => {
+  const inviteRef = await validateInvite(inviteId);
   let providerToUse;
 
   if (provider === 'google') {
@@ -185,7 +185,7 @@ const registerWithProvider = async (provider, inviteCode) => {
 
   const userCredential = await signInWithPopup(auth, providerToUse);
   await ensureUserProfileExists(userCredential);
-  await invalidateInvite(inviteCode, userCredential.user.email);
+  await invalidateInvite(inviteId, userCredential.user.email);
 
   const accessToken = generateToken({ uid: userCredential.user.uid });
   const refreshToken = generateRefreshToken({ uid: userCredential.user.uid });

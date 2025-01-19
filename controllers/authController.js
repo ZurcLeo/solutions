@@ -26,10 +26,10 @@ exports.facebookLogin = async (req, res) => {
 };
 
 exports.registerWithEmail = async (req, res) => {
-  const { email, password, inviteCode } = req.body;
+  const { email, password, inviteId } = req.body;
 
   try {
-    const response = await authService.registerWithEmail(email, password, inviteCode);
+    const response = await authService.registerWithEmail(email, password, inviteId);
     res.status(200).json(response);
   } catch (error) {
     logger.error('Erro ao criar conta', { service: 'authController', function: 'registerWithEmail', error: error.message });
@@ -81,10 +81,10 @@ exports.signInWithProvider = async (req, res) => {
 };
 
 exports.registerWithProvider = async (req, res) => {
-  const { provider, inviteCode } = req.body;
+  const { provider, inviteId, email, nome } = req.body;
 
   try {
-    const response = await authService.registerWithProvider(provider, inviteCode);
+    const response = await authService.registerWithProvider(provider, inviteId, email);
     res.status(200).json(response);
   } catch (error) {
     logger.error('Erro no registro com provedor', { service: 'authController', function: 'registerWithProvider', error: error.message });
