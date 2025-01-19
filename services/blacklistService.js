@@ -1,6 +1,6 @@
-const Blacklist = require('../models/Blacklist');
+const BlackList = require('../models/BlackList');
 
-const blacklist = new Blacklist();
+const blacklist = new BlackList();
 
 /**
  * Adiciona um token à blacklist.
