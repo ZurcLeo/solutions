@@ -3,7 +3,6 @@ const { logger } = require('../logger');
 
 const allowedOrigins = [
   'https://eloscloud.com',
-  'http://localhost:3000',
   'https://elossolucoescloud-1804e.web.app',
   'https://elossolucoescloud-1804e.firebaseapp.com',
   'https://eloscloud.com.br'
