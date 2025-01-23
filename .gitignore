@@ -75,3 +75,4 @@ projectStructure.js
 exportsFirestore.js
 firebaseAdmin.js
 generateUrl.js
+geradorJWT.js

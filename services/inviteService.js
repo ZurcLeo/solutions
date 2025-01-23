@@ -478,7 +478,6 @@ exports.validateInvite = async (inviteId, email, nome) => {
         throw new Error('[invalid-name]O nome não confere.');
       }
       
-      
       const expiresAt = inviteData.expiresAt;
 
       if (expiresAt && expiresAt.toMillis() < Date.now()) {

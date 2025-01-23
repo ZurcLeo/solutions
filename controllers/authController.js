@@ -1,6 +1,7 @@
 // controllers/authController.js
 const { logger } = require('../logger');
 const authService = require('../services/authService');
+const User = require('../models/User');
 
 exports.getToken = async (req, res) => {
   const userId = req.user.uid;
@@ -26,14 +27,74 @@ exports.facebookLogin = async (req, res) => {
 };
 
 exports.registerWithEmail = async (req, res) => {
-  const { email, password, inviteId } = req.body;
+  const { email, password, nome, inviteId } = req.body;
 
   try {
-    const response = await authService.registerWithEmail(email, password, inviteId);
-    res.status(200).json(response);
+    // Validar dados necessários
+    if (!email || !password || !nome || !inviteId) {
+      return res.status(400).json({
+        message: 'Dados incompletos para registro',
+        details: 'Email, senha, nome e inviteId são obrigatórios'
+      });
+    }
+
+    logger.info('Iniciando registro com email', {
+      service: 'authController',
+      function: 'registerWithEmail',
+      email
+    });
+
+    const userData = { email, password, nome };
+    const response = await authService.registerWithEmail(userData, inviteId);
+
+    // Configurar cookies seguros
+    res.cookie('refreshToken', response.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 dias
+    });
+
+    // Enviar resposta sem expor tokens sensíveis
+    res.status(200).json({
+      message: response.message,
+      user: response.user,
+      accessToken: response.accessToken
+    });
+
   } catch (error) {
-    logger.error('Erro ao criar conta', { service: 'authController', function: 'registerWithEmail', error: error.message });
-    res.status(500).json({ message: 'Erro ao criar conta', error: error.message });
+    logger.error('Erro no registro com email', {
+      service: 'authController',
+      function: 'registerWithEmail',
+      error: error.message
+    });
+
+    // Tratamento específico de erros
+    if (error.message.includes('já registrado')) {
+      return res.status(409).json({
+        message: 'Email já registrado',
+        error: error.message
+      });
+    }
+
+    if (error.message.includes('convite')) {
+      return res.status(400).json({
+        message: 'Erro com o convite',
+        error: error.message
+      });
+    }
+
+    if (error.message.includes('senha')) {
+      return res.status(400).json({
+        message: 'Erro com a senha',
+        error: error.message
+      });
+    }
+
+    res.status(500).json({
+      message: 'Erro interno no registro',
+      error: error.message
+    });
   }
 };
 
@@ -81,14 +142,76 @@ exports.signInWithProvider = async (req, res) => {
 };
 
 exports.registerWithProvider = async (req, res) => {
-  const { provider, inviteId, email, nome } = req.body;
+  const { provider, token, inviteId } = req.body;
 
   try {
-    const response = await authService.registerWithProvider(provider, inviteId, email);
-    res.status(200).json(response);
+    // Validar dados necessários
+    if (!provider || !token || !inviteId) {
+      return res.status(400).json({ 
+        message: 'Dados incompletos para registro',
+        details: 'Provider, token e inviteId são obrigatórios'
+      });
+    }
+
+    // Validar provedor
+    if (!['google', 'microsoft'].includes(provider)) {
+      return res.status(400).json({ 
+        message: 'Provedor inválido',
+        details: 'Provedores aceitos: google, microsoft'
+      });
+    }
+
+    logger.info('Iniciando registro com provedor', { 
+      service: 'authController',
+      function: 'registerWithProvider',
+      provider,
+      inviteId
+    });
+
+    const providerData = { provider, token };
+    const response = await authService.registerWithProvider(providerData, inviteId);
+
+    // Configurar cookies seguros
+    res.cookie('refreshToken', response.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 dias
+    });
+
+    // Enviar resposta sem expor tokens sensíveis
+    res.status(200).json({
+      message: response.message,
+      user: response.user,
+      accessToken: response.accessToken
+    });
+
   } catch (error) {
-    logger.error('Erro no registro com provedor', { service: 'authController', function: 'registerWithProvider', error: error.message });
-    res.status(500).json({ message: 'Erro no registro com provedor', error: error.message });
+    logger.error('Erro no registro com provedor', { 
+      service: 'authController',
+      function: 'registerWithProvider',
+      error: error.message 
+    });
+
+    // Tratamento específico de erros
+    if (error.message.includes('já registrado')) {
+      return res.status(409).json({
+        message: 'Usuário já registrado',
+        error: error.message
+      });
+    }
+
+    if (error.message.includes('convite')) {
+      return res.status(400).json({
+        message: 'Erro com o convite',
+        error: error.message
+      });
+    }
+
+    res.status(500).json({ 
+      message: 'Erro interno no registro',
+      error: error.message 
+    });
   }
 };
 
@@ -104,7 +227,7 @@ exports.resendVerificationEmail = async (req, res) => {
 
 exports.getCurrentUser = async (req, res) => {
   try {
-    const userId = req.uid; // `req.uid` é definido pelo middleware de autenticação
+    const userId = req.uid;
     if (!userId) {
       throw new Error('ID do usuário não encontrado no request.');
     }
@@ -119,7 +242,6 @@ exports.getCurrentUser = async (req, res) => {
     res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
   }
 };
-
 
 exports.refreshToken = async (req, res) => {
   try {
@@ -145,5 +267,131 @@ exports.refreshToken = async (req, res) => {
   } catch (error) {
     logger.error('Erro ao renovar token', { service: 'authController', function: 'refreshToken', error: error.message });
     res.status(500).json({ message: 'Erro ao renovar token', error: error.message });
+  }
+};
+
+// Iniciar processo de autenticação com provedores externos
+exports.initiateAuth = async (req, res) => {
+  const { provider } = req.body;
+
+  try {
+    if (!provider) {
+      return res.status(400).json({ message: 'Provider é obrigatório' });
+    }
+
+    const authData = await authService.initiateAuth(provider);
+    res.status(200).json(authData); // { authUrl, state }
+  } catch (error) {
+    logger.error('Erro ao iniciar autenticação', { service: 'authController', function: 'initiateAuth', error: error.message });
+    res.status(500).json({ message: 'Erro ao iniciar autenticação', error: error.message });
+  }
+};
+
+// Iniciar processo de registro com provedores externos
+exports.initiateRegistration = async (req, res) => {
+  const { provider, inviteId } = req.body;
+
+  try {
+    if (!provider || !inviteId) {
+      return res.status(400).json({ message: 'Provider e inviteId são obrigatórios' });
+    }
+
+    const registrationData = await authService.initiateRegistration(provider, inviteId);
+    res.status(200).json(registrationData); // { authUrl, state }
+  } catch (error) {
+    logger.error('Erro ao iniciar registro', { service: 'authController', function: 'initiateRegistration', error: error.message });
+    res.status(500).json({ message: 'Erro ao iniciar registro', error: error.message });
+  }
+};
+
+// Tratar retorno da autenticação
+exports.handleAuthCallback = async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const result = await authService.handleAuthCallback(code, state);
+    const isProd = process.env.NODE_ENV === 'production';
+
+    if (isProd) {
+      // Produção: Apenas cookies seguros
+      res.cookie('accessToken', result.tokens.accessToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+        domain: process.env.DOMAIN,
+        maxAge: 3600000
+      });
+      
+      res.cookie('refreshToken', result.tokens.refreshToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+        domain: process.env.DOMAIN,
+        maxAge: 86400000
+      });
+
+      res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
+    } else {
+      // Desenvolvimento: Tokens no corpo da resposta
+      res.status(200).json({
+        success: true,
+        tokens: result.tokens,
+        user: result.user
+      });
+    }
+  } catch (error) {
+    const errorRedirect = isProd 
+      ? `${process.env.FRONTEND_URL}/auth/error?message=${encodeURIComponent(error.message)}`
+      : { success: false, error: error.message };
+    
+    isProd ? res.redirect(errorRedirect) : res.status(500).json(errorRedirect);
+  }
+};
+
+// Verificar validade da sessão
+exports.checkSession = async (req, res) => {
+  const userId = req.user?.uid;
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ valid: false, message: 'No token provided' });
+  }
+
+  try {
+    if (!userId) {
+      return res.status(400).json({ message: 'ID do usuário não fornecido' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (!decoded || decoded.uid !== userId) {
+      return res.status(401).json({ message: 'Sessão inválida ou expirada' });
+    }
+
+    res.status(200).json({ message: 'Sessão válida' });
+  } catch (error) {
+    logger.error('Erro ao verificar sessão', { service: 'authController', function: 'checkSession', error: error.message });
+    res.status(500).json({ message: 'Erro ao verificar sessão', error: error.message });
+  }
+};
+
+// Verificar token de redefinição de senha
+exports.verifyResetToken = async (req, res) => {
+  const { token } = req.params;
+
+  try {
+    if (!token) {
+      return res.status(400).json({ message: 'Token de redefinição de senha é obrigatório' });
+    }
+
+    const isValid = await authService.verifyResetToken(token);
+
+    if (!isValid) {
+      return res.status(400).json({ message: 'Token inválido ou expirado' });
+    }
+
+    res.status(200).json({ message: 'Token válido' });
+  } catch (error) {
+    logger.error('Erro ao verificar token de redefinição de senha', { service: 'authController', function: 'verifyResetToken', error: error.message });
+    res.status(500).json({ message: 'Erro ao verificar token', error: error.message });
   }
 };

@@ -39,6 +39,22 @@ router.use((req, res, next) => {
   next();
 });
 
+// Iniciar processo de autenticação com provedores externos
+router.post('/initiate', authController.initiateAuth);
+
+// Iniciar processo de registro com provedores externos
+router.post('/register/initiate', authController.initiateRegistration);
+
+// Tratar retorno da autenticação
+router.get('/callback', authController.handleAuthCallback);
+
+// Verificar validade da sessão do usuário
+router.get('/session', authController.checkSession);
+
+// Verificar token de redefinição de senha
+router.get('/reset-password/verify/:token', authController.verifyResetToken);
+
+
 /**
  * @swagger
  * /auth/register:

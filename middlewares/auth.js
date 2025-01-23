@@ -1,121 +1,96 @@
 const { auth } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const { isTokenBlacklisted } = require('../services/blacklistService');
-const authService = require('../services/authService');
 
 const verifyToken = async (req, res, next) => {
-
   const authHeader = req.headers['authorization'];
+  
   logger.info('Verificação de token iniciada', {
     service: 'authMiddleware',
-    function: 'verifyToken',
-    authHeader,
+    function: 'verifyToken'
   });
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    logger.error('Token não fornecido ou formato inválido', {
-      service: 'authMiddleware',
-      function: 'verifyToken',
-    });
+    logger.error('Token não fornecido ou formato inválido');
     return res.status(401).json({ message: 'Token não fornecido ou formato inválido' });
   }
 
-  const idToken = authHeader.split(' ')[1];
-  logger.info('Token extraído', {
-    service: 'authMiddleware',
-    function: 'verifyToken',
-    idToken,
-  });
+  const idToken = req.headers.authorization?.split(' ')[1] || req.cookies.accessToken;
+
+  if (!idToken) {
+    return res.status(401).json({ message: 'Token não fornecido' });
+  }
 
   try {
+    // Verifica se o token está na blacklist
     const blacklisted = await isTokenBlacklisted(idToken);
+    logger.info('Resultado da checagem de blacklist:', blacklisted);
+    
     if (blacklisted) {
-      logger.error('Token está na lista negra', {
-        service: 'authMiddleware',
-        function: 'verifyToken',
-        idToken,
-      });
-      return res.status(401).json({ message: 'Token está na lista negra' });
+      logger.error('Token está na blacklist');
+      return res.status(401).json({ message: 'Token inválido' });
     }
 
-    let decodedToken;
-
     try {
-      decodedToken = await authService.verifyIdToken(idToken);
-
+      // Usa o Firebase Admin para verificar o token
+      const decodedToken = await auth.verifyIdToken(idToken, true); // true força verificação de revogação
+      
+      // Define os dados do usuário no request
       req.user = decodedToken;
       req.uid = decodedToken.uid;
-
+      
       logger.info('Token verificado com sucesso', {
-        service: 'authMiddleware',
-        function: 'verifyToken',
-        userId: decodedToken.uid,
+        userId: decodedToken.uid
       });
+      
       return next();
     } catch (error) {
       if (error.code === 'auth/id-token-expired') {
-        logger.info('Token expirado, verificando refresh token', {
-          service: 'authMiddleware',
-          function: 'verifyToken',
-        });
-
-        const refreshToken = req.cookies?.refreshToken; // Recupera o refresh token do cookie
+        logger.info('Token expirado, verificando refresh token');
+        
+        const refreshToken = req.cookies?.refreshToken;
         if (!refreshToken) {
-          logger.error('Refresh token não fornecido', {
-            service: 'authMiddleware',
-            function: 'verifyToken',
+          logger.error('Refresh token não fornecido');
+          return res.status(401).json({ 
+            message: 'Unauthorized', 
+            code: 'TOKEN_EXPIRED',
+            requiresReauth: true 
           });
-          return res.status(401).json({ message: 'Refresh token não fornecido' });
         }
 
         try {
-          const newTokens = await authService.verifyAndGenerateNewToken(refreshToken); // Renova os tokens
-          if (!newTokens) {
-            return res.status(403).json({ message: 'Token inválido ou expirado' });
-          }
-
-          // Atualize o token de acesso e o refresh token
-          res.setHeader('Authorization', `Bearer ${newTokens.accessToken}`);
-          res.cookie('refreshToken', newTokens.refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'Strict',
-            maxAge: 24 * 60 * 60 * 1000,
+          // O cliente deve lidar com a reautenticação
+          return res.status(401).json({ 
+            message: 'Token expired', 
+            code: 'TOKEN_EXPIRED',
+            requiresReauth: true 
           });
-
-          req.user = await authService.verifyIdToken(newTokens.accessToken);
-          req.uid = req.user.uid; 
-
-          logger.info('Token renovado e verificado com sucesso', {
-            service: 'authMiddleware',
-            function: 'verifyToken',
-            userId: req.uid,
+        } catch (refreshError) {
+          logger.error('Erro ao renovar tokens', {
+            error: refreshError.message
           });
-          return next();
-        } catch (err) {
-          logger.error('Falha ao renovar o token', {
-            service: 'authMiddleware',
-            function: 'verifyToken',
-            error: err.message,
+          return res.status(401).json({ 
+            message: 'Token renewal failed', 
+            code: 'TOKEN_RENEWAL_FAILED',
+            requiresReauth: true 
           });
-          return res.status(401).json({ message: 'Falha ao renovar o token', error: err.message });
         }
-      } else {
-        logger.error('Erro na verificação do token', {
-          service: 'authMiddleware',
-          function: 'verifyToken',
-          error: error.message,
-        });
-        return res.status(401).json({ message: 'Não autorizado', error: error.message });
       }
+      
+      logger.error('Erro na verificação do token', {
+        error: error.message
+      });
+      return res.status(401).json({ 
+        message: 'Token inválido',
+        code: 'INVALID_TOKEN',
+        requiresReauth: true 
+      });
     }
   } catch (error) {
-    logger.error('Falha na verificação do token', {
-      service: 'authMiddleware',
-      function: 'verifyToken',
-      error: error.message,
+    logger.error('Erro no middleware de autenticação', {
+      error: error.message
     });
-    return res.status(401).json({ message: 'Não autorizado', error: error.message });
+    return res.status(500).json({ message: 'Erro interno do servidor' });
   }
 };
 

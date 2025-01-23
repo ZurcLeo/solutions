@@ -1,11 +1,27 @@
-const { getAuth, auth } = require('../firebaseAdmin');
+const { getAuth, getFirestore, auth } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { getFacebookUserData } = require('./facebookService');
 const { addToBlacklist, isTokenBlacklisted } = require('./blacklistService');
 const { validateInvite, invalidateInvite } = require('./inviteService');
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
+
+const providers = {
+  google: {
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    scope: 'email profile',
+    responseType: 'code'
+  },
+  microsoft: {
+    authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    clientId: process.env.MICROSOFT_CLIENT_ID,
+    scope: 'user.read email profile openid',
+    responseType: 'code'
+  }
+};
 
 /**
  * Verifica e decodifica um token usando o Firebase Admin.
@@ -27,6 +43,68 @@ const verifyIdToken = async (idToken) => {
       service: 'authService',
       function: 'verifyIdToken',
       error: error.message,
+    });
+    throw error;
+  }
+};
+
+const initiateAuth = async (provider) => {
+  logger.info('Initiating authentication process', {
+    service: 'authService',
+    function: 'initiateAuth',
+    provider
+  });
+
+  try {
+    if (!providers[provider]) {
+      throw new Error('Invalid or unsupported provider');
+    }
+
+    const providerConfig = providers[provider];
+    const state = uuidv4();
+    
+    // Store the state in Firestore for validation
+    const db = getFirestore();
+    await db.collection('authStates').doc(state).set({
+      provider,
+      createdAt: new Date(),
+      used: false,
+      expiresAt: new Date(Date.now() + 3600000) // 1 hour expiration
+    });
+
+    // Construct authentication URL
+    const redirectUri = process.env.NODE_ENV === 'production'
+      ? `${process.env.APP_URL}/api/auth/callback`
+      : 'http://localhost:9000/api/auth/callback';
+
+    const params = new URLSearchParams({
+      client_id: providerConfig.clientId,
+      redirect_uri: redirectUri,
+      response_type: providerConfig.responseType,
+      scope: providerConfig.scope,
+      state: state,
+      prompt: 'select_account'
+    });
+
+    const authUrl = `${providerConfig.authUrl}?${params.toString()}`;
+
+    logger.info('Authentication URL generated successfully', {
+      service: 'authService',
+      function: 'initiateAuth',
+      provider,
+      state
+    });
+
+    return {
+      authUrl,
+      state
+    };
+  } catch (error) {
+    logger.error('Error initiating authentication', {
+      service: 'authService',
+      function: 'initiateAuth',
+      provider,
+      error: error.message
     });
     throw error;
   }
@@ -125,16 +203,69 @@ const facebookLogin = async (accessToken) => {
   return userData;
 };
 
-const registerWithEmail = async (email, password, inviteId) => {
-  const inviteRef = await validateInvite(inviteId);
-  const userRecord = await auth.createUser({ email, password });
-  await sendEmailVerification(userRecord.uid);
-  await ensureUserProfileExists(userRecord);
-  await invalidateInvite(inviteId, email);
+const registerWithEmail = async (userData, inviteId) => {
+  try {
+    const { email, password, nome } = userData;
 
-  const accessToken = generateToken({ uid: userRecord.uid });
-  const refreshToken = generateRefreshToken({ uid: userRecord.uid });
-  return { message: 'Conta criada com sucesso', accessToken, refreshToken };
+    // Validar convite
+    const inviteRef = await validateInvite(inviteId);
+
+    // Verificar se usuário já existe
+    try {
+      const existingUser = await auth.getUserByEmail(email);
+      throw new Error('Email já registrado. Por favor, faça login.');
+    } catch (error) {
+      if (error.code !== 'auth/user-not-found') {
+        throw error;
+      }
+    }
+
+    // Criar usuário
+    const userRecord = await auth.createUser({
+      email,
+      password,
+      displayName: nome,
+      emailVerified: false
+    });
+
+    // Enviar email de verificação
+    const verificationLink = await auth.generateEmailVerificationLink(email);
+    await sendEmailVerification(email, verificationLink);
+
+    // Criar perfil do usuário
+    await ensureUserProfileExists(userRecord);
+    
+    // Invalidar convite
+    await invalidateInvite(inviteId, email);
+
+    // Gerar tokens
+    const accessToken = generateToken({ uid: userRecord.uid });
+    const refreshToken = generateRefreshToken({ uid: userRecord.uid });
+
+    logger.info('Usuário registrado com sucesso via email', {
+      service: 'authService',
+      method: 'registerWithEmail',
+      userId: userRecord.uid
+    });
+
+    return {
+      message: 'Conta criada com sucesso. Por favor, verifique seu email.',
+      accessToken,
+      refreshToken,
+      user: {
+        uid: userRecord.uid,
+        email: userRecord.email,
+        displayName: userRecord.displayName
+      }
+    };
+  } catch (error) {
+    logger.error('Erro no registro com email', {
+      service: 'authService',
+      method: 'registerWithEmail',
+      error: error.message
+    });
+    throw error;
+  }
 };
 
 const signInWithEmail = async (email, password) => {
@@ -171,25 +302,76 @@ const signInWithProvider = async (idToken, provider) => {
   return { message: 'Login com provedor bem-sucedido', accessToken, refreshToken, user: userRecord };
 };
 
-const registerWithProvider = async (provider, inviteId) => {
-  const inviteRef = await validateInvite(inviteId);
-  let providerToUse;
+const registerWithProvider = async (providerData, inviteId) => {
+  try {
+    const { provider, token } = providerData;
+    
+    // Validar convite antes de qualquer operação
+    const inviteRef = await validateInvite(inviteId);
+    
+    // Verificar token do provedor usando Firebase Admin
+    const decodedToken = await auth.verifyIdToken(token);
+    
+    // Verificar se usuário já existe
+    let userRecord;
+    try {
+      userRecord = await auth.getUser(decodedToken.uid);
+      throw new Error('Usuário já registrado. Por favor, faça login.');
+    } catch (error) {
+      if (error.code !== 'auth/user-not-found') {
+        throw error;
+      }
+    }
 
-  if (provider === 'google') {
-    providerToUse = new GoogleAuthProvider();
-    providerToUse.setCustomParameters({ prompt: 'select_account' });
-  } else if (provider === 'microsoft') {
-    providerToUse = new OAuthProvider('microsoft.com');
-    providerToUse.setCustomParameters({ prompt: 'select_account' });
+    // Criar ou atualizar usuário
+    userRecord = await auth.createUser({
+      email: decodedToken.email,
+      emailVerified: decodedToken.email_verified,
+      displayName: decodedToken.name,
+      photoURL: decodedToken.picture,
+      uid: decodedToken.uid,
+      providerData: [{
+        providerId: provider,
+        uid: decodedToken.sub
+      }]
+    });
+
+    // Criar perfil do usuário
+    await ensureUserProfileExists(userRecord);
+    
+    // Invalidar convite
+    await invalidateInvite(inviteId, decodedToken.email);
+
+    // Gerar tokens de autenticação
+    const accessToken = generateToken({ uid: userRecord.uid });
+    const refreshToken = generateRefreshToken({ uid: userRecord.uid });
+
+    logger.info('Usuário registrado com sucesso via provedor', {
+      service: 'authService',
+      method: 'registerWithProvider',
+      provider,
+      userId: userRecord.uid
+    });
+
+    return {
+      message: 'Registro com provedor bem-sucedido',
+      accessToken,
+      refreshToken,
+      user: {
+        uid: userRecord.uid,
+        email: userRecord.email,
+        displayName: userRecord.displayName,
+        photoURL: userRecord.photoURL
+      }
+    };
+  } catch (error) {
+    logger.error('Erro no registro com provedor', {
+      service: 'authService',
+      method: 'registerWithProvider',
+      error: error.message
+    });
+    throw error;
   }
-
-  const userCredential = await signInWithPopup(auth, providerToUse);
-  await ensureUserProfileExists(userCredential);
-  await invalidateInvite(inviteId, userCredential.user.email);
-
-  const accessToken = generateToken({ uid: userCredential.user.uid });
-  const refreshToken = generateRefreshToken({ uid: userCredential.user.uid });
-  return { message: 'Registro com provedor bem-sucedido', accessToken, refreshToken };
 };
 
 const resendVerificationEmail = async () => {
@@ -225,9 +407,157 @@ const getCurrentUser = async (userId) => {
   }
 };
 
+const handleAuthCallback = async (code, state) => {
+  logger.info('Processing authentication callback', {
+    service: 'authService',
+    function: 'handleAuthCallback',
+    state
+  });
+
+  try {
+    // Verify state from database
+    const db = getFirestore();
+    const stateDoc = await db.collection('authStates').doc(state).get();
+    
+    if (!stateDoc.exists || stateDoc.data().used) {
+      throw new Error('Invalid or used state parameter');
+    }
+
+    // Mark state as used
+    await db.collection('authStates').doc(state).update({
+      used: true,
+      usedAt: new Date()
+    });
+
+    const authInstance = getAuth();
+
+    // Exchange code for Google tokens
+    const googleTokens = await exchangeCodeForTokens(code);
+    logger.info('Google tokens exchanged successfully', googleTokens);
+
+    try {
+      // Verificar e criar/atualizar usuário no Firebase
+      const decodedToken = jwt.decode(googleTokens.id_token, { complete: true }).payload;
+      
+      // Tentar encontrar usuário existente pelo email
+      let firebaseUser;
+      try {
+        firebaseUser = await authInstance.getUserByEmail(decodedToken.email);
+      } catch (error) {
+        if (error.code === 'auth/user-not-found') {
+          // Criar novo usuário no Firebase
+          firebaseUser = await authInstance.createUser({
+            email: decodedToken.email,
+            emailVerified: decodedToken.email_verified,
+            displayName: decodedToken.name,
+            photoURL: decodedToken.picture,
+            providerData: [{
+              providerId: 'google.com',
+              uid: decodedToken.sub
+            }]
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      // Preparar dados do usuário
+      const userData = {
+        uid: firebaseUser.uid,
+        nome: decodedToken.name,
+        email: decodedToken.email,
+        fotoDoPerfil: decodedToken.picture,
+        email_verified: decodedToken.email_verified,
+        dataCriacao: new Date()
+      };
+
+      // Criar/atualizar no Firestore
+      await User.update(firebaseUser.uid, userData);
+
+      // Gerar tokens da aplicação
+      const appTokens = await generateApplicationTokens(firebaseUser.uid);
+
+      return {
+        success: true,
+        tokens: appTokens,
+        user: userData,
+        redirectUrl: `${process.env.FRONTEND_URL}/auth/callback`
+      };
+
+    } catch (error) {
+      logger.error('Error creating/updating Firebase user', {
+        service: 'authService',
+        function: 'handleAuthCallback',
+        error: error.message
+      });
+      throw error;
+    }
+
+  } catch (error) {
+    logger.error('Error processing authentication callback', {
+      service: 'authService',
+      function: 'handleAuthCallback',
+      error: error.message
+    });
+    throw error;
+  }
+};
+
+const exchangeCodeForTokens = async (code) => {
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+      grant_type: 'authorization_code'
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to exchange authorization code');
+  }
+
+  return response.json();
+};
+
+const fetchUserInfo = async (accessToken) => {
+  const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch user information');
+  }
+
+  return response.json();
+};
+
+const generateApplicationTokens = async (userId) => {
+  const accessToken = jwt.sign(
+    { uid: userId },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+
+  const refreshToken = jwt.sign(
+    { uid: userId },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  return { accessToken, refreshToken };
+};
 
 module.exports = {
   verifyIdToken,
+  initiateAuth,
   generateToken,
   generateRefreshToken,
   verifyAndGenerateNewToken,
@@ -240,4 +570,8 @@ module.exports = {
   registerWithProvider,
   resendVerificationEmail,
   getCurrentUser,
+  handleAuthCallback,
+  exchangeCodeForTokens,
+  generateApplicationTokens,
+  fetchUserInfo
 };

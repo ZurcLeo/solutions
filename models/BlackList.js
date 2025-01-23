@@ -1,5 +1,5 @@
-const { getFirestore, getApp } = require('../firebaseAdmin'); // getFirestore ainda será usado para o Firestore
-const admin = require('firebase-admin'); // Importação direta para acessar FieldValue e Timestamp
+const { getFirestore } = require('../firebaseAdmin'); // getFirestore ainda será usado para o Firestore
+const { FieldValue } = require('firebase-admin/firestore');
 const { logger } = require('../logger');
 
 class Blacklist {
@@ -17,7 +17,7 @@ class Blacklist {
     try {
       const tokenDoc = this.blacklistRef.doc(token);
       await tokenDoc.set({
-        createdAt: admin.firestore.FieldValue.serverTimestamp(), // Corrigido para usar admin.firestore.FieldValue
+        createdAt: FieldValue.serverTimestamp(),
       });
 
       logger.info(`Token ${token} adicionado à blacklist com sucesso`, {
@@ -81,7 +81,7 @@ class Blacklist {
     });
 
     try {
-      const now = admin.firestore.Timestamp.now(); // Corrigido para usar admin.firestore.Timestamp
+      const now = admin.firestore.Timestamp.now();
       const snapshot = await this.blacklistRef.where('createdAt', '<', now.toDate()).get();
 
       if (snapshot.empty) {
