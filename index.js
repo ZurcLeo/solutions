@@ -42,6 +42,7 @@ const io = socketIo(server, {
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'userId', 'email']
   },
+  path: '/socket.io'
 });
 
 app.use((req, res, next) => {

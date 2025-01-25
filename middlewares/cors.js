@@ -6,7 +6,8 @@ const allowedOrigins = [
   'https://elossolucoescloud-1804e.web.app',
   'https://elossolucoescloud-1804e.firebaseapp.com',
   'https://eloscloud.com.br',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'https://backend-elos.onrender.com'
 ];
 
 const corsOptions = {

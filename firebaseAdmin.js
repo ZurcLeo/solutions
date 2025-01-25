@@ -102,6 +102,7 @@ function getApp() {
   if (!firebaseApp) {
     initializeFirebaseApp();
   }
+  console.log(firebaseApp)
   return firebaseApp;
 }
 
