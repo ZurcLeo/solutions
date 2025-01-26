@@ -14,21 +14,6 @@ const { validateInvite, invalidateInvite } = require('./inviteService');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
-const providers = {
-  google: {
-    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    scope: 'email profile',
-    responseType: 'code'
-  },
-  microsoft: {
-    authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
-    clientId: process.env.MICROSOFT_CLIENT_ID,
-    scope: 'user.read email profile openid',
-    responseType: 'code'
-  }
-};
-
 /**
  * Verifica e decodifica um token usando o Firebase Admin.
  * @param {string} idToken - O token de ID a ser verificado.
@@ -54,111 +39,52 @@ const verifyIdToken = async (idToken) => {
   }
 };
 
-// const initiateAuth = async (provider) => {
-//   logger.info('Initiating authentication process', {
-//     service: 'authService',
-//     function: 'initiateAuth',
-//     provider
-//   });
+// authService.js
+const initiateAuth = async (provider) => {
+  logger.info('Initiating Firebase authentication process', {
+    service: 'authService',
+    function: 'initiateAuth',
+    provider
+  });
 
-//   try {
-//     if (!providers[provider]) {
-//       throw new Error('Invalid or unsupported provider');
-//     }
-
-//     const providerConfig = providers[provider];
-//     const state = uuidv4();
-    
-//     // Store the state in Firestore for validation
-//     const db = getFirestore();
-//     await db.collection('authStates').doc(state).set({
-//       provider,
-//       createdAt: new Date(),
-//       used: false,
-//       expiresAt: new Date(Date.now() + 3600000) // 1 hour expiration
-//     });
-
-//     // Construct authentication URL
-//     const redirectUri = process.env.NODE_ENV === 'production'
-//       ? `${process.env.APP_URL}/api/auth/callback`
-//       : 'http://localhost:9000/api/auth/callback';
-
-//     const params = new URLSearchParams({
-//       client_id: providerConfig.clientId,
-//       redirect_uri: redirectUri,
-//       response_type: providerConfig.responseType,
-//       scope: providerConfig.scope,
-//       state: state,
-//       prompt: 'select_account'
-//     });
-
-//     const authUrl = `${providerConfig.authUrl}?${params.toString()}`;
-
-//     logger.info('Authentication URL generated successfully', {
-//       service: 'authService',
-//       function: 'initiateAuth',
-//       provider,
-//       state
-//     });
-
-//     return {
-//       authUrl,
-//       state
-//     };
-//   } catch (error) {
-//     logger.error('Error initiating authentication', {
-//       service: 'authService',
-//       function: 'initiateAuth',
-//       provider,
-//       error: error.message
-//     });
-//     throw error;
-//   }
-// };
-
-const generateToken = (user) => {
-  // Gerar access token com tempo de expiração curto
-  return jwt.sign(
-    { id: user._id, email: user.email },
-    process.env.JWT_SECRET,
-    { expiresIn: '15m' }
-  );
-};
-
-const generateRefreshToken = (user) => {
-  // Gerar refresh token com um tempo de expiração maior
-  return jwt.sign(
-    { id: user._id, email: user.email },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: '7d' }
-  );
-};
-
-const verifyAndGenerateNewToken = async (refreshToken) => {
   try {
-    // Decodificar e verificar o refresh token
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-
-    // Verifique se o refresh token foi revogado (blacklist)
-    const isBlacklisted = await isTokenBlacklisted(refreshToken);
-    if (isBlacklisted) {
-      throw new Error('Refresh token revogado.');
+    if (!['google', 'microsoft'].includes(provider)) {
+      throw new Error('Invalid or unsupported provider');
     }
 
-    // Buscar o usuário associado ao refresh token
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      throw new Error('Usuário não encontrado.');
-    }
+    // Generate state for security
+    const state = uuidv4();
+    
+    // Store authentication state in Firestore
+    const db = getFirestore();
+    await db.collection('authStates').doc(state).set({
+      provider,
+      createdAt: new Date(),
+      used: false,
+      expiresAt: new Date(Date.now() + 3600000), // 1 hour expiration
+      authenticationType: 'firebase'
+    });
 
-    // Gerar novos tokens de acesso e refresh token
-    const newAccessToken = generateToken(user);
-    const newRefreshToken = generateRefreshToken(user);
-
-    return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+    // Instead of returning OAuth URL, return state for Firebase flow
+    return {
+      state,
+      // Include any provider-specific configuration if needed
+      config: {
+        provider,
+        scopes: provider === 'google' 
+          ? ['email', 'profile']
+          : ['user.read', 'email', 'profile', 'openid'],
+        prompt: 'select_account'
+      }
+    };
   } catch (error) {
-    console.error('Erro ao verificar e renovar token:', error.message);
-    throw new Error('Erro ao verificar e renovar token: ' + error.message);
+    logger.error('Error initiating Firebase authentication', {
+      service: 'authService',
+      function: 'initiateAuth',
+      provider,
+      error: error.message
+    });
+    throw error;
   }
 };
 
@@ -563,10 +489,7 @@ const generateApplicationTokens = async (userId) => {
 
 module.exports = {
   verifyIdToken,
-  // initiateAuth,
-  generateToken,
-  generateRefreshToken,
-  verifyAndGenerateNewToken,
+  initiateAuth,
   ensureUserProfileExists,
   facebookLogin,
   registerWithEmail,

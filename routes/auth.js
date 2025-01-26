@@ -9,20 +9,23 @@ const { rateLimiter, authRateLimiter } = require('../middlewares/rateLimiter');
 
 // Middleware CORS
 router.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://eloscloud.com',
-    'http://localhost:3000'
-  ];
+  // Headers existentes
+  res.setHeader('Access-Control-Allow-Origin', 
+    process.env.NODE_ENV === 'production' 
+      ? 'https://eloscloud.com' 
+      : 'http://localhost:3000'
+  );
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
+  // Adicionar headers específicos para COOP e COEP
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
 
-  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
   next();
 });
 
