@@ -3,7 +3,9 @@ const { logger } = require('../logger');
 
 const allowedOrigins = [
   'https://eloscloud.com',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'http://localhost:9000',
+  'https://backend-elos.onrender.com'
 ];
 
 const corsOptions = {

@@ -1,5 +1,7 @@
 // models/blacklist.js
-const { db } = require('../firebaseAdmin');
+const { getFirestore } = require('../firebaseAdmin');
+
+const db = getFirestore();
 
 class Blacklist {
   constructor() {
