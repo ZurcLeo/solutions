@@ -15,7 +15,9 @@ const verifyToken = async (req, res, next) => {
     return res.status(401).json({ message: 'Token não fornecido ou formato inválido' });
   }
 
-  const idToken = req.headers.authorization?.split(' ')[1] || req.cookies.accessToken;
+  const idToken = req.cookies?.accessToken || 
+  req.headers.authorization?.split(' ')[1] ||
+  req.query?.token; 
 
   if (!idToken) {
     return res.status(401).json({ message: 'Token não fornecido' });
@@ -32,8 +34,19 @@ const verifyToken = async (req, res, next) => {
     }
 
     try {
+      if (!idToken) {
+        logger.error('Token não fornecido', {
+          service: 'authMiddleware',
+          function: 'verifyToken',
+          headers: req.headers,
+          cookies: req.cookies
+        });
+        return res.status(401).json({ message: 'Token não fornecido' });
+      }
       // Usa o Firebase Admin para verificar o token
-      const decodedToken = await auth.verifyIdToken(idToken, true); // true força verificação de revogação
+      const decodedToken = await auth.verifyIdToken(token);
+      req.user = decodedToken;
+      req.uid = decodedToken.uid;// true força verificação de revogação
       
       // Define os dados do usuário no request
       req.user = decodedToken;

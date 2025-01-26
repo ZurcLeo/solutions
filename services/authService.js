@@ -54,67 +54,67 @@ const verifyIdToken = async (idToken) => {
   }
 };
 
-const initiateAuth = async (provider) => {
-  logger.info('Initiating authentication process', {
-    service: 'authService',
-    function: 'initiateAuth',
-    provider
-  });
+// const initiateAuth = async (provider) => {
+//   logger.info('Initiating authentication process', {
+//     service: 'authService',
+//     function: 'initiateAuth',
+//     provider
+//   });
 
-  try {
-    if (!providers[provider]) {
-      throw new Error('Invalid or unsupported provider');
-    }
+//   try {
+//     if (!providers[provider]) {
+//       throw new Error('Invalid or unsupported provider');
+//     }
 
-    const providerConfig = providers[provider];
-    const state = uuidv4();
+//     const providerConfig = providers[provider];
+//     const state = uuidv4();
     
-    // Store the state in Firestore for validation
-    const db = getFirestore();
-    await db.collection('authStates').doc(state).set({
-      provider,
-      createdAt: new Date(),
-      used: false,
-      expiresAt: new Date(Date.now() + 3600000) // 1 hour expiration
-    });
+//     // Store the state in Firestore for validation
+//     const db = getFirestore();
+//     await db.collection('authStates').doc(state).set({
+//       provider,
+//       createdAt: new Date(),
+//       used: false,
+//       expiresAt: new Date(Date.now() + 3600000) // 1 hour expiration
+//     });
 
-    // Construct authentication URL
-    const redirectUri = process.env.NODE_ENV === 'production'
-      ? `${process.env.APP_URL}/api/auth/callback`
-      : 'http://localhost:9000/api/auth/callback';
+//     // Construct authentication URL
+//     const redirectUri = process.env.NODE_ENV === 'production'
+//       ? `${process.env.APP_URL}/api/auth/callback`
+//       : 'http://localhost:9000/api/auth/callback';
 
-    const params = new URLSearchParams({
-      client_id: providerConfig.clientId,
-      redirect_uri: redirectUri,
-      response_type: providerConfig.responseType,
-      scope: providerConfig.scope,
-      state: state,
-      prompt: 'select_account'
-    });
+//     const params = new URLSearchParams({
+//       client_id: providerConfig.clientId,
+//       redirect_uri: redirectUri,
+//       response_type: providerConfig.responseType,
+//       scope: providerConfig.scope,
+//       state: state,
+//       prompt: 'select_account'
+//     });
 
-    const authUrl = `${providerConfig.authUrl}?${params.toString()}`;
+//     const authUrl = `${providerConfig.authUrl}?${params.toString()}`;
 
-    logger.info('Authentication URL generated successfully', {
-      service: 'authService',
-      function: 'initiateAuth',
-      provider,
-      state
-    });
+//     logger.info('Authentication URL generated successfully', {
+//       service: 'authService',
+//       function: 'initiateAuth',
+//       provider,
+//       state
+//     });
 
-    return {
-      authUrl,
-      state
-    };
-  } catch (error) {
-    logger.error('Error initiating authentication', {
-      service: 'authService',
-      function: 'initiateAuth',
-      provider,
-      error: error.message
-    });
-    throw error;
-  }
-};
+//     return {
+//       authUrl,
+//       state
+//     };
+//   } catch (error) {
+//     logger.error('Error initiating authentication', {
+//       service: 'authService',
+//       function: 'initiateAuth',
+//       provider,
+//       error: error.message
+//     });
+//     throw error;
+//   }
+// };
 
 const generateToken = (user) => {
   // Gerar access token com tempo de expiração curto
@@ -563,7 +563,7 @@ const generateApplicationTokens = async (userId) => {
 
 module.exports = {
   verifyIdToken,
-  initiateAuth,
+  // initiateAuth,
   generateToken,
   generateRefreshToken,
   verifyAndGenerateNewToken,
