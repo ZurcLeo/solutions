@@ -1,4 +1,10 @@
-const { getAuth, getFirestore, auth } = require('../firebaseAdmin');
+const { getAuth, getFirestore } = require('../firebaseAdmin');
+const { 
+  GoogleAuthProvider, 
+  FacebookAuthProvider, 
+  OAuthProvider,
+  signInWithCredential 
+} = require('firebase/auth');
 const { logger } = require('../logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
@@ -288,69 +294,90 @@ const logout = async (idToken) => {
 };
 
 const signInWithProvider = async (idToken, provider) => {
-  const decodedToken = await auth.verifyIdToken(idToken);
-  const uid = decodedToken.uid;
-  const userRecord = await auth.getUser(uid);
+  try {
+    let credential;
+    switch (provider) {
+      case 'google':
+        credential = GoogleAuthProvider.credential(idToken);
+        break;
+      case 'facebook':
+        credential = FacebookAuthProvider.credential(idToken);
+        break;
+      case 'microsoft':
+        credential = OAuthProvider.credential('microsoft.com', idToken);
+        break;
+      default:
+        throw new Error('Provider não suportado');
+    }
 
-  if (!userRecord.emailVerified) {
-    throw new Error('Por favor, verifique seu e-mail.');
+    const userCredential = await signInWithCredential(auth, credential);
+    const user = userCredential.user;
+
+    if (!user.emailVerified) {
+      throw new Error('Por favor, verifique seu e-mail.');
+    }
+
+    await ensureUserProfileExists(user);
+    const accessToken = generateToken({ uid: user.uid });
+    const refreshToken = generateRefreshToken({ uid: user.uid });
+
+    return { 
+      message: 'Login com provedor bem-sucedido', 
+      accessToken, 
+      refreshToken, 
+      user: {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL
+      }
+    };
+  } catch (error) {
+    logger.error('Erro no login com provedor', {
+      service: 'authService',
+      method: 'signInWithProvider',
+      provider,
+      error: error.message
+    });
+    throw error;
   }
-
-  await ensureUserProfileExists(userRecord);
-  const accessToken = generateToken({ uid: userRecord.uid });
-  const refreshToken = generateRefreshToken({ uid: userRecord.uid });
-  return { message: 'Login com provedor bem-sucedido', accessToken, refreshToken, user: userRecord };
 };
 
 const registerWithProvider = async (providerData, inviteId) => {
   try {
     const { provider, token } = providerData;
     
-    // Validar convite antes de qualquer operação
     const inviteRef = await validateInvite(inviteId);
     
-    // Verificar token do provedor usando Firebase Admin
-    const decodedToken = await auth.verifyIdToken(token);
-    
-    // Verificar se usuário já existe
-    let userRecord;
-    try {
-      userRecord = await auth.getUser(decodedToken.uid);
-      throw new Error('Usuário já registrado. Por favor, faça login.');
-    } catch (error) {
-      if (error.code !== 'auth/user-not-found') {
-        throw error;
-      }
+    let credential;
+    switch (provider) {
+      case 'google':
+        credential = GoogleAuthProvider.credential(token);
+        break;
+      case 'facebook':
+        credential = FacebookAuthProvider.credential(token);
+        break;
+      case 'microsoft':
+        credential = OAuthProvider.credential('microsoft.com', token);
+        break;
+      default:
+        throw new Error('Provider não suportado');
     }
 
-    // Criar ou atualizar usuário
-    userRecord = await auth.createUser({
-      email: decodedToken.email,
-      emailVerified: decodedToken.email_verified,
-      displayName: decodedToken.name,
-      photoURL: decodedToken.picture,
-      uid: decodedToken.uid,
-      providerData: [{
-        providerId: provider,
-        uid: decodedToken.sub
-      }]
-    });
+    const userCredential = await signInWithCredential(auth, credential);
+    const user = userCredential.user;
 
-    // Criar perfil do usuário
-    await ensureUserProfileExists(userRecord);
-    
-    // Invalidar convite
-    await invalidateInvite(inviteId, decodedToken.email);
+    await ensureUserProfileExists(user);
+    await invalidateInvite(inviteId, user.email);
 
-    // Gerar tokens de autenticação
-    const accessToken = generateToken({ uid: userRecord.uid });
-    const refreshToken = generateRefreshToken({ uid: userRecord.uid });
+    const accessToken = generateToken({ uid: user.uid });
+    const refreshToken = generateRefreshToken({ uid: user.uid });
 
     logger.info('Usuário registrado com sucesso via provedor', {
       service: 'authService',
       method: 'registerWithProvider',
       provider,
-      userId: userRecord.uid
+      userId: user.uid
     });
 
     return {
@@ -358,10 +385,10 @@ const registerWithProvider = async (providerData, inviteId) => {
       accessToken,
       refreshToken,
       user: {
-        uid: userRecord.uid,
-        email: userRecord.email,
-        displayName: userRecord.displayName,
-        photoURL: userRecord.photoURL
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL
       }
     };
   } catch (error) {
@@ -407,96 +434,75 @@ const getCurrentUser = async (userId) => {
   }
 };
 
-const handleAuthCallback = async (code, state) => {
-  logger.info('Processing authentication callback', {
+/**
+ * Handles the authentication callback after Firebase Authentication
+ * @param {string} idToken - The Firebase ID token to verify
+ * @returns {Promise<Object>} Authentication result with user data and tokens
+ */
+const handleAuthCallback = async (idToken) => {
+  logger.info('Processing Firebase authentication', {
     service: 'authService',
-    function: 'handleAuthCallback',
-    state
+    function: 'handleAuthCallback'
   });
 
   try {
-    // Verify state from database
-    const db = getFirestore();
-    const stateDoc = await db.collection('authStates').doc(state).get();
-    
-    if (!stateDoc.exists || stateDoc.data().used) {
-      throw new Error('Invalid or used state parameter');
-    }
+    // Verify the Firebase ID token
+    const auth = getAuth();
+    const decodedToken = await auth.verifyIdToken(idToken);
 
-    // Mark state as used
-    await db.collection('authStates').doc(state).update({
-      used: true,
-      usedAt: new Date()
-    });
+    // Get the user from Firebase Auth
+    const firebaseUser = await auth.getUser(decodedToken.uid);
 
-    const authInstance = getAuth();
+    // Prepare user data for Firestore
+    const userData = {
+      uid: firebaseUser.uid,
+      nome: firebaseUser.displayName,
+      email: firebaseUser.email,
+      fotoDoPerfil: firebaseUser.photoURL,
+      email_verified: firebaseUser.emailVerified,
+      dataCriacao: firebaseUser.metadata.creationTime 
+        ? new Date(firebaseUser.metadata.creationTime) 
+        : new Date()
+    };
 
-    // Exchange code for Google tokens
-    const googleTokens = await exchangeCodeForTokens(code);
-    logger.info('Google tokens exchanged successfully', googleTokens);
+    // Create or update user in Firestore
+    await User.update(firebaseUser.uid, userData);
 
-    try {
-      // Verificar e criar/atualizar usuário no Firebase
-      const decodedToken = jwt.decode(googleTokens.id_token, { complete: true }).payload;
-      
-      // Tentar encontrar usuário existente pelo email
-      let firebaseUser;
-      try {
-        firebaseUser = await authInstance.getUserByEmail(decodedToken.email);
-      } catch (error) {
-        if (error.code === 'auth/user-not-found') {
-          // Criar novo usuário no Firebase
-          firebaseUser = await authInstance.createUser({
-            email: decodedToken.email,
-            emailVerified: decodedToken.email_verified,
-            displayName: decodedToken.name,
-            photoURL: decodedToken.picture,
-            providerData: [{
-              providerId: 'google.com',
-              uid: decodedToken.sub
-            }]
-          });
-        } else {
-          throw error;
-        }
-      }
+    // Generate custom token for session management
+    const customToken = await auth.createCustomToken(firebaseUser.uid);
 
-      // Preparar dados do usuário
-      const userData = {
-        uid: firebaseUser.uid,
-        nome: decodedToken.name,
-        email: decodedToken.email,
-        fotoDoPerfil: decodedToken.picture,
-        email_verified: decodedToken.email_verified,
-        dataCriacao: new Date()
-      };
-
-      // Criar/atualizar no Firestore
-      await User.update(firebaseUser.uid, userData);
-
-      // Gerar tokens da aplicação
-      const appTokens = await generateApplicationTokens(firebaseUser.uid);
-
-      return {
-        success: true,
-        tokens: appTokens,
-        user: userData,
-        redirectUrl: `${process.env.FRONTEND_URL}/auth/callback`
-      };
-
-    } catch (error) {
-      logger.error('Error creating/updating Firebase user', {
-        service: 'authService',
-        function: 'handleAuthCallback',
-        error: error.message
-      });
-      throw error;
-    }
+    return {
+      success: true,
+      tokens: {
+        accessToken: customToken
+      },
+      user: userData
+    };
 
   } catch (error) {
-    logger.error('Error processing authentication callback', {
+    logger.error('Error processing authentication', {
       service: 'authService',
       function: 'handleAuthCallback',
+      error: error.message
+    });
+    throw error;
+  }
+};
+
+/**
+ * Validates the user's session token
+ * @param {string} token - The session token to validate
+ * @returns {Promise<Object>} Decoded token data
+ */
+const validateSession = async (token) => {
+  try {
+    const auth = getAuth();
+    const decodedToken = await auth.verifyIdToken(token);
+    return decodedToken;
+  } catch (error) {
+    logger.error('Session validation failed', {
+      service: 'authService',
+      function: 'validateSession',
       error: error.message
     });
     throw error;
@@ -573,5 +579,6 @@ module.exports = {
   handleAuthCallback,
   exchangeCodeForTokens,
   generateApplicationTokens,
-  fetchUserInfo
+  fetchUserInfo,
+  validateSession
 };

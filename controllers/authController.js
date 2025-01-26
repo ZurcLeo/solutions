@@ -306,44 +306,57 @@ exports.initiateRegistration = async (req, res) => {
 
 // Tratar retorno da autenticação
 exports.handleAuthCallback = async (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
   try {
-    const { code, state } = req.query;
-    const result = await authService.handleAuthCallback(code, state);
-    const isProd = process.env.NODE_ENV === 'production';
+    // Get the ID token from the request
+    const { idToken } = req.body;
+    
+    if (!idToken) {
+      throw new Error('No ID token provided');
+    }
 
-    if (isProd) {
-      // Produção: Apenas cookies seguros
+    const result = await authService.handleAuthCallback(idToken);
+
+    if (isProduction) {
+      // Set secure cookie for production
       res.cookie('accessToken', result.tokens.accessToken, {
         httpOnly: true,
         secure: true,
         sameSite: 'strict',
         domain: process.env.DOMAIN,
-        maxAge: 3600000
-      });
-      
-      res.cookie('refreshToken', result.tokens.refreshToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
-        domain: process.env.DOMAIN,
-        maxAge: 86400000
+        maxAge: 3600000 // 1 hour
       });
 
-      res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
-    } else {
-      // Desenvolvimento: Tokens no corpo da resposta
-      res.status(200).json({
-        success: true,
-        tokens: result.tokens,
-        user: result.user
-      });
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
     }
+
+    // Return tokens directly in development
+    return res.status(200).json({
+      success: true,
+      tokens: result.tokens,
+      user: result.user
+    });
+
   } catch (error) {
-    const errorRedirect = isProd 
+    logger.error('Auth callback error:', {
+      service: 'authController',
+      function: 'handleAuthCallback',
+      error: error.message
+    });
+
+    const errorUrl = isProduction
       ? `${process.env.FRONTEND_URL}/auth/error?message=${encodeURIComponent(error.message)}`
-      : { success: false, error: error.message };
-    
-    isProd ? res.redirect(errorRedirect) : res.status(500).json(errorRedirect);
+      : null;
+
+    if (isProduction) {
+      return res.redirect(errorUrl);
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
