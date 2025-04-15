@@ -225,58 +225,6 @@ const signInWithProvider = async (firebaseToken) => {
   };
 };
 
-const registerWithProvider = async (userData, inviteId) => {
-
-  if (inviteId) {
-    await validateInvite(inviteId, decodedToken.email);
-    await invalidateInvite(inviteId, decodedToken.uid);
-  }
-
-  // let providerToUse;
-
-  // if (provider === 'google') {
-  //   providerToUse = new GoogleAuthProvider();
-  //   providerToUse.setCustomParameters({ prompt: 'select_account' });
-  // } else if (provider === 'microsoft') {
-  //   providerToUse = new OAuthProvider('microsoft.com');
-  //   providerToUse.setCustomParameters({ prompt: 'select_account' });
-  // }
-
-  const userCredential = await signInWithPopup(auth, providerToUse);
-  await User.create(userCredential);
-  await invalidateInvite(inviteId, userCredential.user.email);
-
-    const accessToken = generateToken({ uid: user.uid });
-    const refreshToken = generateRefreshToken({ uid: user.uid });
-
-    logger.info('Usuário registrado com sucesso via provedor', {
-      service: 'authService',
-      method: 'registerWithProvider',
-      provider,
-      userId: user.uid
-    });
-
-    return {
-      message: 'Registro com provedor bem-sucedido',
-      accessToken,
-      refreshToken,
-      user: {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL
-      }
-    };
-  } catch (error) {
-    logger.error('Erro no registro com provedor', {
-      service: 'authService',
-      method: 'registerWithProvider',
-      error: error.message
-    });
-    throw error;
-  }
-};
-
 const resendVerificationEmail = async () => {
   const auth = getAuth();
   if (auth.currentUser) {
@@ -304,12 +252,6 @@ module.exports = {
   signInWithEmail,
   logout,
   signInWithProvider,
-  registerWithProvider,
   resendVerificationEmail,
-  getCurrentUser,
-  handleAuthCallback,
-  exchangeCodeForTokens,
-  generateApplicationTokens,
-  fetchUserInfo,
-  validateSession
+  getCurrentUser
 };

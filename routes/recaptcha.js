@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const recaptchaController = require('../controllers/recaptchaController');
 const { logger } = require('../logger')
-
+const { rateLimiter } = require('../middlewares/rateLimiter')
 const ROUTE_NAME = 'recaptcha'
 // Aplicar middleware de health check a todas as rotas de interests
 // router.use(healthCheck(ROUTE_NAME));

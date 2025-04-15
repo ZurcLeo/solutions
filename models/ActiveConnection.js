@@ -1,7 +1,5 @@
 const {getFirestore} = require('../firebaseAdmin');
 const { logger } = require('../logger');
-const {getFirestore} = require('../firebaseAdmin');
-const { logger } = require('../logger');
 
 class ActiveConnection {
   constructor(data) {
