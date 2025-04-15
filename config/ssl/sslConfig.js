@@ -5,9 +5,9 @@ module.exports = () => {
   try {
     if (process.env.NODE_ENV === 'production') {
       return {
-        key: fs.readFileSync(process.env.SSL_KEY_FILE),
-        cert: fs.readFileSync(process.env.SSL_CRT_FILE),
-        ca: process.env.SSL_CHAIN_FILE ? fs.readFileSync(process.env.SSL_CHAIN_FILE) : undefined
+        key: process.env.SSL_KEY ? Buffer.from(process.env.SSL_KEY, 'base64') : undefined,
+        cert: process.env.SSL_CERT ? Buffer.from(process.env.SSL_CERT, 'base64') : undefined,
+        ca: process.env.SSL_CA ? Buffer.from(process.env.SSL_CA, 'base64') : undefined
       };
     } else {
       return {
