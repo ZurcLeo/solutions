@@ -17,11 +17,36 @@ function initializeFirebaseApp() {
   }
 
   try {
+    let credential;
     const serviceAccountPath = process.env.FIREBASE_CREDENTIALS;
-    const serviceAccount = require(serviceAccountPath);
+    
+    // Verificar se o valor da variável de ambiente é um caminho ou um JSON
+    if (serviceAccountPath.startsWith('{')) {
+      // É um JSON direto
+      try {
+        const serviceAccount = JSON.parse(serviceAccountPath);
+        credential = admin.credential.cert(serviceAccount);
+      } catch (jsonError) {
+        logger.error('Erro ao parsear JSON de credenciais:', {
+          message: jsonError.message,
+        });
+        throw jsonError;
+      }
+    } else {
+      // É um caminho para um arquivo
+      try {
+        const serviceAccount = require(serviceAccountPath);
+        credential = admin.credential.cert(serviceAccount);
+      } catch (fileError) {
+        logger.error('Erro ao carregar arquivo de credenciais:', {
+          message: fileError.message,
+        });
+        throw fileError;
+      }
+    }
     
     firebaseApp = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: credential,
       databaseURL: process.env.FIREBASE_DATABASE_URL,
       projectId: process.env.FIREBASE_PROJECT_ID,
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
