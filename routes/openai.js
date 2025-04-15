@@ -2,38 +2,21 @@
 const express = require('express');
 const router = express.Router();
 const openaiController = require('../controllers/openaiController');
+const { writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger');
 
-// Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const ROUTE_NAME = 'openai'
+// Aplicar middleware de health check a todas as rotas de interests
 
-// Middleware para adicionar cabeçalhos CORS
+// Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  // Responder a requisições OPTIONS de pré-vôo
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
-
-// Middleware para logar todas as requisições
-router.use((req, res, next) => {
-  logger.info('Requisição recebida', {
-    service: 'api',
-    function: req.originalUrl,
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
+    path: req.path,
     method: req.method,
-    url: req.originalUrl,
-    headers: req.headers,
-    body: req.body
+    userId: req.user?.uid,
+    params: req.params,
+    body: req.body,
+    query: req.query,
   });
   next();
 });
@@ -75,6 +58,6 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro ao validar texto
  */
-router.post('/validate-text', openaiController.validateText);
+router.post('/validate-text', writeLimit, openaiController.validateText);
 
 module.exports = router;

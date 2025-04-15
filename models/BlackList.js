@@ -11,7 +11,7 @@ class Blacklist {
     logger.info(`Iniciando a adição do token ${token} à blacklist`, {
       service: 'blacklistService',
       function: 'addToBlacklist',
-      token,
+     
     });
 
     try {
@@ -23,13 +23,13 @@ class Blacklist {
       logger.info(`Token ${token} adicionado à blacklist com sucesso`, {
         service: 'blacklistService',
         function: 'addToBlacklist',
-        token,
+       
       });
     } catch (error) {
       logger.error(`Erro ao adicionar o token ${token} à blacklist`, {
         service: 'blacklistService',
         function: 'addToBlacklist',
-        token,
+       
         error: error.message,
       });
 
@@ -40,8 +40,7 @@ class Blacklist {
   async isTokenBlacklisted(token) {
     logger.info(`Verificando se o token ${token} está na blacklist`, {
       service: 'blacklistService',
-      function: 'isTokenBlacklisted',
-      token,
+      function: 'isTokenBlacklisted'
     });
 
     try {
@@ -51,13 +50,11 @@ class Blacklist {
         logger.info(`Token ${token} está na blacklist`, {
           service: 'blacklistService',
           function: 'isTokenBlacklisted',
-          token,
         });
       } else {
         logger.warn(`Token ${token} não está na blacklist`, {
           service: 'blacklistService',
           function: 'isTokenBlacklisted',
-          token,
         });
       }
 
@@ -66,7 +63,6 @@ class Blacklist {
       logger.error(`Erro ao verificar se o token ${token} está na blacklist`, {
         service: 'blacklistService',
         function: 'isTokenBlacklisted',
-        token,
         error: error.message,
       });
 

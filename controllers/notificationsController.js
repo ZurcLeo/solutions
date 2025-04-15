@@ -3,7 +3,7 @@ const notificationService = require('../services/notificationService');
 const { logger } = require('../logger');
 
 const getUserNotifications = async (req, res) => {
-  const userId = req.params.userId;
+  const userId = req.uid;
   logger.info('Requisicao para obter notificacoes do usuario', {
     service: 'notificationsController',
     function: 'getUserNotifications',
@@ -16,8 +16,7 @@ const getUserNotifications = async (req, res) => {
       logger.info('Notificacoes obtidas com sucesso', {
         service: 'notificationsController',
         function: 'getUserNotifications',
-        userId,
-        result: result.data
+        userId
       });
       return res.status(200).json(result.data);
     } else {
@@ -41,18 +40,17 @@ const getUserNotifications = async (req, res) => {
 };
 
 const markNotificationAsRead = async (req, res) => {
-  const userId = req.params.userId;
-  const { notificationId, type } = req.body;
+  const { userId, notificationId } = req.params;
+
   logger.info('Requisicao para marcar notificacao como lida', {
     service: 'notificationsController',
     function: 'markNotificationAsRead',
     userId,
     notificationId,
-    type
   });
 
   try {
-    const result = await notificationService.markAsRead(userId, notificationId, type);
+    const result = await notificationService.markAsRead(userId, notificationId);
     if (result.success) {
       logger.info('Notificacao marcada como lida com sucesso', {
         service: 'notificationsController',
@@ -60,6 +58,16 @@ const markNotificationAsRead = async (req, res) => {
         userId,
         notificationId
       });
+      
+      // Emitir evento de socket para sincronizar outros dispositivos do usuário
+      if (req.socketManager) {
+        req.socketManager.emitToUser(
+          userId, 
+          'notification_read', 
+          { notificationId, timestamp: Date.now() }
+        );
+      }
+      
       return res.status(200).json({ message: 'Notificação marcada como lida' });
     } else {
       logger.error('Erro ao marcar notificacao como lida', {
@@ -102,6 +110,23 @@ const createNotification = async (req, res) => {
         userId,
         notificationData
       });
+      
+      // Emitir evento de socket para o usuário
+      if (req.socketManager && result.data) {
+        const socketResult = req.socketManager.emitToUser(
+          userId, 
+          'new_notification', 
+          result.data
+        );
+        
+        logger.info('Notificação emitida via socket', {
+          service: 'notificationsController',
+          function: 'createNotification',
+          userId,
+          socketSuccess: socketResult
+        });
+      }
+      
       return res.status(200).json({ message: 'Notificação criada com sucesso' });
     } else {
       logger.error('Erro ao criar notificacao', {

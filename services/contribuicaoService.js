@@ -191,4 +191,3 @@ const atualizarSaldoCaixinha = async (session, caixinhaId, valor) => {
     dataUltimaContribuicao: new Date()
   });
 };
-

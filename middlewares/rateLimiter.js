@@ -2,142 +2,65 @@
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const { logger } = require('../logger');
 
-// Inicialização dos limitadores com logging
-const standardLimiter = new RateLimiterMemory({
-  points: 100,         // Requisições permitidas
-  duration: 60,        // Período em segundos
-  blockDuration: 300   // Tempo de bloqueio em segundos
-});
+// Configuration - Move these to a configuration file/environment variables
+const RATE_LIMIT_CONFIG = {
+  standard: { points: 100, duration: 60, blockDuration: 300 },
+  auth: { points: 5, duration: 3600, blockDuration: 3600 },
+  read: { points: 200, duration: 60, blockDuration: 300 },
+  write: { points: 50, duration: 60, blockDuration: 600 },
+  connection: { points: 10, duration: 3600, blockDuration: 3600 },
+};
 
-logger.info('Standard rate limiter configurado', {
-  service: 'rateLimiter',
-  function: 'initialization',
-  config: {
-    points: 100,
-    duration: '60 segundos',
-    blockDuration: '300 segundos'
-  }
-});
+// Initialize limiters with configuration
+const limiters = {};
+for (const key in RATE_LIMIT_CONFIG) {
+  limiters[key] = new RateLimiterMemory({
+    ...RATE_LIMIT_CONFIG[key],
+    // Add keyPrefix for better organization if needed
+    // keyPrefix: `rl:${key}`,
+  });
 
-const authLimiter = new RateLimiterMemory({
-  points: 5,           // Tentativas permitidas
-  duration: 3600,      // Por hora
-  blockDuration: 3600  // Tempo de bloqueio
-});
+  logger.info(`${key} rate limiter configurado`, {
+    service: 'rateLimiter',
+    function: 'initialization',
+    config: RATE_LIMIT_CONFIG[key],
+  });
+}
 
-logger.info('Authentication rate limiter configurado', {
-  service: 'rateLimiter',
-  function: 'initialization',
-  config: {
-    points: 5,
-    duration: '3600 segundos',
-    blockDuration: '3600 segundos'
-  }
-});
 
-// Middleware para rotas padrão da API
-const rateLimiter = async (req, res, next) => {
+const createRateLimitMiddleware = (limiter, name) => async (req, res, next) => {
   const key = req.user ? `${req.ip}-${req.user.uid}` : req.ip;
-  
-  logger.info('Verificando rate limit para requisição', {
-    service: 'rateLimiter',
-    function: 'rateLimiter',
-    data: {
-      ip: req.ip,
+
+  try {
+    await limiter.consume(key);
+    next();
+  } catch (error) {
+    logger.warn(`Rate limit exceeded for ${name}`, {
+      service: 'rateLimiter',
+      endpoint: req.path,
       userId: req.user?.uid,
-      path: req.path,
-      method: req.method
-    }
-  });
-
-  try {
-    const rateLimitInfo = await standardLimiter.consume(key);
-    
-    logger.info('Rate limit verificado com sucesso', {
-      service: 'rateLimiter',
-      function: 'rateLimiter',
-      data: {
-        remainingPoints: rateLimitInfo.remainingPoints,
-        msBeforeNext: rateLimitInfo.msBeforeNext,
-        key
-      }
-    });
-
-    next();
-  } catch (error) {
-    logger.warn('Rate limit excedido', {
-      service: 'rateLimiter',
-      function: 'rateLimiter',
-      error: {
-        message: error.message,
-        remainingMs: error.msBeforeNext
-      },
-      data: {
-        ip: req.ip,
-        userId: req.user?.uid,
-        path: req.path,
-        key
-      }
-    });
-
-    res.status(429).json({
-      error: 'Muitas requisições. Por favor, tente novamente mais tarde.',
-      retryAfter: Math.round(error.msBeforeNext / 1000)
-    });
-  }
-};
-
-// Middleware específico para rotas de autenticação
-const authRateLimiter = async (req, res, next) => {
-  const key = `auth-${req.ip}`;
-
-  logger.info('Verificando rate limit de autenticação', {
-    service: 'rateLimiter',
-    function: 'authRateLimiter',
-    data: {
       ip: req.ip,
-      path: req.path,
-      method: req.method
-    }
-  });
-
-  try {
-    const rateLimitInfo = await authLimiter.consume(key);
-    
-    logger.info('Rate limit de autenticação verificado com sucesso', {
-      service: 'rateLimiter',
-      function: 'authRateLimiter',
-      data: {
-        remainingPoints: rateLimitInfo.remainingPoints,
-        msBeforeNext: rateLimitInfo.msBeforeNext,
-        key
-      }
-    });
-
-    next();
-  } catch (error) {
-    logger.warn('Rate limit de autenticação excedido', {
-      service: 'rateLimiter',
-      function: 'authRateLimiter',
-      error: {
-        message: error.message,
-        remainingMs: error.msBeforeNext
-      },
-      data: {
-        ip: req.ip,
-        path: req.path,
-        key
-      }
+      retryAfter: Math.round(error.msBeforeNext / 1000), // Include retryAfter in logs
     });
 
     res.status(429).json({
-      error: 'Muitas tentativas de autenticação. Por favor, tente novamente mais tarde.',
-      retryAfter: Math.round(error.msBeforeNext / 1000)
+      error: 'Too many requests. Please try again later.',
+      retryAfter: Math.round(error.msBeforeNext / 1000),
     });
   }
 };
+
+const readLimit = createRateLimitMiddleware(limiters.read, 'read');
+const writeLimit = createRateLimitMiddleware(limiters.write, 'write');
+const connectionLimit = createRateLimitMiddleware(limiters.connection, 'connection');
+const authRateLimiter = createRateLimitMiddleware(limiters.auth, 'auth');
+const rateLimiter = createRateLimitMiddleware(limiters.standard, 'standard');
+
 
 module.exports = {
   rateLimiter,
-  authRateLimiter
+  authRateLimiter,
+  readLimit,
+  writeLimit,
+  connectionLimit,
 };

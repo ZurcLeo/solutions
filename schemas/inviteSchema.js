@@ -7,6 +7,7 @@ const inviteSchema = Joi.object({
   createdAt: Joi.date().optional(),
   userId: Joi.string().optional(),
   senderName: Joi.string().optional(),
+  senderEmail: Joi.string().optional(),
   friendName: Joi.string().optional(),
   nome: Joi.string().optional(),
   senderPhotoURL: Joi.string().uri().optional(),

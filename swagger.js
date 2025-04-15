@@ -15,8 +15,7 @@ const swaggerOptions = {
       },
       servers: [
         {
-          url: 'http://localhost:9000',
-          description: 'Development server'
+          url: 'https://localhost:9000',
         },
         {
           url: 'https://backend-elos.onrender.com',

@@ -1,6 +1,6 @@
+require('dotenv').config();
 const admin = require('firebase-admin');
 const { logger } = require('./logger');
-require('dotenv').config();
 
 let firebaseApp = null;
 let db = null;
@@ -17,16 +17,11 @@ function initializeFirebaseApp() {
   }
 
   try {
-    const serviceAccount = process.env.FIREBASE_CREDENTIALS;
-
-    if (!serviceAccount) {
-      throw new Error('FIREBASE_CREDENTIALS não encontradas nas variáveis de ambiente');
-    }
-
-    const parsedServiceAccount = JSON.parse(serviceAccount);
-
+    const serviceAccountPath = process.env.FIREBASE_CREDENTIALS;
+    const serviceAccount = require(serviceAccountPath);
+    
     firebaseApp = admin.initializeApp({
-      credential: admin.credential.cert(parsedServiceAccount),
+      credential: admin.credential.cert(serviceAccount),
       databaseURL: process.env.FIREBASE_DATABASE_URL,
       projectId: process.env.FIREBASE_PROJECT_ID,
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
@@ -36,7 +31,6 @@ function initializeFirebaseApp() {
   } catch (error) {
     logger.error('Erro ao inicializar o Firebase App:', {
       message: error.message,
-      credentials: process.env.FIREBASE_CREDENTIALS
     });
     throw error;
   }
@@ -102,7 +96,6 @@ function getApp() {
   if (!firebaseApp) {
     initializeFirebaseApp();
   }
-  console.log(firebaseApp)
   return firebaseApp;
 }
 

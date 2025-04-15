@@ -1,219 +1,402 @@
 // controllers/authController.js
-const { logger } = require('../logger');
+const { getAuth } = require('../firebaseAdmin');
+const jwt = require('jsonwebtoken');
 const authService = require('../services/authService');
+const inviteService = require('../services/inviteService')
+const userService = require('../services/userService');
+const { generateToken, generateRefreshToken } = require('../services/authService');
+const { logger } = require('../logger');
 const User = require('../models/User');
 
-exports.getToken = async (req, res) => {
-  const userId = req.user.uid;
-  try {
-    const { accessToken, refreshToken } = await authService.generateTokens(userId);
-    res.status(200).json({ accessToken, refreshToken });
-  } catch (error) {
-    logger.error('Erro ao gerar token JWT', { service: 'authController', function: 'getToken', error: error.message });
-    res.status(500).json({ message: 'Erro ao gerar token', error: error.message });
+// authController.js - checkSession modificado
+exports.checkSession = async (req, res) => {
+  // Extrair token de acesso dos cookies ou headers
+  let accessToken;
+  const authHeader = req.headers['authorization'];
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    accessToken = authHeader.substring(7);
+  } else if (req.cookies && req.cookies.authorization) {
+    const cookieToken = req.cookies.authorization;
+    if (cookieToken.startsWith('Bearer ')) {
+      accessToken = cookieToken.substring(7);
+    } else {
+      accessToken = cookieToken;
+    }
   }
-};
 
-exports.facebookLogin = async (req, res) => {
-  const { accessToken } = req.body;
-
-  try {
-    const userData = await authService.facebookLogin(accessToken);
-    res.status(200).json(userData);
-  } catch (error) {
-    logger.error('Erro ao autenticar com Facebook', { service: 'authController', function: 'facebookLogin', error: error.message });
-    res.status(500).json({ message: 'Erro ao autenticar com Facebook', error: error.message });
+  // Se não houver token, retornar não autenticado
+  if (!accessToken) {
+    return res.status(200).json({
+      isAuthenticated: false,
+      message: 'Sessão não encontrada'
+    });
   }
-};
-
-exports.registerWithEmail = async (req, res) => {
-  const { email, password, nome, inviteId } = req.body;
 
   try {
-    // Validar dados necessários
-    if (!email || !password || !nome || !inviteId) {
-      return res.status(400).json({
-        message: 'Dados incompletos para registro',
-        details: 'Email, senha, nome e inviteId são obrigatórios'
+    // Verificar se o token está na blacklist
+    const isBlacklisted = await isTokenBlacklisted(accessToken);
+    if (isBlacklisted) {
+      return res.status(200).json({
+        isAuthenticated: false,
+        message: 'Sessão inválida'
       });
     }
-
-    logger.info('Iniciando registro com email', {
-      service: 'authController',
-      function: 'registerWithEmail',
-      email
+    
+    // Verificar e decodificar o token
+    const decoded = jwt.verify(accessToken, process.env.JWT_SECRET);
+    const userId = decoded.uid;
+    
+    // Buscar usuário no banco
+    const user = await User.getById(userId);
+    
+    // Verificar se o usuário foi encontrado
+    if (!user) {
+      return res.status(200).json({
+        isAuthenticated: false,
+        message: 'Usuário não encontrado'
+      });
+    }
+    
+    // Verificar se o registro está completo
+    const isFirstAccess = !user.registrationStage || user.registrationStage === 'initial';
+    
+    // Verificar se o token está próximo de expirar
+    const tokenExpiresAt = decoded.exp * 1000; // Converter para milissegundos
+    const currentTime = Date.now();
+    const timeToExpiry = tokenExpiresAt - currentTime;
+    const shouldRefresh = timeToExpiry < 300000; // 5 minutos
+    
+    // Se o token estiver próximo de expirar, gerar novos tokens
+    let tokens = null;
+    if (shouldRefresh) {
+      tokens = authService.generateToken({
+        uid: userId,
+        email: user.email
+      });
+      
+      // Atualizar cookies com novos tokens
+      res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+      });
+      
+      res.cookie('refreshToken', tokens.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+      });
+    }
+    
+    return res.status(200).json({
+      isAuthenticated: true,
+      isFirstAccess: isFirstAccess,
+      user: user,
+      sessionRefreshed: !!tokens,
+      tokens: tokens
     });
+  } catch (error) {
+    // Se o erro for de token expirado, tentar usar refresh token
+    if (error.name === 'TokenExpiredError' && req.cookies && req.cookies.refreshToken) {
+      try {
+        // Verificar refresh token
+        const refreshToken = req.cookies.refreshToken;
+        const newTokens = await authService.verifyAndGenerateNewToken(refreshToken);
+        
+        // Buscar usuário com o ID do token renovado
+        const decoded = jwt.verify(newTokens.accessToken, process.env.JWT_SECRET);
+        const userId = decoded.uid;
+        const user = await User.getById(userId);
+        
+        // Atualizar cookies
+        res.cookie('authorization', `Bearer ${newTokens.accessToken}`, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict'
+        });
+        
+        res.cookie('refreshToken', newTokens.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict'
+        });
+        
+        return res.status(200).json({
+          isAuthenticated: true,
+          isFirstAccess: !user.registrationStage || user.registrationStage === 'initial',
+          user: user,
+          sessionRefreshed: true,
+          tokens: newTokens
+        });
+      } catch (refreshError) {
+        // Se falhar a renovação, retornar não autenticado
+        return res.status(200).json({
+          isAuthenticated: false,
+          message: 'Sessão expirada',
+          requireRelogin: true
+        });
+      }
+    }
+    
+    // Para qualquer outro erro, retornar não autenticado
+    logger.error('Erro ao verificar sessão', {
+      error: error.message
+    });
+    
+    return res.status(200).json({
+      isAuthenticated: false,
+      message: 'Sessão inválida',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 
-    const userData = { email, password, nome };
-    const response = await authService.registerWithEmail(userData, inviteId);
-
-    // Configurar cookies seguros
-    res.cookie('refreshToken', response.refreshToken, {
+exports.getToken = async (req, res) => {
+  try {
+    const { firebaseToken } = req.body;
+    
+    if (!firebaseToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token do Firebase não fornecido'
+      });
+    }
+    
+    // Verificar o token do Firebase
+    const auth = getAuth();
+    const decodedToken = await auth.verifyIdToken(firebaseToken);
+    const userId = decodedToken.uid;
+    
+    // Verificar se é o primeiro acesso (usando flag definida pelo middleware)
+    const isFirstAccess = req.isFirstAccess || false;
+    
+    // Buscar dados do usuário (ou usar dados básicos se for primeiro acesso)
+    let user;
+    if (isFirstAccess) {
+      // Se for primeiro acesso, usar dados básicos do token
+      user = {
+        uid: userId,
+        email: decodedToken.email,
+        nome: decodedToken.name || decodedToken.email.split('@')[0],
+        emailVerified: decodedToken.email_verified || false,
+      };
+    } else {
+      // Buscar usuário completo do banco
+      user = await User.getById(userId);
+    }
+    
+    // Gerar tokens JWT
+    const tokens = authService.generateToken({
+      uid: userId,
+      email: decodedToken.email
+    });
+    
+    // Salvar tokens (usando AuthTokenService se disponível)
+    // const authTokenService = serviceLocator.get('authToken');
+    // if (authTokenService && authTokenService.isInitialized) {
+    //   authTokenService.setTokens(
+    //     tokens.accessToken,
+    //     tokens.refreshToken,
+    //     tokens.expiresIn || 3600
+    //   );
+    // }
+    
+    // Configurar cookies
+    res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 dias
+      sameSite: 'strict'
     });
-
-    // Enviar resposta sem expor tokens sensíveis
-    res.status(200).json({
-      message: response.message,
-      user: response.user,
-      accessToken: response.accessToken
+    
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict'
     });
-
+    
+    return res.status(200).json({
+      success: true,
+      isAuthenticated: true,
+      isFirstAccess: isFirstAccess,
+      user: user,
+      tokens: tokens
+    });
   } catch (error) {
-    logger.error('Erro no registro com email', {
-      service: 'authController',
-      function: 'registerWithEmail',
+    logger.error('Erro ao gerar token', {
       error: error.message
     });
-
-    // Tratamento específico de erros
-    if (error.message.includes('já registrado')) {
-      return res.status(409).json({
-        message: 'Email já registrado',
-        error: error.message
-      });
-    }
-
-    if (error.message.includes('convite')) {
-      return res.status(400).json({
-        message: 'Erro com o convite',
-        error: error.message
-      });
-    }
-
-    if (error.message.includes('senha')) {
-      return res.status(400).json({
-        message: 'Erro com a senha',
-        error: error.message
-      });
-    }
-
-    res.status(500).json({
-      message: 'Erro interno no registro',
+    
+    return res.status(401).json({
+      success: false,
+      message: 'Falha na autenticação',
       error: error.message
     });
   }
 };
 
-exports.signInWithEmail = async (req, res) => {
-  const { email, password } = req.body;
-
+exports.register = async (req, res) => {
+  const auth = getAuth();
+  const ja3Hash = req.ja3Hash;
+  const { firebaseToken, inviteId, profileData } = req.body;
+  
   try {
-    const response = await authService.signInWithEmail(email, password);
-    res.status(200).json(response);
+    // 1. Verificar o token do Firebase
+    const decodedToken = await auth.verifyIdToken(firebaseToken);
+    const userId = decodedToken.uid;
+    // const ja3hash = calculateJA3Hash(req.)
+
+    // 3. Criar ou atualizar perfil do usuário
+    const userData = {
+      uid: userId,
+      email: decodedToken.email,
+      emailVerified: decodedToken.email_verified,
+      ja3Hash,
+      ...profileData,
+      dataCriacao: Date.now()
+    };
+    
+    const user = await userService.addUser(userData);
+    
+    // 2. Verificar e invalidar o convite (se fornecido)
+    if (inviteId) {
+      await inviteService.invalidateInvite(inviteId, userId);
+    }
+
+    // 4. Gerar token JWT da aplicação
+    const tokens = authService.generateToken({
+      uid: userId,
+      email: decodedToken.email
+    });
+    
+    // 5. Definir cookies de autenticação
+    res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict'
+    });
+    
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict'
+    });
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Registro concluído com sucesso',
+      isAuthenticated: true,
+      isFirstAccess: true,
+      user,
+      tokens
+    });
   } catch (error) {
-    logger.error('Erro ao fazer login', { service: 'authController', function: 'signInWithEmail', error: error.message });
-    res.status(500).json({ message: 'Erro ao fazer login', error: error.message });
+    logger.error('Erro no registro', {
+      error: error.message,
+      inviteId,
+      profileData
+    });
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao processar registro',
+      error: error.message
+    });
   }
 };
+
+// exports.registerWithEmail = async (req, res) => {
+//     const { uid, email, nome, inviteId } = req.body;
+
+//     if (!uid || !email || !nome || !inviteId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Dados incompletos para registro com convite'
+//       });
+//     }
+
+//     const validationResult = await inviteService.checkInvite(inviteId, email);
+    
+//     if (!validationResult.valid) {
+//       return res.status(400).json({
+//         success: false,
+//         message: validationResult.message || 'Convite inválido'
+//       });
+//     }
+
+//     await inviteService.invalidateInvite(inviteId, uid);
+
+
+//   try {
+//     const response = await authService.registerWithEmail(email, password, inviteId);
+//     res.status(200).json(response);
+//   } catch (error) {
+//     logger.error('Erro ao criar conta', { service: 'authController', function: 'registerWithEmail', error: error.message });
+//     res.status(500).json({ message: 'Erro ao criar conta', error: error.message });
+//   }
+// };
 
 exports.logout = async (req, res) => {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'No token provided or invalid format' });
+  // Captura do token do cabeçalho Authorization ou dos cookies
+  let idToken = null;
+
+  // Verifica se o token está no header 'authorization'
+  const authHeader = req.headers['authorization'] || req.cookies['authorization'];
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    idToken = authHeader.split(' ')[1];  // Extrai o token do header
+  } else if (req.cookies['authorization']) {
+    idToken = req.cookies['authorization'];  // Extrai o token dos cookies, se presente
   }
 
-  const idToken = authHeader.split(' ')[1];
+  // Log de informação sobre o processo de logout
+  logger.info('Requisição de logout recebida', {
+    service: 'authController',
+    function: 'logout',
+    idToken // Pode ser útil para depuração, mas certifique-se de não expor o token sensível em logs de produção
+  });
+
+  // Se o token não foi encontrado, retorna erro
+  if (!idToken) {
+    logger.warn('Token não encontrado na requisição', {
+      service: 'authController',
+      function: 'logout'
+    });
+    return res.status(400).json({ message: 'Token not found in request' });
+  }
+
   try {
+    // Chama o serviço de logout, passando o token
     await authService.logout(idToken);
+    logger.info('Logout realizado com sucesso e token blacklisted', {
+      service: 'authController',
+      function: 'logout',
+      idToken
+    });
     res.status(200).json({ message: 'Logout successful and token blacklisted' });
   } catch (error) {
+    logger.error('Falha ao tentar blacklist o token', {
+      service: 'authController',
+      function: 'logout',
+      error: error.message,
+      idToken
+    });
     res.status(500).json({ message: 'Failed to blacklist token', error: error.message });
   }
 };
 
-exports.signInWithProvider = async (req, res) => {
-  const { idToken, provider } = req.body;
 
-  if (typeof provider !== 'string' || !['google', 'facebook', 'microsoft'].includes(provider)) {
-    return res.status(400).json({ message: 'Invalid provider' });
-  }
+// exports.registerWithProvider = async (req, res) => {
+//   const { provider, inviteId, registrationToken } = req.body;
 
-  try {
-    const response = await authService.signInWithProvider(idToken, provider);
-    res.status(200).json(response);
-  } catch (error) {
-    logger.error('Erro durante o login com provedor', { service: 'authController', function: 'signInWithProvider', error: error.message });
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-exports.registerWithProvider = async (req, res) => {
-  const { provider, token, inviteId } = req.body;
-
-  try {
-    // Validar dados necessários
-    if (!provider || !token || !inviteId) {
-      return res.status(400).json({ 
-        message: 'Dados incompletos para registro',
-        details: 'Provider, token e inviteId são obrigatórios'
-      });
-    }
-
-    // Validar provedor
-    if (!['google', 'microsoft'].includes(provider)) {
-      return res.status(400).json({ 
-        message: 'Provedor inválido',
-        details: 'Provedores aceitos: google, microsoft'
-      });
-    }
-
-    logger.info('Iniciando registro com provedor', { 
-      service: 'authController',
-      function: 'registerWithProvider',
-      provider,
-      inviteId
-    });
-
-    const providerData = { provider, token };
-    const response = await authService.registerWithProvider(providerData, inviteId);
-
-    // Configurar cookies seguros
-    res.cookie('refreshToken', response.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 dias
-    });
-
-    // Enviar resposta sem expor tokens sensíveis
-    res.status(200).json({
-      message: response.message,
-      user: response.user,
-      accessToken: response.accessToken
-    });
-
-  } catch (error) {
-    logger.error('Erro no registro com provedor', { 
-      service: 'authController',
-      function: 'registerWithProvider',
-      error: error.message 
-    });
-
-    // Tratamento específico de erros
-    if (error.message.includes('já registrado')) {
-      return res.status(409).json({
-        message: 'Usuário já registrado',
-        error: error.message
-      });
-    }
-
-    if (error.message.includes('convite')) {
-      return res.status(400).json({
-        message: 'Erro com o convite',
-        error: error.message
-      });
-    }
-
-    res.status(500).json({ 
-      message: 'Erro interno no registro',
-      error: error.message 
-    });
-  }
-};
+//   try {
+//     const response = await authService.registerWithProvider(provider, inviteId);
+//     res.status(200).json(response);
+//   } catch (error) {
+//     logger.error('Erro no registro com provedor', { service: 'authController', function: 'registerWithProvider', error: error.message });
+//     res.status(500).json({ message: 'Erro no registro com provedor', error: error.message });
+//   }
+// };
 
 exports.resendVerificationEmail = async (req, res) => {
   try {
@@ -227,25 +410,32 @@ exports.resendVerificationEmail = async (req, res) => {
 
 exports.getCurrentUser = async (req, res) => {
   try {
-    const userId = req.uid;
-    if (!userId) {
-      throw new Error('ID do usuário não encontrado no request.');
+    // O userId já deve vir do token decodificado, não precisa ser da rota
+    if (!req.user || !req.user.uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    logger.info('userId no getCurrentUser:', { service: 'authController', function: 'getCurrentUser', userId });
-    const userData = await authService.getCurrentUser(userId);
+    const userId = req.user.uid; // Obtendo diretamente do token, sem usar params
 
-    logger.info('UserData no getCurrentUser: ', userData);
-    res.status(200).json(userData);
+    // O código abaixo verifica se a rota é '/me', mas isso não é necessário, pois já sabemos que é o usuário autenticado
+    logger.info('Requisição para obter usuário autenticado', { service: 'userController', function: 'getCurrentUser', userId });
+    const user = await authService.getUserById(userId); // Ou diretamente usar UserModel.getById
+    if (user) {
+      return res.status(200).json(user);
+    } else {
+      logger.warn('Usuário não encontrado', { service: 'userController', function: 'getCurrentUser', userId });
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
   } catch (error) {
-    logger.error(`Erro ao obter dados do usuário: ${error.message}`);
-    res.status(500).json({ message: 'Erro ao obter dados do usuário', error: error.message });
+    logger.error('Erro ao obter usuário por ID', { service: 'userController', function: 'getCurrentUser', error: error.message });
+    return res.status(500).json({ message: 'Erro ao obter usuário' });
   }
 };
 
+
 exports.refreshToken = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const { refreshToken } = req.body || req.cookies;
 
     if (!refreshToken) {
       return res.status(400).json({ message: 'Refresh token é obrigatório' });

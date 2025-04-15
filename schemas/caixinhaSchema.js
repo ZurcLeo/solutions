@@ -165,4 +165,4 @@ const caixinhaSchema = {
     })
   };
   
-  module.exports = caixinhaSchema;  
+  module.exports = caixinhaSchema;

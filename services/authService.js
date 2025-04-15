@@ -1,206 +1,190 @@
+//eloscloudapp/services/authService.js
 const { getAuth, getFirestore } = require('../firebaseAdmin');
-const { 
-  GoogleAuthProvider, 
-  FacebookAuthProvider, 
-  OAuthProvider,
-  signInWithCredential 
-} = require('firebase/auth');
-const { logger } = require('../logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { getFacebookUserData } = require('./facebookService');
+const Invite = require('../models/Invite');
+const { logger } = require('../logger')
 const { addToBlacklist, isTokenBlacklisted } = require('./blacklistService');
 const { validateInvite, invalidateInvite } = require('./inviteService');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
-/**
- * Verifica e decodifica um token usando o Firebase Admin.
- * @param {string} idToken - O token de ID a ser verificado.
- * @returns {Promise<Object>} - Os dados decodificados do token.
- */
-const verifyIdToken = async (idToken) => {
+const db = getFirestore();
+
+const generateToken = (payload) => {
   try {
-    const auth = getAuth(); // Obtenha a instância de Auth
-    const decodedToken = await auth.verifyIdToken(idToken); // Verifica e decodifica o token
-    logger.info('Token verificado com sucesso no authService', {
-      service: 'authService',
-      function: 'verifyIdToken',
-      userId: decodedToken.uid,
-    });
-    return decodedToken;
+    logger.info('Payload para gerar token:', payload);
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+    logger.info('Tokens gerados:', { accessToken, refreshToken });
+    return { accessToken, refreshToken };
   } catch (error) {
-    logger.error('Erro ao verificar o token no authService', {
-      service: 'authService',
-      function: 'verifyIdToken',
-      error: error.message,
-    });
-    throw error;
+    logger.error('Erro ao gerar token:', error);
+    return {}; // ou lançar o erro
   }
 };
 
-// authService.js
-const initiateAuth = async (provider) => {
-  logger.info('Initiating Firebase authentication process', {
-    service: 'authService',
-    function: 'initiateAuth',
-    provider
-  });
+const generateRefreshToken = (user) => {
+  return jwt.sign(
+    { 
+      uid: user.uid,
+      email: user.email 
+    },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: '7d' }
+  );
+};
 
+const verifyAndGenerateNewToken = async (refreshToken) => {
   try {
-    if (!['google', 'microsoft'].includes(provider)) {
-      throw new Error('Invalid or unsupported provider');
+    // Decodificar e verificar o refresh token
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+    // Verificar se o refresh token foi revogado (blacklist)
+    const isBlacklisted = await isTokenBlacklisted(refreshToken);
+    if (isBlacklisted) {
+      throw new Error('Refresh token revogado.');
     }
 
-    // Generate state for security
-    const state = uuidv4();
-    
-    // Store authentication state in Firestore
-    const db = getFirestore();
-    await db.collection('authStates').doc(state).set({
-      provider,
-      createdAt: new Date(),
-      used: false,
-      expiresAt: new Date(Date.now() + 3600000), // 1 hour expiration
-      authenticationType: 'firebase'
-    });
+    // Em vez de buscar o usuário completo, usar os dados do token
+    // para gerar novos tokens. Isso reduz uma consulta ao banco de dados.
+    const userData = {
+      uid: decoded.uid,
+      // Outros dados necessários presentes no token
+    };
 
-    // Instead of returning OAuth URL, return state for Firebase flow
-    return {
-      state,
-      // Include any provider-specific configuration if needed
-      config: {
-        provider,
-        scopes: provider === 'google' 
-          ? ['email', 'profile']
-          : ['user.read', 'email', 'profile', 'openid'],
-        prompt: 'select_account'
-      }
+    // Gerar novos tokens de acesso e refresh
+    const accessToken = generateToken(userData);
+    const newRefreshToken = generateRefreshToken(userData);
+
+    return { 
+      accessToken, 
+      refreshToken: newRefreshToken,
+      userData // Incluir dados básicos do usuário para reduzir consultas
     };
   } catch (error) {
-    logger.error('Error initiating Firebase authentication', {
-      service: 'authService',
-      function: 'initiateAuth',
-      provider,
-      error: error.message
-    });
-    throw error;
+    console.error('Erro ao verificar e renovar token:', error.message);
+    throw new Error('Erro ao verificar e renovar token: ' + error.message);
   }
 };
 
-const ensureUserProfileExists = async (userRecord) => {
-  const userDocRef = auth.firestore().doc(`usuario/${userRecord.uid}`);
+/**
+ * Cria o perfil de um novo usuário e, se disponível, estabelece uma conexão com quem o convidou
+ * @param {Object} userRecord - Dados do usuário do Firebase
+ * @param {string} inviteId - ID do convite (opcional)
+ */
+const createUserProfile = async (userRecord, inviteId = null) => {
+  const auth = getAuth();
+  const userDocRef = db.doc(`usuario/${userRecord.uid}`);
   const docSnap = await userDocRef.get();
 
-  if (!docSnap.exists) {
-    const batch = auth.firestore().batch();
-    const email = userRecord.email;
-    const defaultName = email.substring(0, email.indexOf('@'));
+  if (docSnap.exists) {
+    return; // Usuário já existe, não fazer nada
+  }
 
-    batch.set(userDocRef, {
-      email: userRecord.email,
-      nome: userRecord.displayName || defaultName || 'ElosCloud.Cliente',
-      perfilPublico: false,
-      dataCriacao: auth.firestore.FieldValue.serverTimestamp(),
-      uid: userRecord.uid,
-      tipoDeConta: 'Cliente',
-      isOwnerOrAdmin: false,
-      fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-      amigos: [],
-      amigosAutorizados: [],
-      conversasComMensagensNaoLidas: [],
-    });
-
-    batch.set(auth.firestore().doc(`conexoes/${userRecord.uid}/solicitadas/${process.env.CLAUD_PROFILE}`), {
-      dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
-      nome: 'Claud Suporte',
-      uid: process.env.CLAUD_PROFILE,
-      status: 'pendente',
-      fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-      descricao: 'Gostaria de conectar com você.',
-      amigos: [],
-    });
-
+  const batch = db.batch();
+  const email = userRecord.email;
+  const defaultName = email.substring(0, email.indexOf('@'));
+  
+  // Preparar dados básicos do usuário
+  const userData = {
+    email: userRecord.email,
+    nome: userRecord.displayName || defaultName || 'ElosCloud.Cliente',
+    perfilPublico: false,
+    dataCriacao: auth.firestore.FieldValue.serverTimestamp(),
+    uid: userRecord.uid,
+    tipoDeConta: 'Cliente',
+    interesses: {},
+    ja3hash: userRecord.ja3hash,
+    reacoes: [],
+    isOwnerOrAdmin: false,
+    descricao: '',
+    saldoElosCoins: 0,
+    fotoDoPerfil: process.env.DEFAULT_PROFILE_IMG,
+    amigos: [],
+    amigosAutorizados: [],
+    conversas: {},
+  };
+  
+  batch.set(userDocRef, userData);
+  
+  // Verificar se existe um convite e processar a conexão com o remetente
+  if (inviteId) {
     try {
-      await batch.commit();
+      // Buscar dados do convite
+      const { invite } = await Invite.getById(inviteId);
+      
+      if (invite && invite.status === 'used' && invite.senderId) {
+        // Criar referência de solicitação mútua entre o novo usuário e quem o convidou
+        
+        // 1. Solicitação ao novo usuário
+        batch.set(db.doc(`conexoes/${userRecord.uid}/recebidas/${invite.senderId}`), {
+          dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
+          nome: invite.senderName || 'Usuário que convidou',
+          uid: invite.senderId,
+          status: 'pendente',
+          fotoDoPerfil: invite.senderPhotoURL || process.env.DEFAULT_PROFILE_IMG,
+          descricao: 'Conecte-se com quem te convidou para a plataforma.',
+          amigos: [],
+          inviteId: inviteId  // Referência ao convite original
+        });
+        
+        // 2. Solicitação ao remetente do convite
+        batch.set(db.doc(`conexoes/${invite.senderId}/enviadas/${userRecord.uid}`), {
+          dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
+          nome: userRecord.displayName || defaultName,
+          uid: userRecord.uid,
+          status: 'pendente',
+          fotoDoPerfil: process.env.DEFAULT_PROFILE_IMG,
+          descricao: 'Usuário que você convidou criou uma conta.',
+          amigos: [],
+          inviteId: inviteId  // Referência ao convite original
+        });
+        
+        console.log(`Criadas solicitações de conexão entre ${userRecord.uid} e ${invite.senderId}`);
+      }
     } catch (error) {
-      throw new Error(`Erro ao criar perfil para o usuário: ${userRecord.email}`);
+      console.error(`Erro ao processar conexão do convite ${inviteId}:`, error);
+      // Continuar mesmo com erro na conexão
     }
   }
-};
-
-const facebookLogin = async (accessToken) => {
-  const userData = await getFacebookUserData(accessToken);
-  await ensureUserProfileExists(userData);
-  return userData;
-};
-
-const registerWithEmail = async (userData, inviteId) => {
+  
+  // Sempre adicionar o suporte como contato
+  batch.set(db.doc(`conexoes/${userRecord.uid}/recebidas/${process.env.SUPPORT_PROFILE_ID}`), {
+    dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
+    nome: 'Suporte ElosCloud',
+    uid: process.env.SUPPORT_PROFILE_ID,
+    status: 'pendente',
+    fotoDoPerfil: process.env.SUPPORT_PROFILE_IMG,
+    descricao: 'Estamos aqui para ajudar. Conecte-se para receber suporte.',
+    amigos: [],
+  });
+  
   try {
-    const { email, password, nome } = userData;
-
-    // Validar convite
-    const inviteRef = await validateInvite(inviteId);
-
-    // Verificar se usuário já existe
-    try {
-      const existingUser = await auth.getUserByEmail(email);
-      throw new Error('Email já registrado. Por favor, faça login.');
-    } catch (error) {
-      if (error.code !== 'auth/user-not-found') {
-        throw error;
-      }
-    }
-
-    // Criar usuário
-    const userRecord = await auth.createUser({
-      email,
-      password,
-      displayName: nome,
-      emailVerified: false
-    });
-
-    // Enviar email de verificação
-    const verificationLink = await auth.generateEmailVerificationLink(email);
-    await sendEmailVerification(email, verificationLink);
-
-    // Criar perfil do usuário
-    await ensureUserProfileExists(userRecord);
-    
-    // Invalidar convite
-    await invalidateInvite(inviteId, email);
-
-    // Gerar tokens
-    const accessToken = generateToken({ uid: userRecord.uid });
-    const refreshToken = generateRefreshToken({ uid: userRecord.uid });
-
-    logger.info('Usuário registrado com sucesso via email', {
-      service: 'authService',
-      method: 'registerWithEmail',
-      userId: userRecord.uid
-    });
-
-    return {
-      message: 'Conta criada com sucesso. Por favor, verifique seu email.',
-      accessToken,
-      refreshToken,
-      user: {
-        uid: userRecord.uid,
-        email: userRecord.email,
-        displayName: userRecord.displayName
-      }
-    };
+    await batch.commit();
+    console.log(`Perfil criado com sucesso para o usuário: ${userRecord.email}`);
   } catch (error) {
-    logger.error('Erro no registro com email', {
-      service: 'authService',
-      method: 'registerWithEmail',
-      error: error.message
-    });
-    throw error;
+    console.error(`Erro ao criar perfil para o usuário: ${userRecord.email}`, error);
+    throw new Error(`Erro ao criar perfil para o usuário: ${error.message}`);
   }
+};
+
+
+const registerWithEmail = async (userData, email, password, inviteId) => {
+  // const auth = getAuth();
+  // const inviteRef = await validateInvite(inviteId);
+  // const userRecord = await auth.createUser({ email, password });
+  // await sendEmailVerification(userRecord.uid);
+  const user = await User.create(userData);
+  await invalidateInvite(inviteId, email);
+
+  // const accessToken = generateToken({ uid: userData.uid });
+  // const refreshToken = generateRefreshToken({ uid: userData.uid });
+  return { message: 'Conta criada com sucesso', user };
 };
 
 const signInWithEmail = async (email, password) => {
+  const auth = getAuth();
   const userRecord = await auth.getUserByEmail(email);
   const accessToken = await auth.createCustomToken(userRecord.uid);
 
@@ -208,7 +192,7 @@ const signInWithEmail = async (email, password) => {
     throw new Error('Por favor, verifique seu e-mail.');
   }
 
-  await ensureUserProfileExists(userRecord);
+  await User.create(userRecord);
 
   const refreshToken = generateRefreshToken({ uid: userRecord.uid });
   return { message: 'Login bem-sucedido', accessToken, refreshToken };
@@ -219,82 +203,48 @@ const logout = async (idToken) => {
   return { message: 'Logout successful and token blacklisted' };
 };
 
-const signInWithProvider = async (idToken, provider) => {
-  try {
-    let credential;
-    switch (provider) {
-      case 'google':
-        credential = GoogleAuthProvider.credential(idToken);
-        break;
-      case 'facebook':
-        credential = FacebookAuthProvider.credential(idToken);
-        break;
-      case 'microsoft':
-        credential = OAuthProvider.credential('microsoft.com', idToken);
-        break;
-      default:
-        throw new Error('Provider não suportado');
-    }
+const signInWithProvider = async (firebaseToken) => {
+  const auth = getAuth();
+  const decodedToken = await auth.verifyIdToken(firebaseToken);
+  const userRecord = await auth.getUser(decodedToken.uid);
 
-    const userCredential = await signInWithCredential(auth, credential);
-    const user = userCredential.user;
+  // if (!userRecord.emailVerified) {
+  //   throw new Error('Please verify your email first');
+  // }
 
-    if (!user.emailVerified) {
-      throw new Error('Por favor, verifique seu e-mail.');
-    }
+  // await createUserProfile(userRecord);
+  
+  // const accessToken = generateToken({ uid: userRecord.uid });
+  // const refreshToken = generateRefreshToken({ uid: userRecord.uid });
 
-    await ensureUserProfileExists(user);
-    const accessToken = generateToken({ uid: user.uid });
-    const refreshToken = generateRefreshToken({ uid: user.uid });
-
-    return { 
-      message: 'Login com provedor bem-sucedido', 
-      accessToken, 
-      refreshToken, 
-      user: {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL
-      }
-    };
-  } catch (error) {
-    logger.error('Erro no login com provedor', {
-      service: 'authService',
-      method: 'signInWithProvider',
-      provider,
-      error: error.message
-    });
-    throw error;
-  }
+  return {
+    // accessToken,
+    // refreshToken,
+    success: true,
+    user: userRecord
+  };
 };
 
-const registerWithProvider = async (providerData, inviteId) => {
-  try {
-    const { provider, token } = providerData;
-    
-    const inviteRef = await validateInvite(inviteId);
-    
-    let credential;
-    switch (provider) {
-      case 'google':
-        credential = GoogleAuthProvider.credential(token);
-        break;
-      case 'facebook':
-        credential = FacebookAuthProvider.credential(token);
-        break;
-      case 'microsoft':
-        credential = OAuthProvider.credential('microsoft.com', token);
-        break;
-      default:
-        throw new Error('Provider não suportado');
-    }
+const registerWithProvider = async (userData, inviteId) => {
 
-    const userCredential = await signInWithCredential(auth, credential);
-    const user = userCredential.user;
+  if (inviteId) {
+    await validateInvite(inviteId, decodedToken.email);
+    await invalidateInvite(inviteId, decodedToken.uid);
+  }
 
-    await ensureUserProfileExists(user);
-    await invalidateInvite(inviteId, user.email);
+  // let providerToUse;
+
+  // if (provider === 'google') {
+  //   providerToUse = new GoogleAuthProvider();
+  //   providerToUse.setCustomParameters({ prompt: 'select_account' });
+  // } else if (provider === 'microsoft') {
+  //   providerToUse = new OAuthProvider('microsoft.com');
+  //   providerToUse.setCustomParameters({ prompt: 'select_account' });
+  // }
+
+  const userCredential = await signInWithPopup(auth, providerToUse);
+  await User.create(userCredential);
+  await invalidateInvite(inviteId, userCredential.user.email);
 
     const accessToken = generateToken({ uid: user.uid });
     const refreshToken = generateRefreshToken({ uid: user.uid });
@@ -328,6 +278,7 @@ const registerWithProvider = async (providerData, inviteId) => {
 };
 
 const resendVerificationEmail = async () => {
+  const auth = getAuth();
   if (auth.currentUser) {
     await sendEmailVerification(auth.currentUser);
     return { message: 'E-mail de verificação reenviado.' };
@@ -336,162 +287,19 @@ const resendVerificationEmail = async () => {
 };
 
 const getCurrentUser = async (userId) => {
-  try {
-    // Utilize o método estático `getById` do modelo `User` para buscar os dados
-    const userProfile = await User.getById(userId);
+  const userProfile = await User.getById(userId);
 
-    // Crie o objeto com os dados que serão retornados
-    const userData = userProfile.toPlainObject();
-
-    logger.info('Dados do usuário recuperados com sucesso no getCurrentUser', {
-      service: 'authService',
-      function: 'getCurrentUser',
-      userId,
-    });
-
-    return userData;
-  } catch (error) {
-    logger.error(`Erro ao buscar dados do usuário no getCurrentUser: ${error.message}`, {
-      service: 'authService',
-      function: 'getCurrentUser',
-      userId,
-    });
-    throw new Error(`Erro ao buscar dados do usuário: ${error.message}`);
-  }
-};
-
-/**
- * Handles the authentication callback after Firebase Authentication
- * @param {string} idToken - The Firebase ID token to verify
- * @returns {Promise<Object>} Authentication result with user data and tokens
- */
-const handleAuthCallback = async (idToken) => {
-  logger.info('Processing Firebase authentication', {
-    service: 'authService',
-    function: 'handleAuthCallback'
-  });
-
-  try {
-    // Verify the Firebase ID token
-    const auth = getAuth();
-    const decodedToken = await auth.verifyIdToken(idToken);
-
-    // Get the user from Firebase Auth
-    const firebaseUser = await auth.getUser(decodedToken.uid);
-
-    // Prepare user data for Firestore
-    const userData = {
-      uid: firebaseUser.uid,
-      nome: firebaseUser.displayName,
-      email: firebaseUser.email,
-      fotoDoPerfil: firebaseUser.photoURL,
-      email_verified: firebaseUser.emailVerified,
-      dataCriacao: firebaseUser.metadata.creationTime 
-        ? new Date(firebaseUser.metadata.creationTime) 
-        : new Date()
-    };
-
-    // Create or update user in Firestore
-    await User.update(firebaseUser.uid, userData);
-
-    // Generate custom token for session management
-    const customToken = await auth.createCustomToken(firebaseUser.uid);
-
-    return {
-      success: true,
-      tokens: {
-        accessToken: customToken
-      },
-      user: userData
-    };
-
-  } catch (error) {
-    logger.error('Error processing authentication', {
-      service: 'authService',
-      function: 'handleAuthCallback',
-      error: error.message
-    });
-    throw error;
-  }
-};
-
-/**
- * Validates the user's session token
- * @param {string} token - The session token to validate
- * @returns {Promise<Object>} Decoded token data
- */
-const validateSession = async (token) => {
-  try {
-    const auth = getAuth();
-    const decodedToken = await auth.verifyIdToken(token);
-    return decodedToken;
-  } catch (error) {
-    logger.error('Session validation failed', {
-      service: 'authService',
-      function: 'validateSession',
-      error: error.message
-    });
-    throw error;
-  }
-};
-
-const exchangeCodeForTokens = async (code) => {
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      code,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-      grant_type: 'authorization_code'
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to exchange authorization code');
-  }
-
-  return response.json();
-};
-
-const fetchUserInfo = async (accessToken) => {
-  const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch user information');
-  }
-
-  return response.json();
-};
-
-const generateApplicationTokens = async (userId) => {
-  const accessToken = jwt.sign(
-    { uid: userId },
-    process.env.JWT_SECRET,
-    { expiresIn: '1h' }
-  );
-
-  const refreshToken = jwt.sign(
-    { uid: userId },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  return { accessToken, refreshToken };
+  const userData = {
+    ...userProfile
+  };
+  return userData;
 };
 
 module.exports = {
-  verifyIdToken,
-  initiateAuth,
-  ensureUserProfileExists,
-  facebookLogin,
+  generateToken,
+  generateRefreshToken,
+  verifyAndGenerateNewToken,
+  createUserProfile,
   registerWithEmail,
   signInWithEmail,
   logout,

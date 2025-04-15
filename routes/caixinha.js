@@ -2,38 +2,24 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth');
 const validate  = require('../middlewares/validate');
-const rateLimiterMiddleware = require('../middlewares/rateLimiter');
+const {readLimit, writeLimit} = require('../middlewares/rateLimiter');
 const caixinhaSchema = require('../schemas/caixinhaSchema');
 const caixinhaController = require('../controllers/caixinhaController');
 const { logger } = require('../logger');
+const { healthCheck } = require('../middlewares/healthMiddleware');
 
-// Lista de origens permitidas para CORS
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
-
-// Middleware para CORS
-router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
+const ROUTE_NAME = 'caixinha'
+// Aplicar middleware de health check a todas as rotas de interests
+router.use(healthCheck(ROUTE_NAME));
 
 // Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  logger.info('Requisição recebida em rota de caixinha', {
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
     path: req.path,
     method: req.method,
     userId: req.user?.uid,
     params: req.params,
+    body: req.body,
     query: req.query,
   });
   next();
@@ -70,7 +56,7 @@ router.use((req, res, next) => {
  */
 router.get('/:userId', 
   verifyToken, 
-  rateLimiterMiddleware.rateLimiter, 
+  readLimit, 
   caixinhaController.getCaixinhas
 );
 
@@ -103,7 +89,7 @@ router.get('/:userId',
 router.post('/', 
   verifyToken, 
   validate(caixinhaSchema.create), 
-  rateLimiterMiddleware.rateLimiter, 
+  writeLimit, 
   caixinhaController.createCaixinha);
 
 /**
@@ -135,7 +121,7 @@ router.post('/',
  */
 router.get('/:caixinhaId', 
   verifyToken, 
-  rateLimiterMiddleware.rateLimiter, 
+  readLimit, 
   caixinhaController.getCaixinhaById);
 
 /**
@@ -175,7 +161,7 @@ router.put('/:caixinhaId',
   verifyToken, 
   // verifyRole(['admin']), 
   validate(caixinhaSchema.update), 
-  rateLimiterMiddleware.rateLimiter, 
+  writeLimit, 
   caixinhaController.updateCaixinha);
 
 /**
@@ -204,7 +190,7 @@ router.put('/:caixinhaId',
 router.delete('/:caixinhaId', 
   verifyToken, 
   // verifyRole(['admin']), 
-  rateLimiterMiddleware.rateLimiter, 
+  writeLimit, 
   caixinhaController.deleteCaixinha);
 
 /**
@@ -253,7 +239,7 @@ router.post('/:caixinhaId/membros',
   verifyToken, 
   // verifyRole(['admin']), 
   validate(caixinhaSchema.membro), 
-  rateLimiterMiddleware.rateLimiter, 
+  writeLimit, 
   caixinhaController.gerenciarMembros);
 
 module.exports = router;

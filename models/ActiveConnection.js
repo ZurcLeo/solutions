@@ -1,19 +1,50 @@
 const {getFirestore} = require('../firebaseAdmin');
 const { logger } = require('../logger');
+const {getFirestore} = require('../firebaseAdmin');
+const { logger } = require('../logger');
 
 class ActiveConnection {
   constructor(data) {
     this.id = data.id || null;
-    this.interessesPessoais = data.interessesPessoais || [];
     this.nome = data.nome || 'Desconhecido';
     this.fotoDoPerfil = data.fotoDoPerfil || '';
-    this.interessesNegocios = data.interessesNegocios || [];
+    this.interesses = data.interesses|| {};
     this.email = data.email || '';
-    this.status = data.status || 'indefinido';
-    this.dataDoAceite = data.dataDoAceite 
-      ? new Date(data.dataDoAceite.seconds * 1000) 
-      : null;
+    this.status = data.status || 'active';
+    this.dataDoAceite = this.formatDate(data.dataDoAceite);
   }  
+
+  formatDate(dateInput) {
+    if (!dateInput) return null;
+    
+    try {
+        // Se for um timestamp do Firestore
+        if (dateInput._seconds || dateInput.seconds) {
+            const seconds = dateInput._seconds || dateInput.seconds;
+            return new Date(seconds * 1000);
+        }
+        
+        // Se for um timestamp comum (número)
+        if (typeof dateInput === 'number') {
+            return new Date(dateInput);
+        }
+        
+        // Se for uma string de data
+        if (typeof dateInput === 'string') {
+            return new Date(dateInput);
+        }
+        
+        // Se já for um objeto Date
+        if (dateInput instanceof Date) {
+            return dateInput;
+        }
+        
+        return null;
+    } catch (error) {
+        console.error("Erro ao formatar data:", error);
+        return null;
+    }
+}
 
   static async findOne(conditions) {
     const db = getFirestore();
@@ -52,7 +83,6 @@ class ActiveConnection {
     }
   }
 
-  // Additional helper method to check if connection exists
   static async exists(userId, friendId) {
     try {
       // Check in user document's friends array
@@ -102,8 +132,13 @@ class ActiveConnection {
           logger.error(`Friend document not found: ${friendId}`);
           continue;
         }
+        if (!friendDoc.exists) {
+          logger.error(`Friend document not found: ${friendId}`);
+          continue;
+        }
         const friendData = friendDoc.data();
         const connection = new ActiveConnection(friendData);
+        connections[friendId] = connection; // Adicionar esta linha
         friends.push(connection);
       }
     }
@@ -121,9 +156,96 @@ class ActiveConnection {
     return { friends, bestFriends };
   }
 
-  static async getById(id) {
+  static async addBestFriend(userId, friendId) {
     const db = getFirestore();
-    const doc = await db.collection('ativas').doc(id).get();
+    const userRef = db.collection('usuario').doc(userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      logger.error('User not found', { service: 'ActiveConnectionService', method: 'addBestFriend', userId });
+      throw new Error('Usuário não encontrado.');
+    }
+
+    const userData = userSnap.data();
+    const friends = userData.amigos || [];
+    const bestFriends = userData.amigosAutorizados || [];
+
+    // 1. Confirmar que o amigo está registrado como uma conexão ativa
+    const activeConnectionSnapshot = await db
+      .collection('conexoes')
+      .doc(userId)
+      .collection('ativas')
+      .where('userId', '==', friendId)
+      .limit(1)
+      .get();
+
+    if (activeConnectionSnapshot.empty) {
+      logger.warn('Friend is not an active connection', { service: 'ActiveConnectionService', method: 'addBestFriend', userId, friendId });
+      throw new Error('Este amigo não é uma conexão ativa.');
+    }
+
+    // 2. Confirmar que o amigo está na lista de amigos do usuário
+    if (!friends.includes(friendId)) {
+      logger.warn('Friend is not in the user\'s friend list', { service: 'ActiveConnectionService', method: 'addBestFriend', userId, friendId });
+      throw new Error('Este amigo não está na sua lista de amigos.');
+    }
+
+    if (!bestFriends.includes(friendId)) {
+      // Adicionar o amigo aos melhores amigos se ainda não for
+      await userRef.update({ amigosAutorizados: [...bestFriends, friendId] });
+      return 'Melhor amigo adicionado com sucesso.';
+    } else {
+      return 'Este amigo já é um melhor amigo.';
+    }
+  }
+
+  static async removeBestFriend(userId, friendId) {
+    const db = getFirestore();
+    const userRef = db.collection('usuario').doc(userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      logger.error('User not found', { service: 'ActiveConnectionService', method: 'removeBestFriend', userId });
+      throw new Error('Usuário não encontrado.');
+    }
+
+    const userData = userSnap.data();
+    const friends = userData.amigos || [];
+    const bestFriends = userData.amigosAutorizados || [];
+
+    // 1. Confirmar que o amigo está registrado como uma conexão ativa
+    const activeConnectionSnapshot = await db
+      .collection('conexoes')
+      .doc(userId)
+      .collection('ativas')
+      .where('userId', '==', friendId)
+      .limit(1)
+      .get();
+
+    if (activeConnectionSnapshot.empty) {
+      logger.warn('Friend is not an active connection', { service: 'ActiveConnectionService', method: 'removeBestFriend', userId, friendId });
+      throw new Error('Este amigo não é uma conexão ativa.');
+    }
+
+    // 2. Confirmar que o amigo está na lista de amigos do usuário
+    if (!friends.includes(friendId)) {
+      logger.warn('Friend is not in the user\'s friend list', { service: 'ActiveConnectionService', method: 'removeBestFriend', userId, friendId });
+      throw new Error('Este amigo não está na sua lista de amigos.');
+    }
+
+    if (bestFriends.includes(friendId)) {
+      // Remover o amigo dos melhores amigos se já for
+      const updatedBestFriends = bestFriends.filter(id => id !== friendId);
+      await userRef.update({ amigosAutorizados: updatedBestFriends });
+      return 'Melhor amigo removido com sucesso.';
+    } else {
+      return 'Este amigo já não é um melhor amigo.';
+    }
+  }
+
+  static async getById(userId) {
+    const db = getFirestore();
+    const doc = await db.collection('ativas').doc(userId).get();
     if (!doc.exists) {
       throw new Error('Conexão ativa não encontrada.');
     }

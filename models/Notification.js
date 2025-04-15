@@ -47,21 +47,24 @@ class Notification {
     }));
   }
 
-  static async markAsRead(userId, notificationId) {
-    const db = getFirestore(); // Garante a inicialização do Firestore
-    const notificationRef = db.collection('notificacoes')
-      .doc(userId)
-      .collection('notifications')
-      .doc(notificationId);
+static async markAsRead(userId, notificationId) {
+  const db = getFirestore();
+  const notificationRef = db.collection('notificacoes')
+    .doc(userId)
+    .collection('notifications')
+    .doc(notificationId);
 
-    const doc = await notificationRef.get();
+  const doc = await notificationRef.get();
 
-    if (!doc.exists) {
-      throw new Error(`Notification not found: ${notificationId}`);
-    }
-
-    await notificationRef.update({ read: true, readAt: new Date() });
+  if (!doc.exists) {
+    throw new Error(`Notification not found: ${notificationId}`);
   }
+
+  await notificationRef.update({ lida: true, lidaEm: new Date() });
+  
+  // Retornar o documento atualizado se necessário
+  return { success: true, message: 'Notification marked as read' };
+}
 }
 
 module.exports = Notification;

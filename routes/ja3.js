@@ -1,38 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const { calculateJA3 } = require('../controllers/ja3Controller');
+const { writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger')
+const { healthCheck } = require('../middlewares/healthMiddleware');
 
-// Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const ROUTE_NAME = 'ja3'
+// Aplicar middleware de health check a todas as rotas de interests
+router.use(healthCheck(ROUTE_NAME));
 
-// Middleware to add CORS headers for all requests
+// Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
-
-// Middleware para logar todas as requisições
-router.use((req, res, next) => {
-  logger.info('Requisição recebida', {
-    service: 'api',
-    function: req.originalUrl,
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
+    path: req.path,
     method: req.method,
-    url: req.originalUrl,
-    headers: req.headers,
-    body: req.body
+    userId: req.user?.uid,
+    params: req.params,
+    body: req.body,
+    query: req.query,
   });
   next();
 });
@@ -78,6 +63,6 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.post('/calculate', calculateJA3);
+router.post('/calculate', writeLimit, calculateJA3);
 
 module.exports = router;

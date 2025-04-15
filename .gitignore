@@ -5,6 +5,7 @@ node_modules/
 logs
 *.log
 npm-debug.log*
+*.doc
 
 # Runtime data
 pids
@@ -75,4 +76,7 @@ projectStructure.js
 exportsFirestore.js
 firebaseAdmin.js
 generateUrl.js
-geradorJWT.js
+# .gitignore
+certificates/
+*.crt
+*.key

@@ -3,38 +3,22 @@ const express = require('express');
 const router = express.Router();
 const { addTokenToBlacklist, checkTokenBlacklist } = require('../controllers/blacklistController');
 const verifyToken = require('../middlewares/auth');
+const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger')
 
-// Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const ROUTE_NAME = 'blacklist'
+// Aplicar middleware de health check a todas as rotas de interests
+router.use(healthCheck(ROUTE_NAME));
 
-// Middleware para adicionar cabeçalhos CORS para todas as requisições
+// Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  // Lida com requisições OPTIONS (preflight)
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
-
-// Middleware para logar todas as requisições
-router.use((req, res, next) => {
-  logger.info('Requisição recebida', {
-    service: 'api',
-    function: req.originalUrl,
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
+    path: req.path,
     method: req.method,
-    url: req.originalUrl,
-    headers: req.headers,
-    body: req.body
+    userId: req.user?.uid,
+    params: req.params,
+    body: req.body,
+    query: req.query,
   });
   next();
 });
@@ -84,8 +68,7 @@ router.use((req, res, next) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-
-router.post('/blacklist', verifyToken, addTokenToBlacklist);
+router.post('/blacklist', verifyToken, writeLimit, addTokenToBlacklist);
 
 /**
  * @swagger
@@ -129,6 +112,6 @@ router.post('/blacklist', verifyToken, addTokenToBlacklist);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get('/blacklist/:token', verifyToken, checkTokenBlacklist);
+router.get('/blacklist/:token', verifyToken, readLimit, checkTokenBlacklist);
 
 module.exports = router;
