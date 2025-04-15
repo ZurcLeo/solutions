@@ -21,8 +21,7 @@ const notificationService = {
       logger.info('Notificações obtidas com sucesso', {
         service: 'notificationService',
         function: 'getUserNotifications',
-        userId,
-        data
+        userId
       });
       return { success: true, data };
     } catch (error) {
@@ -42,32 +41,23 @@ const notificationService = {
    * @param {string} type - The type of the notification.
    * @returns {Promise<Object>} - The updated notification data.
    */
-  markAsRead: async (userId, notificationId, type) => {
+  markAsRead: async (userId, notificationId) => {
     logger.info('Marcando notificação como lida', {
       service: 'notificationService',
       function: 'markAsRead',
       userId,
-      notificationId,
-      type
+      notificationId
     });
-
+  
     try {
-      const notificationRef = Notification.markAsRead(userId, notificationId, type);
-      const doc = await notificationRef.get();
-      console.log(doc)
-
-      if (!doc.exists) {
-        throw new Error(`No document to update: ${notificationId}`);
-      }
-
-      await notificationRef.update({ lida: true, lidaEm: FieldValue.serverTimestamp() });
+      const result = await Notification.markAsRead(userId, notificationId);
       logger.info('Notificação marcada como lida com sucesso', {
         service: 'notificationService',
         function: 'markAsRead',
         userId,
         notificationId
       });
-      return { success: true, message: 'Notification marked as read' };
+      return result;
     } catch (error) {
       logger.error(`Error marking notification as read: ${error.message}`, {
         service: 'notificationService',
@@ -86,6 +76,7 @@ const notificationService = {
    * @returns {Promise<Object>} - The created notification data.
    */
   createNotification: async (userId, notificationData) => {
+    
     logger.info('Criando nova notificação', {
       service: 'notificationService',
       function: 'createNotification',
@@ -94,7 +85,12 @@ const notificationService = {
     });
 
     try {
-      const notificationRef = Notification.createNotificationRef(userId);
+
+      const type = notificationData.type;
+      const content = notificationData.content;
+      const url = notificationData.url;
+
+      const notificationRef = Notification.create(userId, type, content, url);
       await notificationRef.set({
         ...notificationData,
         createdAt: FieldValue.serverTimestamp(),

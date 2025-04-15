@@ -1,440 +1,497 @@
-const admin = require('firebase-admin');
-const Caixinha = require('../models/Caixinhas');
-const Contribuicao = require('../models/Contribuicao');
-const Emprestimo = require('../models/Emprestimos');
-const AtividadeBonus = require('../models/AtividadesBonus');
-const Membro = require('../models/Membro');
-const Transacao = require('../models/Transacao');
+// src/controllers/caixinhaController.js
+const { logger } = require('../logger');
+const CaixinhaService = require('../services/caixinhaService');
+const ContribuicaoService = require('../services/contribuicaoService');
+const MembrosService = require('../services/membrosService');
+const TransactionService = require('../services/transactionService');
 
-// Contribuicoes
-exports.getContribuicaoById = async (req, res) => {
-    const { id, contribuicaoId } = req.params;
-    try {
-        const contribuicao = await Contribuicao.getById(id, contribuicaoId);
-        res.status(200).json(contribuicao);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar contribuição', error: error.message });
-    }
-};
+/**
+ * Busca todas as caixinhas para o usuário atual
+ */
 
-exports.updateContribuicao = async (req, res) => {
-    const { id, contribuicaoId } = req.params;
-    try {
-        const contribuicao = await Contribuicao.update(id, contribuicaoId, req.body);
-        res.status(200).json(contribuicao);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao atualizar contribuição', error: error.message });
-    }
-};
+const getCaixinhas = async (req, res) => {
 
-exports.deleteContribuicao = async (req, res) => {
-    const { id, contribuicaoId } = req.params;
-    try {
-        await Contribuicao.delete(id, contribuicaoId);
-        res.status(200).json({ message: 'Contribuição deletada com sucesso' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao deletar contribuição', error: error.message });
-    }
-};
-
-// Emprestimos
-exports.getEmprestimos = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const emprestimos = await Emprestimo.getAll(id);
-        res.status(200).json(emprestimos);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar empréstimos', error: error.message });
-    }
-};
-
-exports.getEmprestimoById = async (req, res) => {
-    const { id, emprestimoId } = req.params;
-    try {
-        const emprestimo = await Emprestimo.getById(id, emprestimoId);
-        res.status(200).json(emprestimo);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar empréstimo', error: error.message });
-    }
-};
-
-exports.updateEmprestimo = async (req, res) => {
-    const { id, emprestimoId } = req.params;
-    try {
-        const emprestimo = await Emprestimo.update(id, emprestimoId, req.body);
-        res.status(200).json(emprestimo);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao atualizar empréstimo', error: error.message });
-    }
-};
-
-exports.deleteEmprestimo = async (req, res) => {
-    const { id, emprestimoId } = req.params;
-    try {
-        await Emprestimo.delete(id, emprestimoId);
-        res.status(200).json({ message: 'Empréstimo deletado com sucesso' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao deletar empréstimo', error: error.message });
-    }
-};
-
-// Atividades Bonus
-exports.getAtividadesBonus = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const atividadesBonus = await AtividadeBonus.getAll(id);
-        res.status(200).json(atividadesBonus);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar atividades bônus', error: error.message });
-    }
-};
-
-exports.getAtividadeBonusById = async (req, res) => {
-    const { id, atividadeId } = req.params;
-    try {
-        const atividadeBonus = await AtividadeBonus.getById(id, atividadeId);
-        res.status(200).json(atividadeBonus);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar atividade bônus', error: error.message });
-    }
-};
-
-exports.updateAtividadeBonus = async (req, res) => {
-    const { id, atividadeId } = req.params;
-    try {
-        const atividadeBonus = await AtividadeBonus.update(id, atividadeId, req.body);
-        res.status(200).json(atividadeBonus);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao atualizar atividade bônus', error: error.message });
-    }
-};
-
-exports.deleteAtividadeBonus = async (req, res) => {
-    const { id, atividadeId } = req.params;
-    try {
-        await AtividadeBonus.delete(id, atividadeId);
-        res.status(200).json({ message: 'Atividade bônus deletada com sucesso' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao deletar atividade bônus', error: error.message });
-    }
-};
-
-// Relatórios
-exports.getRelatorio = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const [contribuicoes, emprestimos, atividadesBonus] = await Promise.all([
-            Contribuicao.getAll(id),
-            Emprestimo.getAll(id),
-            AtividadeBonus.getAll(id)
-        ]);
-
-        const relatorio = {
-            contribuicoes,
-            emprestimos,
-            atividadesBonus
-        };
-
-        res.status(200).json(relatorio);
-    } catch (error) {
-        console.error('Erro ao gerar relatório:', error);
-        res.status(500).json({ message: 'Erro ao gerar relatório', error: error.message });
-    }
-};
-
-exports.getRelatorioContribuicoes = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const contribuicoes = await Contribuicao.getAll(id);
-        res.status(200).json(contribuicoes);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao gerar relatório de contribuições', error: error.message });
-    }
-};
-
-exports.getRelatorioEmprestimos = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const emprestimos = await Emprestimo.getAll(id);
-        res.status(200).json(emprestimos);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao gerar relatório de empréstimos', error: error.message });
-    }
-};
-
-exports.getRelatorioAtividadesBonus = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const atividadesBonus = await AtividadeBonus.getAll(id);
-        res.status(200).json(atividadesBonus);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao gerar relatório de atividades bônus', error: error.message });
-    }
-};
-
-// Membros
-exports.addMembro = async (req, res) => {
-    const { id } = req.params;
-    const { userId } = req.body;
-    try {
-        const membro = await Membro.add(id, userId);
-        res.status(200).json(membro);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao adicionar membro', error: error.message });
-    }
-};
-
-exports.getMembros = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const membros = await Membro.getAll(id);
-        res.status(200).json(membros);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar membros', error: error.message });
-    }
-};
-
-exports.getMembroById = async (req, res) => {
-    const { id, membroId } = req.params;
-    try {
-        const membro = await Membro.getById(id, membroId);
-        res.status(200).json(membro);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar membro', error: error.message });
-    }
-};
-
-exports.updateMembro = async (req, res) => {
-    const { id, membroId } = req.params;
-    try {
-        const membro = await Membro.update(id, membroId, req.body);
-        res.status(200).json(membro);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao atualizar membro', error: error.message });
-    }
-};
-
-exports.deleteMembro = async (req, res) => {
-    const { id, membroId } = req.params;
-    try {
-        await Membro.delete(id, membroId);
-        res.status(200).json({ message: 'Membro deletado com sucesso' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao deletar membro', error: error.message });
-    }
-};
-
-// Configurações
-exports.getConfiguracoes = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const caixinha = await Caixinha.getById(id);
-        res.status(200).json(caixinha.configuracoes);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar configurações', error: error.message });
-    }
-};
-
-exports.updateConfiguracoes = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const caixinha = await Caixinha.update(id, { configuracoes: req.body });
-        res.status(200).json(caixinha.configuracoes);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao atualizar configurações', error: error.message });
-    }
-};
-
-// Transações
-exports.getTransacoes = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const transacoes = await Transacao.getAll(id);
-        res.status(200).json(transacoes);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar transações', error: error.message });
-    }
-};
-
-exports.getTransacaoById = async (req, res) => {
-    const { id, transacaoId } = req.params;
-    try {
-        const transacao = await Transacao.getById(id, transacaoId);
-        res.status(200).json(transacao);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar transação', error: error.message });
-    }
-};
-
-// Função para obter todas as caixinhas
-exports.getCaixinhas = async (req, res) => {
-  try {
-    const snapshot = await admin.firestore().collection('caixinhas').get();
-    const caixinhas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.status(200).json(caixinhas);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao obter caixinhas', error: error.message });
-  }
-};
-
-// Função para obter uma caixinha por ID
-exports.getCaixinhaById = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const doc = await admin.firestore().collection('caixinhas').doc(id).get();
-    if (!doc.exists) {
-      return res.status(404).json({ message: 'Caixinha não encontrada' });
-    }
-    res.status(200).json({ id: doc.id, ...doc.data() });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao obter caixinha', error: error.message });
-  }
-};
-
-// Função para criar uma nova caixinha
-exports.createCaixinha = async (req, res) => {
-  const { nome, descricao, adminId, membros, contribuicaoMensal } = req.body;
-  try {
-    const docRef = await admin.firestore().collection('caixinhas').add({
-      nome,
-      descricao,
-      adminId,
-      membros,
-      contribuicaoMensal,
-      saldoTotal: 0,
-      dataCriacao: admin.firestore.FieldValue.serverTimestamp()
+  const {userId} = req.params;
+    // Log the start of the request
+    logger.info('Iniciando busca de caixinhas', {
+      controller: 'CaixinhaController',
+      method: 'getCaixinhas',
+      userId
     });
-    res.status(201).json({ id: docRef.id, message: 'Caixinha criada com sucesso' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao criar caixinha', error: error.message });
-  }
-};
-
-// Função para atualizar uma caixinha
-exports.updateCaixinha = async (req, res) => {
-  const { id } = req.params;
-  const data = req.body;
-  try {
-    const docRef = admin.firestore().collection('caixinhas').doc(id);
-    const doc = await docRef.get();
-    if (!doc.exists) {
-      return res.status(404).json({ message: 'Caixinha não encontrada' });
+  
+    try {
+      if (!req.user) {
+        logger.warn('Tentativa de acesso sem autenticação', {
+          controller: 'CaixinhaController',
+          method: 'getCaixinhas'
+        });
+        return res.status(401).json({
+          message: 'Usuário não autenticado'
+        });
+      }
+  
+      const caixinhas = await CaixinhaService.getAllCaixinhas(userId);
+      logger.info('Caixinhas recuperadas com sucesso', {
+        controller: 'CaixinhaController',
+        method: 'getCaixinhas',
+        userId: req.user.uid,
+        count: caixinhas.length
+      });
+  
+      return res.status(200).json({
+        success: true,
+        data: caixinhas
+      });
+    } catch (error) {
+      logger.error('Erro ao buscar caixinhas', {
+        controller: 'CaixinhaController',
+        method: 'getCaixinhas',
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.uid
+      });
+  
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao buscar caixinhas',
+        error: error.message
+      });
     }
-    await docRef.update(data);
-    res.status(200).json({ message: 'Caixinha atualizada com sucesso' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao atualizar caixinha', error: error.message });
   }
-};
+  
+  /**
+   * Gerencia empréstimos da caixinha
+   */
+ const gerenciarEmprestimos = async (req, res) => {
+    const { caixinhaId } = req.params;
+    const { acao, emprestimoId, dados } = req.body;
 
-// Função para deletar uma caixinha
-exports.deleteCaixinha = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const docRef = admin.firestore().collection('caixinhas').doc(id);
-    const doc = await docRef.get();
-    if (!doc.exists) {
-      return res.status(404).json({ message: 'Caixinha não encontrada' });
+    try {
+      logger.info('Gerenciando empréstimos', {
+        controller: 'CaixinhaController',
+        method: 'gerenciarEmprestimos',
+        caixinhaId,
+        acao,
+        emprestimoId,
+        userId: req.user.uid
+      });
+
+      let resultado;
+
+      switch (acao) {
+        case 'solicitar':
+          resultado = await TransactionService.solicitarEmprestimo(
+            caixinhaId,
+            {
+              ...dados,
+              usuarioId: req.user.uid
+            }
+          );
+          break;
+
+        case 'aprovar':
+          resultado = await TransactionService.processarEmprestimo(
+            caixinhaId,
+            emprestimoId,
+            true
+          );
+          break;
+
+        case 'rejeitar':
+          resultado = await TransactionService.processarEmprestimo(
+            caixinhaId,
+            emprestimoId,
+            false
+          );
+          break;
+
+        case 'pagar':
+          resultado = await TransactionService.registrarPagamentoEmprestimo(
+            caixinhaId,
+            emprestimoId,
+            dados.valor
+          );
+          break;
+
+        default:
+          throw new Error('Ação inválida');
+      }
+
+      res.status(200).json(resultado);
+    } catch (error) {
+      logger.error('Erro ao gerenciar empréstimos', {
+        controller: 'CaixinhaController',
+        method: 'gerenciarEmprestimos',
+        caixinhaId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao gerenciar empréstimos',
+        error: error.message
+      });
     }
-    await docRef.delete();
-    res.status(200).json({ message: 'Caixinha deletada com sucesso' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao deletar caixinha', error: error.message });
   }
-};
 
-// Função para adicionar uma contribuição
-exports.addContribuicao = async (req, res) => {
-  const { caixinhaId, userId, valor } = req.body;
-  try {
-    const contribRef = await admin.firestore().collection('contribuicoes').add({
-      caixinhaId,
-      userId,
-      valor,
-      dataContribuicao: admin.firestore.FieldValue.serverTimestamp()
-    });
+  /**
+   * Gera relatórios da caixinha
+   */
+ const gerarRelatorio = async (req, res) => {
+    const { caixinhaId } = req.params;
+    const { tipo, filtros } = req.query;
 
-    // Atualizar saldo da caixinha
-    const caixinhaRef = admin.firestore().collection('caixinhas').doc(caixinhaId);
-    const caixinhaDoc = await caixinhaRef.get();
-    if (caixinhaDoc.exists) {
-      const saldoAtual = caixinhaDoc.data().saldoTotal;
-      await caixinhaRef.update({ saldoTotal: saldoAtual + valor });
+    try {
+      logger.info('Gerando relatório', {
+        controller: 'CaixinhaController',
+        method: 'gerarRelatorio',
+        caixinhaId,
+        tipo,
+        filtros,
+        userId: req.user.uid
+      });
+
+      let relatorio;
+
+      switch (tipo) {
+        case 'geral':
+          relatorio = await CaixinhaService.getRelatorio(caixinhaId, filtros);
+          break;
+
+        case 'contribuicoes':
+          relatorio = await ContribuicaoService.gerarRelatorioContribuicoes(caixinhaId, filtros);
+          break;
+
+        case 'participacao':
+          relatorio = await MembrosService.gerarRelatorioParticipacao(caixinhaId, filtros);
+          break;
+
+        case 'transacoes':
+          relatorio = await TransactionService.gerarExtrato(caixinhaId, filtros);
+          break;
+
+        default:
+          throw new Error('Tipo de relatório inválido');
+      }
+
+      res.status(200).json(relatorio);
+    } catch (error) {
+      logger.error('Erro ao gerar relatório', {
+        controller: 'CaixinhaController',
+        method: 'gerarRelatorio',
+        caixinhaId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao gerar relatório',
+        error: error.message
+      });
     }
-
-    res.status(201).json({ id: contribRef.id, message: 'Contribuição adicionada com sucesso' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao adicionar contribuição', error: error.message });
   }
-};
 
-exports.getContribuicoes = async (req, res) => {
+  /**
+   * Verifica as configurações da caixinha
+   */
+ const verificarConfiguracoes = async (req, res) => {
+    const { caixinhaId } = req.params;
+
+    try {
+      logger.info('Verificando configurações', {
+        controller: 'CaixinhaController',
+        method: 'verificarConfiguracoes',
+        caixinhaId,
+        userId: req.user.uid
+      });
+
+      const configuracoes = await CaixinhaService.getConfiguracoes(caixinhaId);
+      
+      res.status(200).json(configuracoes);
+    } catch (error) {
+      logger.error('Erro ao verificar configurações', {
+        controller: 'CaixinhaController',
+        method: 'verificarConfiguracoes',
+        caixinhaId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao verificar configurações',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Busca uma caixinha específica por ID
+   */
+  const getCaixinhaById = async (req, res) => {
+    const { id } = req.params;
+  
+    if (!id || typeof id !== 'string' || !id.trim()) {
+      logger.warn('ID da caixinha ausente ou inválido', { controller: 'CaixinhaController', method: 'getCaixinhaById' });
+      return res.status(400).json({ message: 'ID da caixinha é obrigatório.' });
+    }
+  
+    try {
+      const caixinha = await CaixinhaService.getCaixinhaById(id);
+      if (!caixinha) {
+        return res.status(404).json({ message: 'Caixinha não encontrada' });
+      }
+  
+      res.status(200).json(caixinha);
+    } catch (error) {
+      logger.error('Erro ao buscar caixinha', { controller: 'CaixinhaController', method: 'getCaixinhaById', caixinhaId: id, error: error.message });
+      res.status(500).json({ message: 'Erro ao buscar caixinha', error: error.message });
+    }
+  };
+  
+
+  /**
+   * Cria uma nova caixinha
+   */
+ const createCaixinha = async (req, res) => {
+    try {
+      logger.info('Criando nova caixinha', {
+        controller: 'CaixinhaController',
+        method: 'createCaixinha',
+        userId: req.user.uid,
+        data: req.body
+      });
+
+      const caixinha = await CaixinhaService.createCaixinha({
+        ...req.body,
+        adminId: req.user.uid
+      });
+
+      res.status(201).json(caixinha);
+    } catch (error) {
+      logger.error('Erro ao criar caixinha', {
+        controller: 'CaixinhaController',
+        method: 'createCaixinha',
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao criar caixinha',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Atualiza uma caixinha existente
+   */
+ const updateCaixinha = async (req, res) => {
     const { id } = req.params;
 
     try {
-        // Verifica se a caixinha existe
-        const caixinhaRef = firestore.collection('caixinhas').doc(id);
-        const caixinhaDoc = await caixinhaRef.get();
+      logger.info('Atualizando caixinha', {
+        controller: 'CaixinhaController',
+        method: 'updateCaixinha',
+        caixinhaId: id,
+        userId: req.user.uid,
+        data: req.body
+      });
 
-        if (!caixinhaDoc.exists) {
-            return res.status(404).json({ message: 'Caixinha não encontrada' });
+      const caixinha = await CaixinhaService.updateCaixinha(id, req.body);
+      
+      res.status(200).json(caixinha);
+    } catch (error) {
+      logger.error('Erro ao atualizar caixinha', {
+        controller: 'CaixinhaController',
+        method: 'updateCaixinha',
+        caixinhaId: id,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao atualizar caixinha',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Remove uma caixinha
+   */
+ const deleteCaixinha = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      logger.info('Removendo caixinha', {
+        controller: 'CaixinhaController',
+        method: 'deleteCaixinha',
+        caixinhaId: id,
+        userId: req.user.uid
+      });
+
+      await CaixinhaService.deleteCaixinha(id);
+      
+      res.status(200).json({ message: 'Caixinha removida com sucesso' });
+    } catch (error) {
+      logger.error('Erro ao remover caixinha', {
+        controller: 'CaixinhaController',
+        method: 'deleteCaixinha',
+        caixinhaId: id,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao remover caixinha',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Registra uma nova contribuição
+   */
+ const addContribuicao = async (req, res) => {
+    const { caixinhaId } = req.params;
+
+    try {
+      logger.info('Registrando nova contribuição', {
+        controller: 'CaixinhaController',
+        method: 'addContribuicao',
+        caixinhaId,
+        userId: req.user.uid,
+        data: req.body
+      });
+
+      const contribuicao = await ContribuicaoService.registrarContribuicao(
+        caixinhaId,
+        {
+          ...req.body,
+          usuarioId: req.user.uid
         }
+      );
 
-        // Busca todas as contribuições relacionadas à caixinha
-        const contribuicoesRef = caixinhaRef.collection('contribuicoes');
-        const snapshot = await contribuicoesRef.get();
-
-        const contribuicoes = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
-
-        res.status(200).json(contribuicoes);
+      res.status(201).json(contribuicao);
     } catch (error) {
-        console.error('Erro ao buscar contribuições:', error);
-        res.status(500).json({ message: 'Erro ao buscar contribuições', error: error.message });
+      logger.error('Erro ao registrar contribuição', {
+        controller: 'CaixinhaController',
+        method: 'addContribuicao',
+        caixinhaId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao registrar contribuição',
+        error: error.message
+      });
     }
-};
-
-// Função para solicitar um empréstimo
-exports.solicitarEmprestimo = async (req, res) => {
-  const { caixinhaId, userId, valorSolicitado } = req.body;
-  try {
-    const emprestimoRef = await admin.firestore().collection('emprestimos').add({
-      caixinhaId,
-      userId,
-      valorSolicitado,
-      dataSolicitacao: admin.firestore.FieldValue.serverTimestamp(),
-      status: 'pendente',
-      votos: {}
-    });
-    res.status(201).json({ id: emprestimoRef.id, message: 'Empréstimo solicitado com sucesso' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao solicitar empréstimo', error: error.message });
   }
-};
 
-// Função para registrar uma atividade bônus
-exports.addAtividadeBonus = async (req, res) => {
-  const { caixinhaId, descricao, valorArrecadado } = req.body;
-  try {
-    const atividadeRef = await admin.firestore().collection('atividadesBonus').add({
-      caixinhaId,
-      descricao,
-      valorArrecadado,
-      dataAtividade: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // Atualizar saldo da caixinha
-    const caixinhaRef = admin.firestore().collection('caixinhas').doc(caixinhaId);
-    const caixinhaDoc = await caixinhaRef.get();
-    if (caixinhaDoc.exists) {
-      const saldoAtual = caixinhaDoc.data().saldoTotal;
-      await caixinhaRef.update({ saldoTotal: saldoAtual + valorArrecadado });
+  /**
+ * Gerencia membros da caixinha
+ */
+ const gerenciarMembros = async (req, res) => {
+    const { caixinhaId } = req.params; // ID da caixinha
+    const { acao, membroId, dados } = req.body; // Detalhes da ação, membro e dados adicionais
+  
+    try {
+      // Log inicial
+      logger.info('Gerenciando membros da caixinha', {
+        controller: 'CaixinhaController',
+        method: 'gerenciarMembros',
+        caixinhaId,
+        acao,
+        membroId,
+        userId: req.user?.uid // Verificação segura do UID do usuário
+      });
+  
+      let resultado;
+  
+      // Verificação da ação solicitada
+      switch (acao) {
+        case 'adicionar': // Adicionar membro
+          resultado = await MembrosService.adicionarMembro(caixinhaId, {
+            ...dados,
+            userId: membroId // Define o membro a ser adicionado
+          });
+          break;
+  
+        case 'atualizar': // Atualizar status do membro
+          resultado = await MembrosService.atualizarStatusMembro(
+            caixinhaId,
+            membroId,
+            dados?.novoStatus, // Novo status fornecido
+            dados?.motivo // Motivo da alteração
+          );
+          break;
+  
+        case 'remover': // Remover membro
+          resultado = await MembrosService.removerMembro(
+            caixinhaId,
+            membroId,
+            dados?.motivo // Motivo da remoção, se fornecido
+          );
+          break;
+  
+        case 'transferir': // Transferir administração
+          resultado = await MembrosService.transferirAdministracao(
+            caixinhaId,
+            membroId,
+            dados?.motivo // Motivo da transferência, se fornecido
+          );
+          break;
+  
+        default: // Ação inválida
+          throw new Error('Ação inválida'); // Lança erro para ações não reconhecidas
+      }
+  
+      // Log de sucesso e resposta para o cliente
+      logger.info('Membros gerenciados com sucesso', {
+        controller: 'CaixinhaController',
+        method: 'gerenciarMembros',
+        caixinhaId,
+        acao,
+        membroId,
+        resultado
+      });
+  
+      res.status(200).json({
+        success: true,
+        message: 'Ação executada com sucesso',
+        data: resultado
+      });
+    } catch (error) {
+      // Log de erro
+      logger.error('Erro ao gerenciar membros', {
+        controller: 'CaixinhaController',
+        method: 'gerenciarMembros',
+        caixinhaId,
+        acao,
+        membroId,
+        error: error.message,
+        stack: error.stack
+      });
+  
+      // Resposta de erro para o cliente
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao gerenciar membros',
+        error: error.message
+      });
     }
-
-    res.status(201).json({ id: atividadeRef.id, message: 'Atividade bônus registrada com sucesso' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao registrar atividade bônus', error: error.message });
   }
-};
+
+  module.exports = {
+    getCaixinhas,
+    gerenciarEmprestimos,
+    gerarRelatorio,
+    verificarConfiguracoes,
+    getCaixinhaById,
+    createCaixinha,
+    updateCaixinha,
+    deleteCaixinha,
+    addContribuicao,
+    gerenciarMembros
+  }

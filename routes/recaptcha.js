@@ -3,36 +3,19 @@ const router = express.Router();
 const recaptchaController = require('../controllers/recaptchaController');
 const { logger } = require('../logger')
 
-// Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const ROUTE_NAME = 'recaptcha'
+// Aplicar middleware de health check a todas as rotas de interests
+// router.use(healthCheck(ROUTE_NAME));
 
-// Middleware to add CORS headers for all requests
+// Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
-
-// Middleware para logar todas as requisições
-router.use((req, res, next) => {
-  logger.info('Requisição recebida', {
-    service: 'api',
-    function: req.originalUrl,
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
+    path: req.path,
     method: req.method,
-    url: req.originalUrl,
-    headers: req.headers,
-    body: req.body
+    userId: req.user?.uid,
+    params: req.params,
+    body: req.body,
+    query: req.query,
   });
   next();
 });

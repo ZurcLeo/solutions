@@ -5,38 +5,23 @@ const validate = require('../middlewares/validate');
 const notificationSchema = require('../schemas/notificationSchema');
 const notificationsController = require('../controllers/notificationsController');
 const verifyToken = require('../middlewares/auth');
+const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger');
+const { healthCheck } = require('../middlewares/healthMiddleware');
 
-// Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000', 'https://eloscloudapp-1cefc4b4944e.herokuapp.com'];
+const ROUTE_NAME = 'notifications'
+// Aplicar middleware de health check a todas as rotas de interests
+router.use(healthCheck(ROUTE_NAME));
 
-// Middleware to add CORS headers for all requests
+// Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
-
-// Middleware para logar todas as requisições
-router.use((req, res, next) => {
-  logger.info('Requisição recebida', {
-    service: 'api',
-    function: req.originalUrl,
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
+    path: req.path,
     method: req.method,
-    url: req.originalUrl,
-    headers: req.headers,
-    body: req.body
+    userId: req.user?.uid,
+    params: req.params,
+    body: req.body,
+    query: req.query,
   });
   next();
 });
@@ -75,7 +60,7 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.post('/', verifyToken, validate(notificationSchema), notificationsController.createNotification);
+router.post('/', verifyToken, writeLimit, validate(notificationSchema), notificationsController.createNotification);
 
 /**
  * @swagger
@@ -108,7 +93,7 @@ router.post('/', verifyToken, validate(notificationSchema), notificationsControl
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:userId', verifyToken, notificationsController.getUserNotifications);
+router.get('/:userId', verifyToken, readLimit, notificationsController.getUserNotifications);
 
 /**
  * @swagger
@@ -152,6 +137,6 @@ router.get('/:userId', verifyToken, notificationsController.getUserNotifications
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:userId/markAsRead', verifyToken, validate(notificationSchema), notificationsController.markNotificationAsRead);
+router.post('/:userId/markAsRead/:notificationId', verifyToken, writeLimit, validate(notificationSchema), notificationsController.markNotificationAsRead);
 
 module.exports = router;

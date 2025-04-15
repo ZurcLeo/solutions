@@ -1,5 +1,9 @@
 const admin = require('firebase-admin');
+const { getFirestore } = require('../firebaseAdmin')
 const { createHash } = require('crypto');
+
+
+const db = getFirestore();
 
 exports.calculateJA3 = async (req, res) => {
     if (req.method === 'OPTIONS') {
@@ -13,7 +17,7 @@ exports.calculateJA3 = async (req, res) => {
     try {
         const { version, cipherSuites, extensions, ellipticCurves, ellipticCurvePointFormats, userId } = req.body;
 
-        const userRef = admin.firestore().collection('usuario').doc(userId);
+        const userRef = db.collection('usuario').doc(userId);
         const userDoc = await userRef.get();
 
         if (userDoc.exists && userDoc.data().ja3Hash) {

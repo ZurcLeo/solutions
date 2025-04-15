@@ -1,4 +1,4 @@
-const { db } = require('../firebaseAdmin');
+const { getFirestore } = require('../firebaseAdmin');
 
 class Notification {
   constructor(userId, type, content, url, createdAt = new Date(), read = false) {
@@ -11,61 +11,60 @@ class Notification {
   }
 
   static async create(userId, type, content, url) {
+    const db = getFirestore(); // Garante a inicialização do Firestore
     const notificationData = {
       userId,
       type,
       content,
       url,
       createdAt: new Date(),
-      read: false
+      read: false,
     };
 
-    // Refere-se ao caminho correto no Firestore: db/notificacoes/${userId}/notifications/notificationId
     const notificationRef = db.collection('notificacoes')
       .doc(userId)
       .collection('notifications')
-      .doc(); // Cria um novo documento com um ID gerado automaticamente
+      .doc(); // Cria um novo documento com ID automático
+
     await notificationRef.set(notificationData);
 
     return new Notification(userId, type, content, url, notificationData.createdAt);
   }
 
   static async getByUserId(userId) {
+    const db = getFirestore(); // Garante a inicialização do Firestore
     const notificationsRef = db.collection('notificacoes')
       .doc(userId)
       .collection('notifications');
   
     const notificationsSnapshot = await notificationsRef
-      .orderBy('timestamp', 'desc')
+      .orderBy('createdAt', 'desc') // Corrigido para ordenar por 'createdAt'
       .get();
-  
-    console.log("Total de documentos recuperados: ", notificationsSnapshot.size);
-  
-    notificationsSnapshot.forEach(doc => {
-      console.log(doc.id, '=>', doc.data());
-    });
-  
+
     return notificationsSnapshot.docs.map(doc => ({
-      id: doc.id, // Inclui o ID da notificação para referência
-      ...doc.data()
+      id: doc.id,
+      ...doc.data(),
     }));
   }
 
-  static async markAsRead(userId, notificationId) {
-    // Refere-se ao caminho correto no Firestore: db/notificacoes/${userId}/notifications/notificationId
-    const notificationRef = db.collection('notificacoes')
-      .doc(userId)
-      .collection('notifications')
-      .doc(notificationId);
-      
-    const doc = await notificationRef.get();
-    
-    if (!doc.exists) {
-      throw new Error(`No document to update: ${notificationId}`);
-    }
+static async markAsRead(userId, notificationId) {
+  const db = getFirestore();
+  const notificationRef = db.collection('notificacoes')
+    .doc(userId)
+    .collection('notifications')
+    .doc(notificationId);
 
-    await notificationRef.update({ read: true, readAt: new Date() });
+  const doc = await notificationRef.get();
+
+  if (!doc.exists) {
+    throw new Error(`Notification not found: ${notificationId}`);
   }
+
+  await notificationRef.update({ lida: true, lidaEm: new Date() });
+  
+  // Retornar o documento atualizado se necessário
+  return { success: true, message: 'Notification marked as read' };
+}
 }
 
 module.exports = Notification;

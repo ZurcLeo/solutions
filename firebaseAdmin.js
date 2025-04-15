@@ -1,31 +1,108 @@
+require('dotenv').config();
 const admin = require('firebase-admin');
 const { logger } = require('./logger');
-require('dotenv').config();
 
-try {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+let firebaseApp = null;
+let db = null;
+let auth = null;
+let storage = null;
 
-logger.error('FIREBASE_CREDENTIALS:', serviceAccount)
+/**
+ * Inicializa o Firebase Admin apenas uma vez, se ainda não foi inicializado.
+ * Responsável apenas por inicializar o aplicativo Firebase.
+ */
+function initializeFirebaseApp() {
+  if (firebaseApp) {
+    return firebaseApp;
+  }
 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
-    apiKey: process.env.FIREBASE_API_KEY,
-    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.FIREBASE_APP_ID,
-    measurementId: process.env.FIREBASE_MEASUREMENT_ID
-  });
+  try {
+    const serviceAccountPath = process.env.FIREBASE_CREDENTIALS;
+    const serviceAccount = require(serviceAccountPath);
+    
+    firebaseApp = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      databaseURL: process.env.FIREBASE_DATABASE_URL,
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    });
 
-  const db = admin.firestore();
-  console.log('Firestore inicializado:', db);
-  const auth = admin.auth();
-  const storage = admin.storage().bucket();
+    logger.info('Firebase App inicializado com sucesso');
+  } catch (error) {
+    logger.error('Erro ao inicializar o Firebase App:', {
+      message: error.message,
+    });
+    throw error;
+  }
 
-  module.exports = { admin, db, auth, storage };
-
-} catch (error) {
-  console.error("Erro ao carregar credenciais do Firebase:", error);
+  return firebaseApp;
 }
+
+/**
+ * Obtém uma instância do Firestore, inicializando-o se necessário.
+ * Retorna uma instância única de Firestore.
+ */
+function getFirestore() {
+  if (!firebaseApp) {
+    initializeFirebaseApp();
+  }
+
+  if (!db) {
+    db = admin.firestore();
+    logger.info('Firestore inicializado com sucesso');
+  }
+
+  return db;
+}
+
+/**
+ * Obtém uma instância do Auth, inicializando-o se necessário.
+ * Retorna uma instância única de Auth.
+ */
+function getAuth() {
+  if (!firebaseApp) {
+    initializeFirebaseApp();
+  }
+
+  if (!auth) {
+    auth = admin.auth();
+    logger.info('Auth inicializado com sucesso');
+  }
+
+  return auth;
+}
+
+/**
+ * Obtém uma instância do Storage, inicializando-o se necessário.
+ * Retorna uma instância única de Storage.
+ */
+function getStorage() {
+  if (!firebaseApp) {
+    initializeFirebaseApp();
+  }
+
+  if (!storage) {
+    storage = admin.storage().bucket();
+    logger.info('Storage inicializado com sucesso');
+  }
+
+  return storage;
+}
+
+/**
+ * Retorna a instância do aplicativo Firebase, inicializando se necessário.
+ */
+function getApp() {
+  if (!firebaseApp) {
+    initializeFirebaseApp();
+  }
+  return firebaseApp;
+}
+
+module.exports = {
+  admin,
+  getApp,
+  getFirestore,
+  getAuth,
+  getStorage
+};

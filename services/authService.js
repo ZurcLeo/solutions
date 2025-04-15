@@ -1,24 +1,34 @@
-const { auth } = require('../firebaseAdmin');
+//eloscloudapp/services/authService.js
+const { getAuth, getFirestore } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { getFacebookUserData } = require('./facebookService');
+const Invite = require('../models/Invite');
+const { logger } = require('../logger')
 const { addToBlacklist, isTokenBlacklisted } = require('./blacklistService');
 const { validateInvite, invalidateInvite } = require('./inviteService');
 require('dotenv').config();
 
-const generateToken = (user) => {
-  // Gerar access token com tempo de expiração curto
-  return jwt.sign(
-    { id: user._id, email: user.email },
-    process.env.JWT_SECRET,
-    { expiresIn: '15m' }
-  );
+const db = getFirestore();
+
+const generateToken = (payload) => {
+  try {
+    logger.info('Payload para gerar token:', payload);
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+    logger.info('Tokens gerados:', { accessToken, refreshToken });
+    return { accessToken, refreshToken };
+  } catch (error) {
+    logger.error('Erro ao gerar token:', error);
+    return {}; // ou lançar o erro
+  }
 };
 
 const generateRefreshToken = (user) => {
-  // Gerar refresh token com um tempo de expiração maior
   return jwt.sign(
-    { id: user._id, email: user.email },
+    { 
+      uid: user.uid,
+      email: user.email 
+    },
     process.env.JWT_REFRESH_SECRET,
     { expiresIn: '7d' }
   );
@@ -29,89 +39,151 @@ const verifyAndGenerateNewToken = async (refreshToken) => {
     // Decodificar e verificar o refresh token
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
-    // Verifique se o refresh token foi revogado (blacklist)
+    // Verificar se o refresh token foi revogado (blacklist)
     const isBlacklisted = await isTokenBlacklisted(refreshToken);
     if (isBlacklisted) {
       throw new Error('Refresh token revogado.');
     }
 
-    // Buscar o usuário associado ao refresh token
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      throw new Error('Usuário não encontrado.');
-    }
+    // Em vez de buscar o usuário completo, usar os dados do token
+    // para gerar novos tokens. Isso reduz uma consulta ao banco de dados.
+    const userData = {
+      uid: decoded.uid,
+      // Outros dados necessários presentes no token
+    };
 
-    // Gerar novos tokens de acesso e refresh token
-    const newAccessToken = generateToken(user);
-    const newRefreshToken = generateRefreshToken(user);
+    // Gerar novos tokens de acesso e refresh
+    const accessToken = generateToken(userData);
+    const newRefreshToken = generateRefreshToken(userData);
 
-    return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+    return { 
+      accessToken, 
+      refreshToken: newRefreshToken,
+      userData // Incluir dados básicos do usuário para reduzir consultas
+    };
   } catch (error) {
     console.error('Erro ao verificar e renovar token:', error.message);
     throw new Error('Erro ao verificar e renovar token: ' + error.message);
   }
 };
 
-const ensureUserProfileExists = async (userRecord) => {
-  const userDocRef = auth.firestore().doc(`usuario/${userRecord.uid}`);
+/**
+ * Cria o perfil de um novo usuário e, se disponível, estabelece uma conexão com quem o convidou
+ * @param {Object} userRecord - Dados do usuário do Firebase
+ * @param {string} inviteId - ID do convite (opcional)
+ */
+const createUserProfile = async (userRecord, inviteId = null) => {
+  const auth = getAuth();
+  const userDocRef = db.doc(`usuario/${userRecord.uid}`);
   const docSnap = await userDocRef.get();
 
-  if (!docSnap.exists) {
-    const batch = auth.firestore().batch();
-    const email = userRecord.email;
-    const defaultName = email.substring(0, email.indexOf('@'));
+  if (docSnap.exists) {
+    return; // Usuário já existe, não fazer nada
+  }
 
-    batch.set(userDocRef, {
-      email: userRecord.email,
-      nome: userRecord.displayName || defaultName || 'ElosCloud.Cliente',
-      perfilPublico: false,
-      dataCriacao: auth.firestore.FieldValue.serverTimestamp(),
-      uid: userRecord.uid,
-      tipoDeConta: 'Cliente',
-      isOwnerOrAdmin: false,
-      fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-      amigos: [],
-      amigosAutorizados: [],
-      conversasComMensagensNaoLidas: [],
-    });
-
-    batch.set(auth.firestore().doc(`conexoes/${userRecord.uid}/solicitadas/${process.env.CLAUD_PROFILE}`), {
-      dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
-      nome: 'Claud Suporte',
-      uid: process.env.CLAUD_PROFILE,
-      status: 'pendente',
-      fotoDoPerfil: process.env.CLAUD_PROFILE_IMG,
-      descricao: 'Gostaria de conectar com você.',
-      amigos: [],
-    });
-
+  const batch = db.batch();
+  const email = userRecord.email;
+  const defaultName = email.substring(0, email.indexOf('@'));
+  
+  // Preparar dados básicos do usuário
+  const userData = {
+    email: userRecord.email,
+    nome: userRecord.displayName || defaultName || 'ElosCloud.Cliente',
+    perfilPublico: false,
+    dataCriacao: auth.firestore.FieldValue.serverTimestamp(),
+    uid: userRecord.uid,
+    tipoDeConta: 'Cliente',
+    interesses: {},
+    ja3hash: userRecord.ja3hash,
+    reacoes: [],
+    isOwnerOrAdmin: false,
+    descricao: '',
+    saldoElosCoins: 0,
+    fotoDoPerfil: process.env.DEFAULT_PROFILE_IMG,
+    amigos: [],
+    amigosAutorizados: [],
+    conversas: {},
+  };
+  
+  batch.set(userDocRef, userData);
+  
+  // Verificar se existe um convite e processar a conexão com o remetente
+  if (inviteId) {
     try {
-      await batch.commit();
+      // Buscar dados do convite
+      const { invite } = await Invite.getById(inviteId);
+      
+      if (invite && invite.status === 'used' && invite.senderId) {
+        // Criar referência de solicitação mútua entre o novo usuário e quem o convidou
+        
+        // 1. Solicitação ao novo usuário
+        batch.set(db.doc(`conexoes/${userRecord.uid}/recebidas/${invite.senderId}`), {
+          dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
+          nome: invite.senderName || 'Usuário que convidou',
+          uid: invite.senderId,
+          status: 'pendente',
+          fotoDoPerfil: invite.senderPhotoURL || process.env.DEFAULT_PROFILE_IMG,
+          descricao: 'Conecte-se com quem te convidou para a plataforma.',
+          amigos: [],
+          inviteId: inviteId  // Referência ao convite original
+        });
+        
+        // 2. Solicitação ao remetente do convite
+        batch.set(db.doc(`conexoes/${invite.senderId}/enviadas/${userRecord.uid}`), {
+          dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
+          nome: userRecord.displayName || defaultName,
+          uid: userRecord.uid,
+          status: 'pendente',
+          fotoDoPerfil: process.env.DEFAULT_PROFILE_IMG,
+          descricao: 'Usuário que você convidou criou uma conta.',
+          amigos: [],
+          inviteId: inviteId  // Referência ao convite original
+        });
+        
+        console.log(`Criadas solicitações de conexão entre ${userRecord.uid} e ${invite.senderId}`);
+      }
     } catch (error) {
-      throw new Error(`Erro ao criar perfil para o usuário: ${userRecord.email}`);
+      console.error(`Erro ao processar conexão do convite ${inviteId}:`, error);
+      // Continuar mesmo com erro na conexão
     }
+  }
+  
+  // Sempre adicionar o suporte como contato
+  batch.set(db.doc(`conexoes/${userRecord.uid}/recebidas/${process.env.SUPPORT_PROFILE_ID}`), {
+    dataSolicitacao: auth.firestore.FieldValue.serverTimestamp(),
+    nome: 'Suporte ElosCloud',
+    uid: process.env.SUPPORT_PROFILE_ID,
+    status: 'pendente',
+    fotoDoPerfil: process.env.SUPPORT_PROFILE_IMG,
+    descricao: 'Estamos aqui para ajudar. Conecte-se para receber suporte.',
+    amigos: [],
+  });
+  
+  try {
+    await batch.commit();
+    console.log(`Perfil criado com sucesso para o usuário: ${userRecord.email}`);
+  } catch (error) {
+    console.error(`Erro ao criar perfil para o usuário: ${userRecord.email}`, error);
+    throw new Error(`Erro ao criar perfil para o usuário: ${error.message}`);
   }
 };
 
-const facebookLogin = async (accessToken) => {
-  const userData = await getFacebookUserData(accessToken);
-  await ensureUserProfileExists(userData);
-  return userData;
-};
 
-const registerWithEmail = async (email, password, inviteCode) => {
-  const inviteRef = await validateInvite(inviteCode);
-  const userRecord = await auth.createUser({ email, password });
-  await sendEmailVerification(userRecord.uid);
-  await ensureUserProfileExists(userRecord);
-  await invalidateInvite(inviteCode, email);
+const registerWithEmail = async (userData, email, password, inviteId) => {
+  // const auth = getAuth();
+  // const inviteRef = await validateInvite(inviteId);
+  // const userRecord = await auth.createUser({ email, password });
+  // await sendEmailVerification(userRecord.uid);
+  const user = await User.create(userData);
+  await invalidateInvite(inviteId, email);
 
-  const accessToken = generateToken({ uid: userRecord.uid });
-  const refreshToken = generateRefreshToken({ uid: userRecord.uid });
-  return { message: 'Conta criada com sucesso', accessToken, refreshToken };
+  // const accessToken = generateToken({ uid: userData.uid });
+  // const refreshToken = generateRefreshToken({ uid: userData.uid });
+  return { message: 'Conta criada com sucesso', user };
 };
 
 const signInWithEmail = async (email, password) => {
+  const auth = getAuth();
   const userRecord = await auth.getUserByEmail(email);
   const accessToken = await auth.createCustomToken(userRecord.uid);
 
@@ -119,7 +191,7 @@ const signInWithEmail = async (email, password) => {
     throw new Error('Por favor, verifique seu e-mail.');
   }
 
-  await ensureUserProfileExists(userRecord);
+  await User.create(userRecord);
 
   const refreshToken = generateRefreshToken({ uid: userRecord.uid });
   return { message: 'Login bem-sucedido', accessToken, refreshToken };
@@ -130,36 +202,48 @@ const logout = async (idToken) => {
   return { message: 'Logout successful and token blacklisted' };
 };
 
-const signInWithProvider = async (idToken, provider) => {
-  const decodedToken = await auth.verifyIdToken(idToken);
-  const uid = decodedToken.uid;
-  const userRecord = await auth.getUser(uid);
+const signInWithProvider = async (firebaseToken) => {
+  const auth = getAuth();
+  const decodedToken = await auth.verifyIdToken(firebaseToken);
+  const userRecord = await auth.getUser(decodedToken.uid);
 
-  if (!userRecord.emailVerified) {
-    throw new Error('Por favor, verifique seu e-mail.');
-  }
+  // if (!userRecord.emailVerified) {
+  //   throw new Error('Please verify your email first');
+  // }
 
-  await ensureUserProfileExists(userRecord);
-  const accessToken = generateToken({ uid: userRecord.uid });
-  const refreshToken = generateRefreshToken({ uid: userRecord.uid });
-  return { message: 'Login com provedor bem-sucedido', accessToken, refreshToken, user: userRecord };
+  // await createUserProfile(userRecord);
+  
+  // const accessToken = generateToken({ uid: userRecord.uid });
+  // const refreshToken = generateRefreshToken({ uid: userRecord.uid });
+
+  return {
+    // accessToken,
+    // refreshToken,
+    success: true,
+    user: userRecord
+  };
 };
 
-const registerWithProvider = async (provider, inviteCode) => {
-  const inviteRef = await validateInvite(inviteCode);
-  let providerToUse;
+const registerWithProvider = async (userData, inviteId) => {
 
-  if (provider === 'google') {
-    providerToUse = new GoogleAuthProvider();
-    providerToUse.setCustomParameters({ prompt: 'select_account' });
-  } else if (provider === 'microsoft') {
-    providerToUse = new OAuthProvider('microsoft.com');
-    providerToUse.setCustomParameters({ prompt: 'select_account' });
+  if (inviteId) {
+    await validateInvite(inviteId, decodedToken.email);
+    await invalidateInvite(inviteId, decodedToken.uid);
   }
 
+  // let providerToUse;
+
+  // if (provider === 'google') {
+  //   providerToUse = new GoogleAuthProvider();
+  //   providerToUse.setCustomParameters({ prompt: 'select_account' });
+  // } else if (provider === 'microsoft') {
+  //   providerToUse = new OAuthProvider('microsoft.com');
+  //   providerToUse.setCustomParameters({ prompt: 'select_account' });
+  // }
+
   const userCredential = await signInWithPopup(auth, providerToUse);
-  await ensureUserProfileExists(userCredential);
-  await invalidateInvite(inviteCode, userCredential.user.email);
+  await User.create(userCredential);
+  await invalidateInvite(inviteId, userCredential.user.email);
 
   const accessToken = generateToken({ uid: userCredential.user.uid });
   const refreshToken = generateRefreshToken({ uid: userCredential.user.uid });
@@ -167,6 +251,7 @@ const registerWithProvider = async (provider, inviteCode) => {
 };
 
 const resendVerificationEmail = async () => {
+  const auth = getAuth();
   if (auth.currentUser) {
     await sendEmailVerification(auth.currentUser);
     return { message: 'E-mail de verificação reenviado.' };
@@ -175,17 +260,9 @@ const resendVerificationEmail = async () => {
 };
 
 const getCurrentUser = async (userId) => {
-  const userRecord = await auth.getUser(userId);
   const userProfile = await User.getById(userId);
 
   const userData = {
-    uid: userRecord.uid,
-    email: userRecord.email,
-    emailVerified: userRecord.emailVerified,
-    phoneNumber: userRecord.phoneNumber,
-    displayName: userRecord.displayName,
-    photoURL: userRecord.photoURL,
-    providerData: userRecord.providerData,
     ...userProfile
   };
   return userData;
@@ -195,8 +272,7 @@ module.exports = {
   generateToken,
   generateRefreshToken,
   verifyAndGenerateNewToken,
-  ensureUserProfileExists,
-  facebookLogin,
+  createUserProfile,
   registerWithEmail,
   signInWithEmail,
   logout,

@@ -1,4 +1,4 @@
-//routes/user.js
+//routes/users.js
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
@@ -7,54 +7,23 @@ const verifyToken = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
 const userSchema = require('../schemas/userSchema');
 const { upload, errorHandler } = require('../middlewares/upload.cjs');
+const { rateLimiter } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger');
+const { healthCheck } = require('../middlewares/healthMiddleware');
 
+const ROUTE_NAME = 'user'
+// Aplicar middleware de health check a todas as rotas de interests
+router.use(healthCheck(ROUTE_NAME));
 
-// Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
-
-const cleanRequestBody = (req, res, next) => {
-  if (req.body.providerData) {
-    delete req.body.providerData;
-  }
-  next();
-};
-
-const convertDataCriacao = (req, res, next) => {
-  if (req.body.dataCriacao && typeof req.body.dataCriacao === 'string') {
-    req.body.dataCriacao = new Date(req.body.dataCriacao);
-  }
-  next();
-};
-
-// Middleware to add CORS headers for all requests
+// Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
-
-// Middleware para logar todas as requisições
-router.use((req, res, next) => {
-  logger.info('Requisição recebida', {
-    service: 'api',
-    function: req.originalUrl,
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
+    path: req.path,
     method: req.method,
-    url: req.originalUrl,
+    userId: req.user?.uid,
     params: req.params,
-    headers: req.headers,
-    body: req.body
+    body: req.body,
+    query: req.query,
   });
   next();
 });
@@ -84,7 +53,34 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
-router.get('/', verifyToken, validate(userSchema), userController.getUsers);
+router.get('/', verifyToken, rateLimiter, userController.getUsers);
+
+/**
+ * @swagger
+ * /users/search:
+ *   get:
+ *     summary: Busca usuários pelo nome ou email
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Termo de busca
+ *       - in: query
+ *         name: excludeUserId
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: ID do usuário a ser excluído dos resultados
+ *     responses:
+ *       200:
+ *         description: Lista de usuários que correspondem à busca
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/search', verifyToken, rateLimiter, userController.searchUsers);
 
 /**
  * @swagger
@@ -113,7 +109,7 @@ router.get('/', verifyToken, validate(userSchema), userController.getUsers);
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:userId', verifyToken, validate(userSchema), userController.getUserById);
+router.get('/:userId', verifyToken, rateLimiter, validate(userSchema), userController.getUserById);
 
 /**
  * @swagger
@@ -139,7 +135,7 @@ router.get('/:userId', verifyToken, validate(userSchema), userController.getUser
  *       500:
  *         description: Erro no servidor
  */
-router.post('/add-user', verifyToken, cleanRequestBody, validate(userSchema), userController.addUser);
+router.post('/add-user', verifyToken, rateLimiter, validate(userSchema), userController.addUser);
 
 /**
  * @swagger
@@ -174,7 +170,7 @@ router.post('/add-user', verifyToken, cleanRequestBody, validate(userSchema), us
  *       500:
  *         description: Erro no servidor
  */
-router.put('/update-user/:userId', verifyToken, convertDataCriacao, cleanRequestBody, validate(userSchema), userController.updateUser);
+router.put('/update-user/:userId', verifyToken, rateLimiter, validate(userSchema), userController.updateUser);
 
 /**
  * @swagger
@@ -218,6 +214,7 @@ router.put('/update-user/:userId', verifyToken, convertDataCriacao, cleanRequest
  */
 router.put('/upload-profile-picture/:userId', 
   verifyToken, 
+  rateLimiter,
   upload.single('profilePicture'), 
   errorHandler, 
   userController.uploadProfilePicture);
@@ -245,28 +242,6 @@ router.put('/upload-profile-picture/:userId',
  *       500:
  *         description: Erro no servidor
  */
-router.delete('/delete-user/:id', verifyToken, validate(userSchema), userController.deleteUser);
-
-/**
- * @swagger
- * /users/me:
- *   get:
- *     summary: Retorna o perfil do usuário autenticado
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Perfil do usuário retornado com sucesso
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/User'
- *       401:
- *         description: Não autorizado
- *       500:
- *         description: Erro no servidor
- */
-router.get('/me', verifyToken, validate(userSchema), authController.getCurrentUser);
+router.delete('/delete-user/:id', verifyToken, rateLimiter, userController.deleteUser);
 
 module.exports = router;

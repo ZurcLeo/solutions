@@ -2,38 +2,22 @@ const express = require('express');
 const router = express.Router();
 const groupsCaixinhaController = require('../controllers/groupsCaixinhaController');
 const verifyToken = require('../middlewares/auth');
+const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger')
 
-// Lista de origens permitidas
-const allowedOrigins = ['https://eloscloud.com', 'http://localhost:3000'];
+const ROUTE_NAME = 'groupsCaixinha'
+// Aplicar middleware de health check a todas as rotas de interests
+// router.use(healthCheck(ROUTE_NAME));
 
-// Middleware to add CORS headers for all requests
+// Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.set('Access-Control-Allow-Credentials', 'true');
-
-  // Handle preflight OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  next();
-});
-
-// Middleware para logar todas as requisições
-router.use((req, res, next) => {
-  logger.info('Requisição recebida', {
-    service: 'api',
-    function: req.originalUrl,
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
+    path: req.path,
     method: req.method,
-    url: req.originalUrl,
-    headers: req.headers,
-    body: req.body
+    userId: req.user?.uid,
+    params: req.params,
+    body: req.body,
+    query: req.query,
   });
   next();
 });
@@ -63,7 +47,7 @@ router.use((req, res, next) => {
  *               items:
  *                 $ref: '#/components/schemas/GroupCaixinha'
  */
-router.get('/', verifyToken, groupsCaixinhaController.getGroups);
+router.get('/', verifyToken, readLimit, groupsCaixinhaController.getGroups);
 
 /**
  * @swagger
@@ -88,7 +72,7 @@ router.get('/', verifyToken, groupsCaixinhaController.getGroups);
  *             schema:
  *               $ref: '#/components/schemas/GroupCaixinha'
  */
-router.get('/:id', verifyToken, groupsCaixinhaController.getGroupById);
+router.get('/:id', verifyToken, readLimit, groupsCaixinhaController.getGroupById);
 
 /**
  * @swagger
@@ -112,7 +96,7 @@ router.get('/:id', verifyToken, groupsCaixinhaController.getGroupById);
  *             schema:
  *               $ref: '#/components/schemas/GroupCaixinha'
  */
-router.post('/', verifyToken, groupsCaixinhaController.createGroup);
+router.post('/', verifyToken, writeLimit, groupsCaixinhaController.createGroup);
 
 /**
  * @swagger
@@ -143,7 +127,7 @@ router.post('/', verifyToken, groupsCaixinhaController.createGroup);
  *             schema:
  *               $ref: '#/components/schemas/GroupCaixinha'
  */
-router.put('/:id', verifyToken, groupsCaixinhaController.updateGroup);
+router.put('/:id', verifyToken, writeLimit, groupsCaixinhaController.updateGroup);
 
 /**
  * @swagger
@@ -164,6 +148,6 @@ router.put('/:id', verifyToken, groupsCaixinhaController.updateGroup);
  *       200:
  *         description: Grupo de caixinhas deletado
  */
-router.delete('/:id', verifyToken, groupsCaixinhaController.deleteGroup);
+router.delete('/:id', verifyToken, writeLimit, groupsCaixinhaController.deleteGroup);
 
 module.exports = router;
