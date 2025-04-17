@@ -6,68 +6,99 @@ const Membro = require('../models/Membro');
 const db = getFirestore();
 
 exports.adicionarMembro = async (caixinhaId, dados) => {
-    logger.info('Adicionando novo membro à caixinha', {
+  logger.info('Adicionando novo membro à caixinha', {
+    service: 'MembrosService',
+    method: 'adicionarMembro',
+    caixinhaId,
+    userId: dados.userId
+  });
+
+  // Iniciar transação
+  const batch = db.batch();
+
+  try {
+    // 1. Verificar se o usuário já é membro
+    const membroExistente = await db
+      .collection('caixinhas')
+      .doc(caixinhaId)
+      .collection('membros')
+      .where('userId', '==', dados.userId)
+      .get();
+
+    if (!membroExistente.empty) {
+      throw new Error('Usuário já é membro desta caixinha');
+    }
+
+    // 2. Criar documento de membro na subcoleção
+    const membroRef = db
+      .collection('caixinhas')
+      .doc(caixinhaId)
+      .collection('membros')
+      .doc();
+
+    const membro = {
+      ...dados,
+      dataEntrada: new Date(),
+      status: 'ativo',
+      contribuicoes: [],
+      emprestimos: []
+    };
+
+    batch.set(membroRef, membro);
+
+    // 3. Atualizar contador de membros na caixinha
+    const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+    batch.update(caixinhaRef, {
+      totalMembros: db.FieldValue.increment(1),
+      dataUltimaAtualizacao: new Date()
+    });
+
+    // 4. Obter usuário e atualizar seu array caixinhas
+    const usuarioRef = db.collection('users').doc(dados.userId);
+    const usuarioDoc = await usuarioRef.get();
+    
+    if (usuarioDoc.exists) {
+      const usuario = usuarioDoc.data();
+      const caixinhasArray = usuario.caixinhas || [];
+      
+      // Só adicionar se ainda não estiver no array
+      if (!caixinhasArray.includes(caixinhaId)) {
+        batch.update(usuarioRef, {
+          caixinhas: [...caixinhasArray, caixinhaId]
+        });
+      }
+    } else {
+      throw new Error('Usuário não encontrado');
+    }
+
+    // 5. Executar a transação
+    await batch.commit();
+
+    logger.info('Membro adicionado com sucesso', {
       service: 'MembrosService',
       method: 'adicionarMembro',
       caixinhaId,
-      userId: dados.userId
+      membroId: membroRef.id
     });
 
-    const session = db.batch();
-
-    try {
-      // Verifica se o usuário já é membro
-      const membroExistente = await db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('membros')
-        .where('userId', '==', dados.userId)
-        .get();
-
-      if (!membroExistente.empty) {
-        throw new Error('Usuário já é membro desta caixinha');
-      }
-
-      // Cria o novo membro
-      const membroRef = db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('membros')
-        .doc();
-
-      const membro = {
-        ...dados,
-        dataEntrada: new Date(),
-        status: 'ativo',
-        contribuicoes: [],
-        emprestimos: []
-      };
-
-      session.set(membroRef, membro);
-
-      // Atualiza contador de membros na caixinha
-      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-      session.update(caixinhaRef, {
-        totalMembros: db.FieldValue.increment(1),
-        dataUltimaAtualizacao: new Date()
-      });
-
-      await session.commit();
-
-      logger.info('Membro adicionado com sucesso', {
-        service: 'MembrosService',
-        method: 'adicionarMembro',
-        caixinhaId,
-        membroId,
-        error: error.message,
-        stack: error.stack
-      });
-      throw error;
-    }
-    catch {
-        console.log('MEMBRO SERVICE - ADICIONAR MEMBRO - resolver este problema')
-    }
+    return {
+      success: true,
+      membroId: membroRef.id,
+      message: 'Membro adicionado com sucesso'
+    };
+  } catch (error) {
+    logger.error('Erro ao adicionar membro', {
+      service: 'MembrosService',
+      method: 'adicionarMembro',
+      caixinhaId,
+      userId: dados.userId,
+      error: error.message,
+      stack: error.stack
+    });
+    
+    throw error; // Propagar o erro para tratamento adequado no controller
   }
+}
 
   exports.validarTransicaoStatus = async (statusAtual, novoStatus) => {
     // Define as transições válidas de status
@@ -505,27 +536,34 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
       membroId,
       novoStatus
     });
-
+  
+    const batch = db.batch();
+  
     try {
+      // 1. Obter informações do membro
       const membroRef = db
         .collection('caixinhas')
         .doc(caixinhaId)
         .collection('membros')
         .doc(membroId);
-
+  
       const membroDoc = await membroRef.get();
       
       if (!membroDoc.exists) {
         throw new Error('Membro não encontrado');
       }
-
-      // Valida transição de status
-      const statusAtual = membroDoc.data().status;
+  
+      const membroData = membroDoc.data();
+      const userId = membroData.userId;
+      const statusAtual = membroData.status;
+  
+      // 2. Validar transição de status
       if (!this.validarTransicaoStatus(statusAtual, novoStatus)) {
         throw new Error(`Transição de status inválida: ${statusAtual} -> ${novoStatus}`);
       }
-
-      await membroRef.update({
+  
+      // 3. Atualizar o documento do membro
+      batch.update(membroRef, {
         status: novoStatus,
         dataAtualizacao: new Date(),
         motivoMudancaStatus: motivo || null,
@@ -536,7 +574,27 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
           motivo: motivo || null
         })
       });
-
+  
+      // 4. Se o status for inativo, remover a caixinha do array do usuário
+      if (novoStatus === 'inativo') {
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          const caixinhasArray = userData.caixinhas || [];
+          
+          if (caixinhasArray.includes(caixinhaId)) {
+            batch.update(userRef, {
+              caixinhas: caixinhasArray.filter(id => id !== caixinhaId)
+            });
+          }
+        }
+      }
+  
+      // 5. Executar as atualizações em lote
+      await batch.commit();
+  
       logger.info('Status do membro atualizado com sucesso', {
         service: 'MembrosService',
         method: 'atualizarStatusMembro',
@@ -544,9 +602,12 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
         membroId,
         novoStatus
       });
-
-      return true;
-
+  
+      return {
+        success: true,
+        message: 'Status do membro atualizado com sucesso',
+        novoStatus
+      };
     } catch (error) {
       logger.error('Erro ao atualizar status do membro', {
         service: 'MembrosService',
@@ -568,54 +629,83 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
       membroId,
       motivo
     });
-
-    const session = db.batch();
-
+  
+    const batch = db.batch();
+  
     try {
-      // Verifica pendências do membro
+      // 1. Verificar pendências do membro
       const pendencias = await this.verificarPendenciasMembro(caixinhaId, membroId);
       if (pendencias.length > 0) {
         throw new Error(`Membro possui pendências: ${pendencias.join(', ')}`);
       }
-
-      // Atualiza status para inativo
+  
+      // 2. Obter informações do membro para acessar o userId
       const membroRef = db
         .collection('caixinhas')
         .doc(caixinhaId)
         .collection('membros')
         .doc(membroId);
-
-      session.update(membroRef, {
+  
+      const membroDoc = await membroRef.get();
+      
+      if (!membroDoc.exists) {
+        throw new Error('Membro não encontrado');
+      }
+      
+      const membroData = membroDoc.data();
+      const userId = membroData.userId;
+  
+      // 3. Atualizar status para inativo em vez de excluir (manter histórico)
+      batch.update(membroRef, {
         status: 'inativo',
         dataSaida: new Date(),
         motivoSaida: motivo,
         historicoStatus: db.FieldValue.arrayUnion({
-          de: 'ativo',
+          de: membroData.status,
           para: 'inativo',
           data: new Date(),
           motivo
         })
       });
-
-      // Atualiza contadores na caixinha
+  
+      // 4. Atualizar contadores na caixinha
       const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-      session.update(caixinhaRef, {
+      batch.update(caixinhaRef, {
         totalMembros: db.FieldValue.increment(-1),
         membrosInativos: db.FieldValue.increment(1),
         dataUltimaAtualizacao: new Date()
       });
-
-      await session.commit();
-
+  
+      // 5. Remover a caixinha do array caixinhas do usuário
+      const userRef = db.collection('users').doc(userId);
+      const userDoc = await userRef.get();
+      
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const caixinhasArray = userData.caixinhas || [];
+        
+        if (caixinhasArray.includes(caixinhaId)) {
+          batch.update(userRef, {
+            caixinhas: caixinhasArray.filter(id => id !== caixinhaId)
+          });
+        }
+      }
+  
+      // 6. Executar as atualizações em lote
+      await batch.commit();
+  
       logger.info('Membro removido com sucesso', {
         service: 'MembrosService',
         method: 'removerMembro',
         caixinhaId,
-        membroId
+        membroId,
+        userId
       });
-
-      return true;
-
+  
+      return {
+        success: true,
+        message: 'Membro removido com sucesso'
+      };
     } catch (error) {
       logger.error('Erro ao remover membro', {
         service: 'MembrosService',
@@ -679,64 +769,97 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
       caixinhaId,
       novoAdminId
     });
-
-    const session = db.batch();
-
+  
+    const batch = db.batch();
+  
     try {
-      // Verifica se novo admin é membro ativo
-      const membroRef = db
+      // 1. Buscar a caixinha para obter o adminId atual
+      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+      const caixinhaDoc = await caixinhaRef.get();
+      
+      if (!caixinhaDoc.exists) {
+        throw new Error('Caixinha não encontrada');
+      }
+      
+      const caixinhaData = caixinhaDoc.data();
+      const adminAtualId = caixinhaData.adminId;
+      
+      if (adminAtualId === novoAdminId) {
+        return {
+          success: true,
+          message: 'O usuário já é o administrador desta caixinha'
+        };
+      }
+  
+      // 2. Verificar se novo admin é membro ativo
+      const novoAdminRef = db
         .collection('caixinhas')
         .doc(caixinhaId)
         .collection('membros')
-        .doc(novoAdminId);
-
-      const membroDoc = await membroRef.get();
-      if (!membroDoc.exists || membroDoc.data().status !== 'ativo') {
-        throw new Error('Novo administrador deve ser um membro ativo');
+        .where('userId', '==', novoAdminId)
+        .where('status', '==', 'ativo')
+        .limit(1);
+  
+      const novoAdminDocs = await novoAdminRef.get();
+      
+      if (novoAdminDocs.empty) {
+        throw new Error('O novo administrador deve ser um membro ativo da caixinha');
       }
-
-      // Atualiza caixinha
-      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-      session.update(caixinhaRef, {
+      
+      const novoAdminDoc = novoAdminDocs.docs[0];
+  
+      // 3. Atualizar documento da caixinha com novo adminId
+      batch.update(caixinhaRef, {
         adminId: novoAdminId,
         dataTransferenciaAdmin: new Date(),
         motivoTransferenciaAdmin: motivoTransferencia,
         historicoAdmin: db.FieldValue.arrayUnion({
-          de: membroDoc.data().adminId,
+          de: adminAtualId,
           para: novoAdminId,
           data: new Date(),
           motivo: motivoTransferencia
         })
       });
-
-      // Atualiza papéis dos membros
-      session.update(membroRef, {
+  
+      // 4. Atualizar papel do novo admin na subcoleção membros
+      batch.update(novoAdminDoc.ref, {
         role: 'admin',
         dataPromocao: new Date()
       });
-
-      const antigoAdminRef = db
+  
+      // 5. Buscar e atualizar o documento do antigo admin na subcoleção membros
+      const antigoAdminDocs = await db
         .collection('caixinhas')
         .doc(caixinhaId)
         .collection('membros')
-        .doc(membroDoc.data().adminId);
-
-      session.update(antigoAdminRef, {
-        role: 'membro',
-        dataAlteracaoRole: new Date()
-      });
-
-      await session.commit();
-
+        .where('userId', '==', adminAtualId)
+        .where('role', '==', 'admin')
+        .limit(1)
+        .get();
+      
+      if (!antigoAdminDocs.empty) {
+        batch.update(antigoAdminDocs.docs[0].ref, {
+          role: 'membro',
+          dataAlteracaoRole: new Date()
+        });
+      }
+  
+      // 6. Executar as atualizações em lote
+      await batch.commit();
+  
       logger.info('Administração transferida com sucesso', {
         service: 'MembrosService',
         method: 'transferirAdministracao',
         caixinhaId,
-        novoAdminId
+        novoAdminId,
+        adminAnteriorId: adminAtualId
       });
-
-      return true;
-
+  
+      return {
+        success: true,
+        message: 'Administração transferida com sucesso',
+        adminAnteriorId: adminAtualId
+      };
     } catch (error) {
       logger.error('Erro ao transferir administração', {
         service: 'MembrosService',

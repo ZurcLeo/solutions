@@ -27,7 +27,7 @@ class Caixinha {
   }
 
   static async getAll(userId) {
-    logger.info('Iniciando busca de todas as caixinhas para o usuário', {
+    logger.info('Iniciando busca de caixinhas para o usuário', {
       service: 'caixinhaModel',
       method: 'getAll',
       userId,
@@ -46,17 +46,29 @@ class Caixinha {
         return [];
       }
   
-      // Filtrar as caixinhas pelos IDs do usuário
+      // Buscar diretamente as caixinhas pelos IDs
       const caixinhasIds = user.caixinhas;
-      const snapshot = await db.collection('caixinhas').get();
       const caixinhas = [];
-  
-      snapshot.forEach((doc) => {
-        if (caixinhasIds.includes(doc.id)) {
-          const data = doc.data();
-          caixinhas.push(new Caixinha({ id: doc.id, ...data }));
-        }
-      });
+      
+      // Usar Promise.all para buscar em paralelo
+      const promessas = caixinhasIds.map(id => 
+        db.collection('caixinhas').doc(id).get()
+          .then(doc => {
+            if (doc.exists) {
+              const data = doc.data();
+              caixinhas.push(new Caixinha({ id: doc.id, ...data }));
+            } else {
+              logger.warn(`Caixinha ${id} referenciada mas não encontrada`, {
+                service: 'caixinhaModel',
+                method: 'getAll',
+                userId,
+                caixinhaId: id
+              });
+            }
+          })
+      );
+      
+      await Promise.all(promessas);
   
       logger.info('Caixinhas recuperadas com sucesso', {
         service: 'caixinhaModel',
@@ -76,7 +88,7 @@ class Caixinha {
       });
       throw error;
     }
-  }  
+  }
 
   static async getById(caixinhaId) {
 
@@ -128,44 +140,66 @@ class Caixinha {
       adminId: data.adminId,
       caixinhaName: data.name
     });
-
+  
+    // Iniciar transação
+    const batch = db.batch();
+  
     try {
-      
+      // 1. Criar a instância da caixinha
       const caixinha = new Caixinha(data);
-      const docRef = await db.collection('caixinhas').add({ 
+      
+      // 2. Adicionar documento à coleção caixinhas
+      const caixinhaRef = db.collection('caixinhas').doc();
+      const caixinhaId = caixinhaRef.id;
+      
+      batch.set(caixinhaRef, { 
         ...caixinha,
-        members: caixinha.members || [],
+        id: caixinhaId,
+        members: [],
+        totalMembros: 1, // O administrador é o primeiro membro
         dataCriacao: caixinha.dataCriacao.toISOString() 
       });
-
+  
+      // 3. Adicionar o administrador como membro na subcoleção membros
+      const membroRef = db
+        .collection('caixinhas')
+        .doc(caixinhaId)
+        .collection('membros')
+        .doc();
+  
+      batch.set(membroRef, {
+        userId: data.adminId,
+        role: 'admin',
+        status: 'ativo',
+        dataEntrada: new Date(),
+        contribuicoes: [],
+        emprestimos: []
+      });
+  
+      // 4. Adicionar referência da caixinha no documento do usuário
+      const userRef = db.collection('usuario').doc(data.adminId);
+      const userDoc = await userRef.get();
+      
+      if (!userDoc.exists) {
+        throw new Error('Usuário administrador não encontrado');
+      }
+      
+      const user = userDoc.data();
+      const updatedCaixinhas = [...(user.caixinhas || []), caixinhaId];
+      
+      batch.update(userRef, { 
+        caixinhas: updatedCaixinhas 
+      });
+  
+      // 5. Executar a transação
+      await batch.commit();
+  
       logger.info('Caixinha criada com sucesso', {
         service: 'caixinhaModel',
         method: 'create',
-        caixinhaData: caixinha
+        caixinhaId: caixinhaId,
+        adminId: data.adminId
       });
-
-      const caixinhaId = docRef.id;
-
-      try {
-        const user = await User.getById(data.adminId);
-        const updatedCaixinhas = [...(user.caixinhas || []), caixinhaId];
-        await User.update(user.id, { caixinhas: updatedCaixinhas });
-  
-        logger.info('ID da caixinha adicionado ao cadastro do usuário', {
-          service: 'caixinhaModel',
-          method: 'create',
-          userId: user.id,
-          caixinhaId,
-        });
-      } catch (userError) {
-        logger.error('Erro ao atualizar usuário com ID da caixinha', {
-          service: 'caixinhaModel',
-          method: 'create',
-          userId: data.adminId,
-          error: userError.message,
-        });
-        throw new Error('Erro ao atualizar o cadastro do usuário com o ID da caixinha');
-      }
   
       return { ...caixinha, id: caixinhaId };
     } catch (error) {

@@ -6,7 +6,13 @@ class Membro {
   constructor(data) {
     this.id = data.id;
     this.caixinhaId = data.caixinhaId;
+    this.nome = data.nome;
     this.userId = data.userId;
+    this.active = data.active;
+    this.email = data.email;
+    this.fotoDoPerfil = data.fotoDoPerfil;
+    this.isAdmin = data.isAdmin;
+    this.joinedAt = data.joinedAt;
     this.role = data.role || 'membro';
   }
 
