@@ -378,27 +378,36 @@ static async markMessagesAsRead(conversationId, userId) {
         
         // Atualizar contador no documento de usuário (se existir)
         try {
-          // No novo modelo, o contador pode estar em diferentes lugares
-          // Verificar primeiro em user_conversations
-          const userConvRef = db.collection('user_conversations').doc(userId);
-          const userConvDoc = await userConvRef.get();
+          // // No novo modelo, o contador pode estar em diferentes lugares
+          // // Verificar primeiro em user_conversations
+          // const userConvRef = db.collection('conversations').doc(conversationId);
+          // const userConvDoc = await userConvRef.get();
           
-          if (userConvDoc.exists) {
-            batch.update(userConvRef, {
-              [`conversations.${conversationId}.unreadCount`]: 0,
-              [`conversations.${conversationId}.lastAccess`]: now
+          // if (userConvDoc.exists) {
+          //   batch.update(userConvRef, {
+          //     [`conversations.${conversationId}.unreadCount`]: 0,
+          //     [`conversations.${conversationId}.lastAccess`]: now
+          //   });
+          const userRef = db.collection('usuario').doc(userId);
+          const userDoc = await userRef.get();
+          
+          if (userDoc.exists) {
+            batch.update(userRef, {
+              [`conversas.${conversationId}.naoLidas`]: 0,
+              [`conversas.${conversationId}.ultimoAcesso`]: now
             });
+
           } else {
             // Verificar na coleção 'usuario'
-            const userRef = db.collection('usuario').doc(userId);
-            const userDoc = await userRef.get();
+          //   const userRef = db.collection('usuario').doc(userId);
+          //   const userDoc = await userRef.get();
             
-            if (userDoc.exists) {
-              batch.update(userRef, {
-                [`conversas.${conversationId}.naoLidas`]: 0,
-                [`conversas.${conversationId}.ultimoAcesso`]: now
-              });
-            }
+          //   if (userDoc.exists) {
+          //     batch.update(userRef, {
+          //       [`conversas.${conversationId}.naoLidas`]: 0,
+          //       [`conversas.${conversationId}.ultimoAcesso`]: now
+          //     });
+          //   }
           }
         } catch (userDocError) {
           console.error('Erro ao atualizar documento de usuário:', userDocError);

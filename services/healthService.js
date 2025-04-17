@@ -577,7 +577,7 @@ const checkCaixinhaService = async (options = {}) => {
         
         // Basic availability check
         if (depth === 'basic') {
-            const caixinhaExists = await db.collection('caixinha').limit(1).get()
+            const caixinhaExists = await db.collection('caixinhas').limit(1).get()
                 .then(snapshot => !snapshot.empty)
                 .catch(() => false);
                 
@@ -593,7 +593,7 @@ const checkCaixinhaService = async (options = {}) => {
         }
         
         // Detailed check
-        const caixinhaRef = await db.collection('caixinha').limit(1).get();
+        const caixinhaRef = await db.collection('caixinhas').limit(1).get();
         const responseTime = performance.now() - startTime;
         
         // Performance check

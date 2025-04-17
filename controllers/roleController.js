@@ -354,91 +354,63 @@ const initializeSystem = async (req, res) => {
  */
 const setupDefaultRolePermissions = async () => {
   try {
-    const roles = await roleService.getRoles();
-    const permissions = await permissionService.getPermissions();
+    // Obter dados de initialData
+    const { roles, permissions, rolePermissions } = require('../config/data/initialData');
     
-    // Mapeamento de nome da role para array de nomes de permissões
-    const rolePermissionsMap = {
-      Admin: permissions.map(p => p.name), // Admin tem todas as permissões
-      
-      Client: [
-        'caixinha:read',
-        'product:read',
-        'order:create',
-        'order:read'
-      ],
-      
-      Seller: [
-        'product:create',
-        'product:read',
-        'product:update',
-        'product:delete',
-        'order:read',
-        'order:update'
-      ],
-      
-      Support: [
-        'support:access',
-        'support:manage_tickets',
-        'support:view_logs',
-        'user:read',
-        'caixinha:read',
-        'product:read',
-        'order:read'
-      ],
-      
-      CaixinhaManager: [
-        'caixinha:read',
-        'caixinha:update',
-        'caixinha:delete',
-        'caixinha:manage_members',
-        'caixinha:manage_loans',
-        'caixinha:view_reports'
-      ],
-      
-      CaixinhaMember: [
-        'caixinha:read'
-      ],
-      
-      CaixinhaModerator: [
-        'caixinha:read',
-        'caixinha:manage_members',
-        'caixinha:view_reports'
-      ]
-    };
+    // Buscar roles e permissões do banco
+    const dbRoles = await roleService.getRoles();
+    const dbPermissions = await permissionService.getPermissions();
     
-    // Para cada role, atribuir suas permissões padrão
-    for (const role of roles) {
-      const permissionNames = rolePermissionsMap[role.name];
+    // Criar um mapa para facilitar a busca por ID
+    const roleIdMap = {};
+    dbRoles.forEach(role => {
+      roleIdMap[role.id] = role;
+    });
+    
+    const permissionIdMap = {};
+    dbPermissions.forEach(perm => {
+      permissionIdMap[perm.id] = perm;
+    });
+    
+    // Para cada associação role-permissão definida
+    for (const rpId in rolePermissions) {
+      const rp = rolePermissions[rpId];
+      const roleId = rp.roleId;
+      const permissionId = rp.permissionId;
       
-      if (permissionNames) {
-        for (const permissionName of permissionNames) {
-          // Encontrar a permissão pelo nome
-          const permission = permissions.find(p => p.name === permissionName);
+      // Verificar se role e permissão existem no banco
+      if (!roleIdMap[roleId] || !permissionIdMap[permissionId]) {
+        logger.warn(`Role ${roleId} ou permissão ${permissionId} não encontrada`, {
+          function: 'setupDefaultRolePermissions'
+        });
+        continue;
+      }
+      
+      try {
+        // Verificar se já existe a associação
+        const existingRolePermissions = await RolePermission.getByRoleId(roleId);
+        const alreadyAssigned = existingRolePermissions.some(rp => 
+          rp.permissionId === permissionId
+        );
+        
+        if (!alreadyAssigned) {
+          await permissionService.assignPermissionToRole(roleId, permissionId);
           
-          if (permission) {
-            try {
-              // Verificar se já existe a associação
-              const existingRolePermissions = await RolePermission.getByRoleId(role.id);
-              const alreadyAssigned = existingRolePermissions.some(rp => 
-                rp.permissionId === permission.id
-              );
-              
-              if (!alreadyAssigned) {
-                await permissionService.assignPermissionToRole(role.id, permission.id);
-                
-                logger.info(`Permissão '${permissionName}' atribuída à role '${role.name}'`, {
-                  function: 'setupDefaultRolePermissions'
-                });
-              }
-            } catch (error) {
-              logger.warn(`Erro ao atribuir permissão '${permissionName}' à role '${role.name}'`, {
-                function: 'setupDefaultRolePermissions',
-                error: error.message
-              });
-            }
-          }
+          const roleName = roles[roleId].name;
+          const permName = permissions[permissionId].name;
+          
+          logger.info(`Permissão '${permName}' atribuída à role '${roleName}'`, {
+            function: 'setupDefaultRolePermissions'
+          });
         }
+      } catch (error) {
+        const roleName = roles[roleId]?.name || roleId;
+        const permName = permissions[permissionId]?.name || permissionId;
+        
+        logger.warn(`Erro ao atribuir permissão '${permName}' à role '${roleName}'`, {
+          function: 'setupDefaultRolePermissions',
+          error: error.message
+        });
       }
     }
     

@@ -1,8 +1,9 @@
 // models/Role.js
 const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
+const LocalStorageService = require('../services/LocalStorageService')
 const FirestoreService = require('../utils/firestoreService');
-const dbServiceRole = FirestoreService.collection('roles');
+const dbServiceRole = LocalStorageService.collection('roles');
 
 class Role {
   constructor(data) {
@@ -29,12 +30,13 @@ class Role {
     try {
       const rolesCollection = await dbServiceRole.get();
       
-      const roles = rolesCollection.docs.map(doc => {
+      // A coleção já é um array de documentos, não precisa acessar .docs
+      const roles = rolesCollection.map(doc => {
         const roleData = doc.data();
         roleData.id = doc.id;
         return new Role(roleData);
       });
-
+  
       logger.info('Roles obtidas com sucesso', { 
         service: 'roleModel', 
         function: 'findAll', 

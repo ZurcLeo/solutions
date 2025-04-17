@@ -1,8 +1,10 @@
 const { getAuth } = require('../firebaseAdmin');
 const FirestoreService = require('../utils/firestoreService');
 const dbServiceUser = FirestoreService.collection('usuario');
+const {getFirestore} = require('../firebaseAdmin')
 const { logger } = require('../logger');
 
+const db = getFirestore();
 
 class User {
   constructor(data) {
@@ -15,6 +17,7 @@ class User {
     this.emailVerified = data.emailVerified || false;
     this.perfilPublico = data.perfilPublico || false;
     this.ja3Hash = data.ja3Hash;
+    this.caixinhas = data.caixinhas || [];
     this.tipoDeConta = data.tipoDeConta;
     this.isOwnerOrAdmin = data.isOwnerOrAdmin || false;
     this.fotoDoPerfil = data.fotoDoPerfil;
@@ -30,6 +33,7 @@ class User {
       marketplace: [],
       sustentabilidade: []
     };
+    this.roles = data.roles || {};
     this.amigosAutorizados = data.amigosAutorizados || [];
     this.amigos = data.amigos || [];
     this.dataCriacao = data.dataCriacao || new Date();
@@ -48,11 +52,13 @@ class User {
       perfilPublico: this.perfilPublico,
       emailVerified: this.emailVerified,
       ja3Hash: this.ja3Hash,
+      caixinhas: this.caixinhas,
       tipoDeConta: this.tipoDeConta,
       isOwnerOrAdmin: this.isOwnerOrAdmin,
       fotoDoPerfil: this.fotoDoPerfil,
       descricao: this.descricao,
       interesses: this.interesses,
+      roles: this.roles,
       amigosAutorizados: this.amigosAutorizados,
       amigos: this.amigos,
       dataCriacao: this.dataCriacao,
@@ -213,6 +219,7 @@ static clearSearchCache() {
             tipoDeConta: 'Cliente',
             saldoElosCoins: 0,
             isOwnerOrAdmin: false,
+            roles: {},
             reacoes: {},
             descricao: 'Escreva algo sobre voce.',
             interesses: {},
@@ -245,9 +252,251 @@ static clearSearchCache() {
         userId, 
         error: error.message 
       });
-      throw error; // Propagar o erro original em vez de criar um novo
+      throw error;
     }
   }
+
+/**
+ * Adiciona uma role ao usuário
+ * @param {string} userId - ID do usuário
+ * @param {string} roleId - ID da role
+ * @param {Object} context - Contexto da role
+ * @param {Object} options - Opções adicionais
+ * @returns {Promise<Object>} Dados da role adicionada
+ */
+static async addRole(userId, roleId, context = {}, options = {}) {
+  try {
+    // Obter referência do documento do usuário
+    const userRef = db.collection('usuario').doc(userId);
+    const userDoc = await userRef.get();
+    
+    if (!userDoc.exists) {
+      throw new Error('Usuário não encontrado');
+    }
+    
+    // Obter definição da role do mapa fixo
+    const { roles } = require('../config/data/initialData');
+    const roleData = roles[roleId];
+    
+    if (!roleData) {
+      throw new Error(`Role ${roleId} não encontrada`);
+    }
+    
+    // Dados a serem salvos
+    const userRole = {
+      ...roleData,
+      context: context || { type: 'global', resourceId: null },
+      validationStatus: options.validationStatus || 'pending',
+      assignedAt: new Date().toISOString(),
+      metadata: options.metadata || {}
+    };
+    
+    // Atualizar o documento
+    await userRef.update({
+      [`roles.${roleId}`]: userRole
+    });
+    
+    logger.info('Role adicionada ao usuário com sucesso', {
+      function: 'User.addRole',
+      userId,
+      roleId
+    });
+    
+    return userRole;
+  } catch (error) {
+    logger.error('Erro ao adicionar role ao usuário', {
+      function: 'User.addRole',
+      userId,
+      roleId,
+      error: error.message
+    });
+    throw error;
+  }
+}
+
+/**
+ * Remove uma role do usuário
+ * @param {string} userId - ID do usuário
+ * @param {string} roleId - ID da role
+ * @returns {Promise<boolean>} Sucesso da operação
+ */
+static async removeRole(userId, roleId) {
+  try {
+    const userRef = db.collection('usuario').doc(userId);
+    const userDoc = await userRef.get();
+    
+    if (!userDoc.exists) {
+      throw new Error('Usuário não encontrado');
+    }
+    
+    const userData = userDoc.data();
+    const userRoles = userData.roles || {};
+    
+    if (!userRoles[roleId]) {
+      return false; // Role não existente
+    }
+    
+    // Remover a role
+    await userRef.update({
+      [`roles.${roleId}`]: firebase.db.FieldValue.delete()
+    });
+    
+    logger.info('Role removida do usuário com sucesso', {
+      function: 'User.removeRole',
+      userId,
+      roleId
+    });
+    
+    return true;
+  } catch (error) {
+    logger.error('Erro ao remover role do usuário', {
+      function: 'User.removeRole',
+      userId,
+      roleId,
+      error: error.message
+    });
+    throw error;
+  }
+}
+
+/**
+ * Verifica se um usuário tem uma role específica
+ * @param {string} userId - ID do usuário
+ * @param {string} roleName - Nome da role
+ * @param {string} contextType - Tipo de contexto
+ * @param {string} resourceId - ID do recurso
+ * @returns {Promise<boolean>} Se o usuário tem a role
+ */
+static async hasRole(userId, roleName, contextType = 'global', resourceId = null) {
+  try {
+    const userDoc = await db.collection('usuario').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return false;
+    }
+    
+    const userData = userDoc.data();
+    const userRoles = userData.roles || {};
+    
+    // Buscar a role pelo nome
+    const { roles } = require('../config/data/initialData');
+    const targetRoleId = Object.keys(roles).find(id => 
+      roles[id].name.toLowerCase() === roleName.toLowerCase()
+    );
+    
+    if (!targetRoleId) {
+      return false; // Role não definida no sistema
+    }
+    
+    // Verificar se o usuário tem a role
+    const userRole = userRoles[targetRoleId];
+    
+    if (!userRole) {
+      return false;
+    }
+    
+    // Verificar status de validação
+    if (userRole.validationStatus !== 'validated') {
+      return false;
+    }
+    
+    // Verificar contexto
+    if (contextType !== 'global') {
+      // Se o contexto não é global, verificar compatibilidade
+      if (userRole.context.type !== contextType) {
+        return false;
+      }
+      
+      // Se resourceId foi especificado, verificar
+      if (resourceId && userRole.context.resourceId !== resourceId) {
+        return false;
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    logger.error('Erro ao verificar role do usuário', {
+      function: 'User.hasRole',
+      userId,
+      roleName,
+      error: error.message
+    });
+    return false; // Em caso de erro, retornar false por segurança
+  }
+}
+
+/**
+ * Verifica se um usuário tem uma permissão específica
+ * @param {string} userId - ID do usuário
+ * @param {string} permissionName - Nome da permissão
+ * @param {string} contextType - Tipo de contexto
+ * @param {string} resourceId - ID do recurso
+ * @returns {Promise<boolean>} Se o usuário tem a permissão
+ */
+static async hasPermission(userId, permissionName, contextType = 'global', resourceId = null) {
+  try {
+    const userDoc = await db.collection('usuario').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return false;
+    }
+    
+    const userData = userDoc.data();
+    const userRoles = userData.roles || {};
+    
+    // Obter mapeamentos de inicialização
+    const { rolePermissions } = require('../config/data/initialData');
+    
+    // Para cada role do usuário
+    for (const roleId in userRoles) {
+      const userRole = userRoles[roleId];
+      
+      // Verificar status de validação
+      if (userRole.validationStatus !== 'validated') {
+        continue;
+      }
+      
+      // Verificar contexto
+      if (contextType !== 'global') {
+        // Se o contexto não é global, verificar compatibilidade
+        if (userRole.context.type !== contextType) {
+          continue;
+        }
+        
+        // Se resourceId foi especificado, verificar
+        if (resourceId && userRole.context.resourceId !== resourceId) {
+          continue;
+        }
+      }
+      
+      // Encontrar permissões para esta role
+      const rolePerms = Object.values(rolePermissions)
+        .filter(rp => rp.roleId === roleId)
+        .map(rp => rp.permissionId);
+      
+      // Verificar se a permissão está incluída
+      const hasPermission = rolePerms.some(permId => {
+        const { permissions } = require('../config/data/initialData');
+        return permissions[permId]?.name === permissionName;
+      });
+      
+      if (hasPermission) {
+        return true;
+      }
+    }
+    
+    // Se nenhuma role fornece a permissão
+    return false;
+  } catch (error) {
+    logger.error('Erro ao verificar permissão do usuário', {
+      function: 'User.hasPermission',
+      userId,
+      permissionName,
+      error: error.message
+    });
+    return false; // Em caso de erro, retornar false por segurança
+  }
+}
 
   static async searchUsers(query, currentUserId) {
     const db = getFirestore();

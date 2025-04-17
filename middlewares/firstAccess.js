@@ -3,7 +3,8 @@ const { getAuth } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const FirestoreService = require('../utils/firestoreService');
 const dbServiceUser = FirestoreService.collection('usuario');
-const {calculateJA3Hash} = require('../services/ja3Service');
+const { calculateJA3Hash } = require('../services/ja3Service');
+const { initializeFirstAdmin } = require('../config/scripts/initializeLocalData');
 
 const firstAccess = async (req, res, next) => {
   // Só verificar se o token foi fornecido
@@ -18,7 +19,8 @@ const firstAccess = async (req, res, next) => {
     const userId = decodedToken.uid;
 
     let fingerPrintRawData = req.headers['x-browser-fingerprint'] ? 
-      JSON.parse(req.headers['x-browser-fingerprint']) : null;
+      JSON.parse(req.headers['x-browser-fingerprint']) : 
+      req.body.ja3Data || null;
     
     // Preparar os dados de fingerprint
     const fingerPrintData = fingerPrintRawData ? {
@@ -51,7 +53,93 @@ const firstAccess = async (req, res, next) => {
       } else {
         // Usuário existente
         req.isFirstAccess = false;
+        
+        // Obter dados do usuário
+        const userData = userDoc.data();
+        
+        // Inicializar primeiro admin se aplicável
+        if (userData && userData.email) {
+          await initializeFirstAdmin(userData.email);
+        }
+        
+        // Verificar se o usuário tem o campo 'roles' e o injeta na requisição
+        if (userData && userData.roles) {
+          req.userRoles = userData.roles;
+        }
       }
+      
+      // Se não tiver roles, inicializa com um objeto vazio
+      if (!req.userRoles) {
+        req.userRoles = {};
+      }
+
+      // Adiciona funções de helpers para verificação rápida
+      req.hasRole = (roleName, contextType = 'global', resourceId = null) => {
+        const { roles } = require('../config/data/initialData');
+        
+        for (const roleId in req.userRoles) {
+          const userRole = req.userRoles[roleId];
+          const roleData = roles[roleId];
+          
+          if (!roleData || roleData.name !== roleName || userRole.validationStatus !== 'validated') {
+            continue;
+          }
+          
+          // Verificações de contexto se não for global
+          if (contextType !== 'global') {
+            if (userRole.context.type !== contextType) {
+              continue;
+            }
+            
+            if (resourceId && userRole.context.resourceId !== resourceId) {
+              continue;
+            }
+          }
+          
+          return true;
+        }
+        
+        return false;
+      };
+
+      req.hasPermission = (permissionName, contextType = 'global', resourceId = null) => {
+        const { roles, permissions, rolePermissions } = require('../config/data/initialData');
+        
+        for (const roleId in req.userRoles) {
+          const userRole = req.userRoles[roleId];
+          
+          if (userRole.validationStatus !== 'validated') {
+            continue;
+          }
+          
+          // Verificações de contexto se não for global
+          if (contextType !== 'global') {
+            if (userRole.context.type !== contextType) {
+              continue;
+            }
+            
+            if (resourceId && userRole.context.resourceId !== resourceId) {
+              continue;
+            }
+          }
+          
+          // Verifica permissões para esta role
+          const rolePerms = Object.values(rolePermissions)
+            .filter(rp => rp.roleId === roleId)
+            .map(rp => rp.permissionId);
+          
+          // Verifica se alguma das permissões corresponde
+          const hasPermission = rolePerms.some(permId => {
+            return permissions[permId]?.name === permissionName;
+          });
+          
+          if (hasPermission) {
+            return true;
+          }
+        }
+        
+        return false;
+      };
       
       return next();
     } catch (error) {

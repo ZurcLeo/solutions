@@ -1,8 +1,9 @@
 // models/UserRole.js
 const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
+const LocalStorageService = require('../services/LocalStorageService')
 const FirestoreService = require('../utils/firestoreService');
-const dbServiceUserRole = FirestoreService.collection('user_roles');
+const dbServiceUserRole = LocalStorageService.collection('roles');
 const User = require('./User');
 const Role = require('./Role');
 const RolePermission = require('./RolePermission');
@@ -127,113 +128,29 @@ class UserRole {
 
   static async assignRoleToUser(userId, roleId, context = { type: 'global', resourceId: null }, options = {}) {
     try {
-      // Verificar se o usuário existe
-      await User.getById(userId);
-      
-      // Verificar se a role existe
-      await Role.getById(roleId);
-      
-      // Verificar se a atribuição já existe para o mesmo contexto
-      const existingAssignments = await dbServiceUserRole
-        .where('userId', '==', userId)
-        .where('roleId', '==', roleId)
-        .get();
-      
-      // Verificar se já existe uma atribuição idêntica
-      let duplicateFound = false;
-      for (const doc of existingAssignments.docs) {
-        const existingContext = doc.data().context || {};
-        if (existingContext.type === context.type && 
-            existingContext.resourceId === context.resourceId) {
-          duplicateFound = true;
-          logger.warn('Role já atribuída ao usuário neste contexto', { 
-            service: 'userRoleModel', 
-            function: 'assignRoleToUser', 
-            userId,
-            roleId,
-            context
-          });
-          
-          // Retornar a atribuição existente
-          const existingData = doc.data();
-          existingData.id = doc.id;
-          return new UserRole(existingData);
-        }
-      }
-      
-      // Se não encontrou duplicata, criar nova atribuição
-      if (!duplicateFound) {
-        const userRole = new UserRole({
-          userId,
-          roleId,
-          context,
-          validationStatus: options.validationStatus || 'pending',
-          validatedAt: options.validationStatus === 'validated' ? new Date() : null,
-          validationData: options.validationData || null,
-          expiresAt: options.expiresAt || null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          createdBy: options.createdBy || null,
-          metadata: options.metadata || {}
-        });
-        
-        const docRef = await dbServiceUserRole.add(userRole.toPlainObject());
-        userRole.id = docRef.id;
-        
-        logger.info('Role atribuída ao usuário com sucesso', { 
-          service: 'userRoleModel', 
-          function: 'assignRoleToUser', 
-          userId,
-          roleId,
-          context,
-          userRoleId: userRole.id
-        });
-        
-        return userRole;
-      }
+      return await User.addRole(userId, roleId, context, options);
     } catch (error) {
-      logger.error('Erro ao atribuir role ao usuário', { 
-        service: 'userRoleModel', 
-        function: 'assignRoleToUser', 
+      logger.error('Erro ao atribuir role ao usuário', {
+        service: 'userRoleService',
+        function: 'assignRoleToUser',
         userId,
         roleId,
-        context,
-        error: error.message 
+        error: error.message
       });
       throw error;
     }
   }
 
-  static async removeRoleFromUser(userRoleId) {
+  static async removeRoleFromUser(userId, roleId) {
     try {
-      const userRoleRef = dbServiceUserRole.doc(userRoleId);
-      const userRoleDoc = await userRoleRef.get();
-      
-      if (!userRoleDoc.exists) {
-        logger.warn('UserRole não encontrada para remoção', { 
-          service: 'userRoleModel', 
-          function: 'removeRoleFromUser', 
-          userRoleId
-        });
-        return false;
-      }
-      
-      await userRoleRef.delete();
-      
-      logger.info('Role removida do usuário com sucesso', { 
-        service: 'userRoleModel', 
-        function: 'removeRoleFromUser', 
-        userRoleId,
-        userData: userRoleDoc.data()
-      });
-      
-      return true;
+      return await User.removeRole(userId, roleId);
     } catch (error) {
-      logger.error('Erro ao remover role do usuário', { 
-        service: 'userRoleModel', 
-        function: 'removeRoleFromUser', 
-        userRoleId,
-        error: error.message 
+      logger.error('Erro ao remover role do usuário', {
+        service: 'userRoleService',
+        function: 'removeRoleFromUser',
+        userId,
+        roleId,
+        error: error.message
       });
       throw error;
     }
@@ -340,104 +257,34 @@ class UserRole {
   }
 
   static async checkUserHasRole(userId, roleName, contextType = 'global', resourceId = null) {
-    try {
-      // Primeiro, buscar a role pelo nome
-      const roles = await Role.findAll();
-      const targetRole = roles.find(role => role.name === roleName);
-      
-      if (!targetRole) {
-        logger.warn(`Role '${roleName}' não encontrada`, {
-          service: 'userRoleModel',
-          function: 'checkUserHasRole'
-        });
-        return false;
-      }
-      
-      // Buscar as UserRoles do usuário
-      const userRoles = await this.getUserRoles(userId, contextType, resourceId);
-      
-      // Verificar se o usuário tem a role especificada
-      const hasRole = userRoles.some(userRole => 
-        userRole.roleId === targetRole.id && 
-        userRole.validationStatus === 'validated'
-      );
-      
-      logger.info(`Verificação se usuário tem role '${roleName}'`, {
-        service: 'userRoleModel', 
-        function: 'checkUserHasRole', 
-        userId,
-        roleName,
-        contextType,
-        resourceId,
-        hasRole
-      });
-      
-      return hasRole;
-    } catch (error) {
-      logger.error(`Erro ao verificar se usuário tem role '${roleName}'`, { 
-        service: 'userRoleModel', 
-        function: 'checkUserHasRole', 
-        userId,
-        roleName,
-        contextType,
-        resourceId,
-        error: error.message 
-      });
-      // Em caso de erro, retornar false por segurança
-      return false;
-    }
+  try {
+    return await User.hasRole(userId, roleName, contextType, resourceId);
+  } catch (error) {
+    logger.error('Erro ao verificar se usuário tem role', {
+      service: 'userRoleService',
+      function: 'checkUserHasRole',
+      userId,
+      roleName,
+      error: error.message
+    });
+    return false;
   }
+}
 
-  static async checkUserHasPermission(userId, permissionName, contextType = 'global', resourceId = null) {
-    try {
-      // Buscar todas as roles do usuário no contexto especificado
-      const userRoles = await this.getUserRoles(userId, contextType, resourceId);
-      
-      // Se o usuário não tem nenhuma role, retornar false
-      if (userRoles.length === 0) {
-        return false;
-      }
-      
-      // Verificar permissões apenas para roles validadas
-      const validatedRoleIds = userRoles
-        .filter(userRole => userRole.validationStatus === 'validated')
-        .map(userRole => userRole.roleId);
-      
-      if (validatedRoleIds.length === 0) {
-        return false;
-      }
-      
-      // Para cada role, verificar se tem a permissão especificada
-      for (const roleId of validatedRoleIds) {
-        // Buscar todas as permissões associadas à role
-        const permissions = await RolePermission.getRolePermissions(roleId);
-        
-        // Verificar se alguma permissão corresponde ao nome especificado
-        const hasPermission = permissions.some(permission => 
-          permission.name === permissionName
-        );
-        
-        if (hasPermission) {
-          return true;
-        }
-      }
-      
-      // Se chegou até aqui, o usuário não tem a permissão
-      return false;
-    } catch (error) {
-      logger.error(`Erro ao verificar se usuário tem permissão '${permissionName}'`, { 
-        service: 'userRoleModel', 
-        function: 'checkUserHasPermission', 
-        userId,
-        permissionName,
-        contextType,
-        resourceId,
-        error: error.message 
-      });
-      // Em caso de erro, retornar false por segurança
-      return false;
-    }
+static async checkUserHasPermission(userId, permissionName, contextType = 'global', resourceId = null) {
+  try {
+    return await User.hasPermission(userId, permissionName, contextType, resourceId);
+  } catch (error) {
+    logger.error('Erro ao verificar se usuário tem permissão', {
+      service: 'userRoleService',
+      function: 'checkUserHasPermission',
+      userId,
+      permissionName,
+      error: error.message
+    });
+    return false;
   }
+}
 }
 
 module.exports = UserRole;

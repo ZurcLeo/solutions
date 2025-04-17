@@ -2,6 +2,7 @@ const routeLogger = require('../../middlewares/routeLogger');
 
 module.exports = (app) => {
   const routes = [
+    { path: '/api/rbac', handler: require('../../routes/rbac') },
     { path: '/api/health', handler: require('../../routes/health') },
     { path: '/api/auth', handler: require('../../routes/auth') },
     { path: '/api/interests', handler: require('../../routes/interests') },

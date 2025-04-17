@@ -1,0 +1,192 @@
+{
+  "client_user:read": {
+    "roleId": "client",
+    "permissionId": "user:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "client_user:update": {
+    "roleId": "client",
+    "permissionId": "user:update",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_admin:access": {
+    "roleId": "admin",
+    "permissionId": "admin:access",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_role:read": {
+    "roleId": "admin",
+    "permissionId": "role:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_role:create": {
+    "roleId": "admin",
+    "permissionId": "role:create",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_role:update": {
+    "roleId": "admin",
+    "permissionId": "role:update",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_role:delete": {
+    "roleId": "admin",
+    "permissionId": "role:delete",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_permission:read": {
+    "roleId": "admin",
+    "permissionId": "permission:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_permission:create": {
+    "roleId": "admin",
+    "permissionId": "permission:create",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_permission:update": {
+    "roleId": "admin",
+    "permissionId": "permission:update",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "admin_permission:delete": {
+    "roleId": "admin",
+    "permissionId": "permission:delete",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "client_caixinha:read": {
+    "roleId": "client",
+    "permissionId": "caixinha:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "client_product:read": {
+    "roleId": "client",
+    "permissionId": "product:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "client_order:create": {
+    "roleId": "client",
+    "permissionId": "order:create",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "client_order:read": {
+    "roleId": "client",
+    "permissionId": "order:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "seller_product:create": {
+    "roleId": "seller",
+    "permissionId": "product:create",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "seller_product:read": {
+    "roleId": "seller",
+    "permissionId": "product:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "seller_product:update": {
+    "roleId": "seller",
+    "permissionId": "product:update",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "seller_product:delete": {
+    "roleId": "seller",
+    "permissionId": "product:delete",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "seller_order:read": {
+    "roleId": "seller",
+    "permissionId": "order:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "seller_order:update": {
+    "roleId": "seller",
+    "permissionId": "order:update",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support_support:access": {
+    "roleId": "support",
+    "permissionId": "support:access",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support_support:manage_tickets": {
+    "roleId": "support",
+    "permissionId": "support:manage_tickets",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support_support:view_logs": {
+    "roleId": "support",
+    "permissionId": "support:view_logs",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support_user:read": {
+    "roleId": "support",
+    "permissionId": "user:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support_caixinha:read": {
+    "roleId": "support",
+    "permissionId": "caixinha:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support_product:read": {
+    "roleId": "support",
+    "permissionId": "product:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support_order:read": {
+    "roleId": "support",
+    "permissionId": "order:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaManager_caixinha:read": {
+    "roleId": "caixinhaManager",
+    "permissionId": "caixinha:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaManager_caixinha:update": {
+    "roleId": "caixinhaManager",
+    "permissionId": "caixinha:update",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaManager_caixinha:delete": {
+    "roleId": "caixinhaManager",
+    "permissionId": "caixinha:delete",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaManager_caixinha:manage_members": {
+    "roleId": "caixinhaManager",
+    "permissionId": "caixinha:manage_members",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaManager_caixinha:manage_loans": {
+    "roleId": "caixinhaManager",
+    "permissionId": "caixinha:manage_loans",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaManager_caixinha:view_reports": {
+    "roleId": "caixinhaManager",
+    "permissionId": "caixinha:view_reports",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaMember_caixinha:read": {
+    "roleId": "caixinhaMember",
+    "permissionId": "caixinha:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaModerator_caixinha:read": {
+    "roleId": "caixinhaModerator",
+    "permissionId": "caixinha:read",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaModerator_caixinha:manage_members": {
+    "roleId": "caixinhaModerator",
+    "permissionId": "caixinha:manage_members",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinhaModerator_caixinha:view_reports": {
+    "roleId": "caixinhaModerator",
+    "permissionId": "caixinha:view_reports",
+    "createdAt": "2025-04-17T00:07:55.375Z"
+  }
+}

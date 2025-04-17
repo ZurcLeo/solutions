@@ -232,63 +232,33 @@ class PermissionService {
    * @returns {Promise<void>}
    */
   async initializeDefaultPermissions() {
-    const defaultPermissions = [
-      // Permissões de administração
-      { resource: 'admin', action: 'access', description: 'Acesso ao painel administrativo' },
-      { resource: 'user', action: 'create', description: 'Criar usuários' },
-      { resource: 'user', action: 'read', description: 'Visualizar usuários' },
-      { resource: 'user', action: 'update', description: 'Atualizar usuários' },
-      { resource: 'user', action: 'delete', description: 'Remover usuários' },
-      
-      // Permissões de caixinha
-      { resource: 'caixinha', action: 'create', description: 'Criar caixinha' },
-      { resource: 'caixinha', action: 'read', description: 'Visualizar caixinha' },
-      { resource: 'caixinha', action: 'update', description: 'Atualizar caixinha' },
-      { resource: 'caixinha', action: 'delete', description: 'Remover caixinha' },
-      { resource: 'caixinha', action: 'manage_members', description: 'Gerenciar membros de caixinha' },
-      { resource: 'caixinha', action: 'manage_loans', description: 'Gerenciar empréstimos de caixinha' },
-      { resource: 'caixinha', action: 'view_reports', description: 'Visualizar relatórios de caixinha' },
-      
-      // Permissões de marketplace
-      { resource: 'product', action: 'create', description: 'Criar produto' },
-      { resource: 'product', action: 'read', description: 'Visualizar produto' },
-      { resource: 'product', action: 'update', description: 'Atualizar produto' },
-      { resource: 'product', action: 'delete', description: 'Remover produto' },
-      { resource: 'order', action: 'create', description: 'Criar pedido' },
-      { resource: 'order', action: 'read', description: 'Visualizar pedido' },
-      { resource: 'order', action: 'update', description: 'Atualizar pedido' },
-      { resource: 'order', action: 'cancel', description: 'Cancelar pedido' },
-      
-      // Permissões de suporte
-      { resource: 'support', action: 'access', description: 'Acesso ao painel de suporte' },
-      { resource: 'support', action: 'manage_tickets', description: 'Gerenciar tickets de suporte' },
-      { resource: 'support', action: 'view_logs', description: 'Visualizar logs do sistema' }
-    ];
-    
     logger.info('Inicializando permissões padrão do sistema', {
       service: 'permissionService',
       function: 'initializeDefaultPermissions'
     });
     
     try {
+      // Obter permissões do initialData
+      const { permissions } = require('../config/data/initialData');
+      
       // Buscar permissões existentes
       const existingPermissions = await Permission.findAll();
       const existingPermissionNames = existingPermissions.map(p => p.name);
       
       // Criar apenas as permissões que não existem
-      for (const permData of defaultPermissions) {
-        // Formatar nome (resource:action)
-        const permissionName = `${permData.resource}:${permData.action}`;
+      for (const permId in permissions) {
+        const permData = permissions[permId];
         
-        if (!existingPermissionNames.includes(permissionName)) {
+        if (!existingPermissionNames.includes(permData.name)) {
           await this.createPermission({
-            name: permissionName,
+            id: permId,  // Usar o ID do mapa como ID da permissão
+            name: permData.name,
             resource: permData.resource,
             action: permData.action,
             description: permData.description
           });
           
-          logger.info(`Permissão padrão criada: ${permissionName}`, {
+          logger.info(`Permissão padrão criada: ${permData.name}`, {
             service: 'permissionService',
             function: 'initializeDefaultPermissions'
           });
@@ -308,6 +278,7 @@ class PermissionService {
       throw error;
     }
   }
+  
 }
 
 module.exports = new PermissionService();

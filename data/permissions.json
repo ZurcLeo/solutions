@@ -1,0 +1,281 @@
+{
+  "admin:access": {
+    "id": "admin:access",
+    "name": "admin:access",
+    "description": "Acesso ao painel administrativo",
+    "resource": "admin",
+    "action": "access",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "role:create": {
+    "id": "role:create",
+    "name": "role:create",
+    "description": "Criar roles no sistema",
+    "resource": "role",
+    "action": "create",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "role:read": {
+    "id": "role:read",
+    "name": "role:read",
+    "description": "Visualizar roles do sistema",
+    "resource": "role",
+    "action": "read",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "role:update": {
+    "id": "role:update",
+    "name": "role:update",
+    "description": "Atualizar roles do sistema",
+    "resource": "role",
+    "action": "update",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "role:delete": {
+    "id": "role:delete",
+    "name": "role:delete",
+    "description": "Remover roles do sistema",
+    "resource": "role",
+    "action": "delete",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "user:read": {
+    "id": "user:read",
+    "name": "user:read",
+    "description": "Visualizar informações de usuários",
+    "resource": "user",
+    "action": "read",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "user:update": {
+    "id": "user:update",
+    "name": "user:update",
+    "description": "Atualizar informações de usuários",
+    "resource": "user",
+    "action": "update",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "permission:create": {
+    "id": "permission:create",
+    "name": "permission:create",
+    "description": "Criar permissões no sistema",
+    "resource": "permission",
+    "action": "create",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "permission:read": {
+    "id": "permission:read",
+    "name": "permission:read",
+    "description": "Visualizar permissões do sistema",
+    "resource": "permission",
+    "action": "read",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "permission:update": {
+    "id": "permission:update",
+    "name": "permission:update",
+    "description": "Atualizar permissões do sistema",
+    "resource": "permission",
+    "action": "update",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "permission:delete": {
+    "id": "permission:delete",
+    "name": "permission:delete",
+    "description": "Remover permissões do sistema",
+    "resource": "permission",
+    "action": "delete",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "user:create": {
+    "id": "user:create",
+    "name": "user:create",
+    "description": "Criar usuários",
+    "resource": "user",
+    "action": "create",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "user:delete": {
+    "id": "user:delete",
+    "name": "user:delete",
+    "description": "Remover usuários",
+    "resource": "user",
+    "action": "delete",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinha:create": {
+    "id": "caixinha:create",
+    "name": "caixinha:create",
+    "description": "Criar caixinha",
+    "resource": "caixinha",
+    "action": "create",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinha:read": {
+    "id": "caixinha:read",
+    "name": "caixinha:read",
+    "description": "Visualizar caixinha",
+    "resource": "caixinha",
+    "action": "read",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinha:update": {
+    "id": "caixinha:update",
+    "name": "caixinha:update",
+    "description": "Atualizar caixinha",
+    "resource": "caixinha",
+    "action": "update",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinha:delete": {
+    "id": "caixinha:delete",
+    "name": "caixinha:delete",
+    "description": "Remover caixinha",
+    "resource": "caixinha",
+    "action": "delete",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinha:manage_members": {
+    "id": "caixinha:manage_members",
+    "name": "caixinha:manage_members",
+    "description": "Gerenciar membros de caixinha",
+    "resource": "caixinha",
+    "action": "manage_members",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinha:manage_loans": {
+    "id": "caixinha:manage_loans",
+    "name": "caixinha:manage_loans",
+    "description": "Gerenciar empréstimos de caixinha",
+    "resource": "caixinha",
+    "action": "manage_loans",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "caixinha:view_reports": {
+    "id": "caixinha:view_reports",
+    "name": "caixinha:view_reports",
+    "description": "Visualizar relatórios de caixinha",
+    "resource": "caixinha",
+    "action": "view_reports",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "product:create": {
+    "id": "product:create",
+    "name": "product:create",
+    "description": "Criar produto",
+    "resource": "product",
+    "action": "create",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "product:read": {
+    "id": "product:read",
+    "name": "product:read",
+    "description": "Visualizar produto",
+    "resource": "product",
+    "action": "read",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "product:update": {
+    "id": "product:update",
+    "name": "product:update",
+    "description": "Atualizar produto",
+    "resource": "product",
+    "action": "update",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "product:delete": {
+    "id": "product:delete",
+    "name": "product:delete",
+    "description": "Remover produto",
+    "resource": "product",
+    "action": "delete",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "order:create": {
+    "id": "order:create",
+    "name": "order:create",
+    "description": "Criar pedido",
+    "resource": "order",
+    "action": "create",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "order:read": {
+    "id": "order:read",
+    "name": "order:read",
+    "description": "Visualizar pedido",
+    "resource": "order",
+    "action": "read",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "order:update": {
+    "id": "order:update",
+    "name": "order:update",
+    "description": "Atualizar pedido",
+    "resource": "order",
+    "action": "update",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "order:cancel": {
+    "id": "order:cancel",
+    "name": "order:cancel",
+    "description": "Cancelar pedido",
+    "resource": "order",
+    "action": "cancel",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support:access": {
+    "id": "support:access",
+    "name": "support:access",
+    "description": "Acesso ao painel de suporte",
+    "resource": "support",
+    "action": "access",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support:manage_tickets": {
+    "id": "support:manage_tickets",
+    "name": "support:manage_tickets",
+    "description": "Gerenciar tickets de suporte",
+    "resource": "support",
+    "action": "manage_tickets",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  },
+  "support:view_logs": {
+    "id": "support:view_logs",
+    "name": "support:view_logs",
+    "description": "Visualizar logs do sistema",
+    "resource": "support",
+    "action": "view_logs",
+    "createdAt": "2025-04-17T00:07:55.375Z",
+    "updatedAt": "2025-04-17T00:07:55.375Z"
+  }
+}

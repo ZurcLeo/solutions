@@ -223,58 +223,30 @@ class RoleService {
    * @returns {Promise<void>}
    */
   async initializeDefaultRoles() {
-    const defaultRoles = [
-      {
-        name: 'Client',
-        description: 'Usuário padrão do sistema',
-        isSystemRole: true
-      },
-      {
-        name: 'Admin',
-        description: 'Administrador do sistema com acesso completo',
-        isSystemRole: true
-      },
-      {
-        name: 'Support',
-        description: 'Equipe de suporte ao cliente',
-        isSystemRole: true
-      },
-      {
-        name: 'Seller',
-        description: 'Vendedor do marketplace',
-        isSystemRole: true
-      },
-      {
-        name: 'CaixinhaManager',
-        description: 'Gerente de caixinha',
-        isSystemRole: true
-      },
-      {
-        name: 'CaixinhaMember',
-        description: 'Membro de caixinha',
-        isSystemRole: true
-      },
-      {
-        name: 'CaixinhaModerator',
-        description: 'Moderador de caixinha',
-        isSystemRole: true
-      }
-    ];
-    
     logger.info('Inicializando roles padrão do sistema', {
       service: 'roleService',
       function: 'initializeDefaultRoles'
     });
     
     try {
+      // Obter roles do initialData
+      const { roles } = require('../config/data/initialData');
+      
       // Buscar roles existentes
       const existingRoles = await Role.findAll();
       const existingRoleNames = existingRoles.map(role => role.name);
       
       // Criar apenas as roles que não existem
-      for (const roleData of defaultRoles) {
+      for (const roleId in roles) {
+        const roleData = roles[roleId];
         if (!existingRoleNames.includes(roleData.name)) {
-          await Role.create(roleData);
+          await Role.create({
+            id: roleId,  // Usar o ID do mapa como ID da role
+            name: roleData.name,
+            description: roleData.description,
+            isSystemRole: roleData.isSystemRole
+          });
+          
           logger.info(`Role padrão criada: ${roleData.name}`, {
             service: 'roleService',
             function: 'initializeDefaultRoles'
@@ -295,6 +267,7 @@ class RoleService {
       throw error;
     }
   }
+  
 }
 
 module.exports = new RoleService();

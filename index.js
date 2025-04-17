@@ -12,6 +12,7 @@ const setupMiddlewares = require('./config/middlewares/middlewaresConfig');
 const securityHeaders = require('./config/headers/securityHeadersConfig');
 const setupRoutes = require('./config/routes/routesConfig');
 const gracefulShutdown = require('./config/shutdown/gracefulShutdownConfig');
+const {initializeLocalStorage} = require('./config/scripts/initializeLocalData');
 
 const app = express();
 const server = https.createServer(getCertificates(), app);
@@ -39,9 +40,17 @@ app.use((err, req, res, next) => {
 
 // Inicialização do servidor
 const PORT = process.env.PORT || 9000;
-server.listen(PORT, () => {
-  logger.info(`HTTPS Server Running on port ${PORT}`);
-});
+initializeLocalStorage()
+  .then(() => {
+    // Iniciar o servidor HTTPS (server) em vez de criar um novo com app.listen()
+    server.listen(PORT, () => {
+      console.log(`Servidor HTTPS rodando na porta ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('Falha ao inicializar o servidor:', err);
+    process.exit(1);
+  });
 
 // Shutdown graceful
 gracefulShutdown(server);
