@@ -110,47 +110,73 @@ class ActiveConnection {
 
   static async getConnectionsByUserId(userId) {
     const db = getFirestore();
+    
+    // Verificar se o usuário existe
     const userDoc = await db.collection('usuario').doc(userId).get();
     if (!userDoc.exists) {
       throw new Error('Usuário não encontrado.');
     }
-  
-    const userData = userDoc.data();
-    const friendIds = userData.amigos || [];
-    const bestFriendIds = userData.amigosAutorizados || [];
-  
+    
+    // Obter conexões ativas diretamente da coleção apropriada
+    const connectionsRef = db.collection('conexoes').doc(userId).collection('ativas');
+    const connectionsSnapshot = await connectionsRef.get();
+    
+    // Preparar arrays de resultado
     const connections = {};
     const friends = [];
     const bestFriends = [];
-  
-    for (const friendId of friendIds) {
-      if (!connections[friendId]) {
-        const friendDoc = await db.collection('usuario').doc(friendId).get();
-        if (!friendDoc.exists) {
-          logger.error(`Friend document not found: ${friendId}`);
-          continue;
-        }
-        if (!friendDoc.exists) {
-          logger.error(`Friend document not found: ${friendId}`);
-          continue;
-        }
-        const friendData = friendDoc.data();
-        const connection = new ActiveConnection(friendData);
-        connections[friendId] = connection; // Adicionar esta linha
-        friends.push(connection);
-      }
+    
+    // Processar cada documento de conexão ativa
+    if (!connectionsSnapshot.empty) {
+      // Obter IDs de todos os amigos para buscar seus perfis em lote
+      const friendIds = connectionsSnapshot.docs.map(doc => doc.id);
+      
+      // Buscar dados de perfil para todos os amigos em paralelo
+      const friendProfiles = await Promise.all(
+        friendIds.map(async friendId => {
+          try {
+            const friendDoc = await db.collection('usuario').doc(friendId).get();
+            if (!friendDoc.exists) {
+              logger.error(`Friend document not found: ${friendId}`);
+              return null;
+            }
+            
+            // Obter dados da conexão
+            const connectionDoc = connectionsSnapshot.docs.find(doc => doc.id === friendId);
+            const connectionData = connectionDoc.data();
+            
+            // Combinar dados do perfil com dados da conexão
+            return {
+              ...friendDoc.data(),
+              uid: friendId,
+              id: friendId,
+              // Propriedades da conexão
+              isBestFriend: connectionData.isBestFriend || false,
+              connectionDate: connectionData.dataCriacao || null,
+              connectionType: connectionData.tipo || 'regular'
+            };
+          } catch (error) {
+            logger.error(`Error fetching friend profile: ${friendId}`, error);
+            return null;
+          }
+        })
+      );
+      
+      // Filtrar resultados nulos e classificar em amigos e melhores amigos
+      friendProfiles
+        .filter(profile => profile !== null)
+        .forEach(profile => {
+          const connection = new ActiveConnection(profile);
+          connections[profile.uid] = connection;
+          
+          if (profile.isBestFriend) {
+            bestFriends.push(connection);
+          } else {
+            friends.push(connection);
+          }
+        });
     }
-  
-    for (const bestFriendId of bestFriendIds) {
-      if (!connections[bestFriendId]) {
-        const bestFriendDoc = await db.collection('usuario').doc(bestFriendId).get();
-        const bestFriendData = bestFriendDoc.data();
-        const connection = new ActiveConnection(bestFriendData);
-        connections[bestFriendId] = connection;
-        bestFriends.push(connection);
-      }
-    }
-  
+    
     return { friends, bestFriends };
   }
 

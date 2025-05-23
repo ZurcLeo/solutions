@@ -27,16 +27,16 @@ router.use((req, res, next) => {
 /**
  * @swagger
  * tags:
- *   name: MessagesV2
+ *   name: Messages
  *   description: API de mensagens otimizada - Nova versão
  */
 
 /**
  * @swagger
- * /api/v2/messages/conversations:
+ * /api/messages/conversations:
  *   get:
  *     summary: Obtém todas as conversas do usuário
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -62,10 +62,10 @@ router.get('/conversations', verifyToken, readLimit, MessageController.getUserCo
 
 /**
  * @swagger
- * /api/v2/messages/conversations/{conversationId}:
+ * /api/messages/conversations/{conversationId}:
  *   get:
  *     summary: Obtém mensagens de uma conversa
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -112,10 +112,10 @@ router.get('/conversations/:conversationId', verifyToken, readLimit, MessageCont
 
 /**
  * @swagger
- * /api/v2/messages/user/{otherUserId}:
+ * /api/messages/user/{otherUserId}:
  *   get:
  *     summary: Obtém mensagens entre o usuário atual e outro usuário
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -160,10 +160,10 @@ router.get('/user/:otherUserId', verifyToken, readLimit, MessageController.getMe
 
 /**
  * @swagger
- * /api/v2/messages:
+ * /api/messages:
  *   post:
  *     summary: Cria uma nova mensagem
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -209,10 +209,10 @@ router.post('/', verifyToken, writeLimit, MessageController.createMessage);
 
 /**
  * @swagger
- * /api/v2/messages/conversations/{conversationId}/read:
+ * /api/messages/conversations/{conversationId}/read:
  *   post:
  *     summary: Marca mensagens como lidas
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -251,10 +251,10 @@ router.post('/conversations/:conversationId/read', verifyToken, writeLimit, Mess
 
 /**
  * @swagger
- * /api/v2/messages/conversations/{conversationId}/messages/{messageId}/status:
+ * /api/messages/conversations/{conversationId}/messages/{messageId}/status:
  *   patch:
  *     summary: Atualiza o status de uma mensagem
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -310,10 +310,10 @@ router.patch('/conversations/:conversationId/messages/:messageId/status',
 
 /**
  * @swagger
- * /api/v2/messages/conversations/{conversationId}/messages/{messageId}:
+ * /api/messages/conversations/{conversationId}/messages/{messageId}:
  *   delete:
  *     summary: Exclui uma mensagem
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -358,10 +358,10 @@ router.delete('/conversations/:conversationId/messages/:messageId',
 
 /**
  * @swagger
- * /api/v2/messages/stats:
+ * /api/messages/stats:
  *   get:
  *     summary: Obtém estatísticas de mensagens do usuário
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -393,10 +393,10 @@ router.get('/stats', verifyToken, readLimit, MessageController.getUserMessageSta
 
 /**
  * @swagger
- * /api/v2/messages/migrate:
+ * /api/messages/migrate:
  *   post:
  *     summary: Migra mensagens do modelo antigo para o novo (apenas para admins)
- *     tags: [MessagesV2]
+ *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -427,246 +427,3 @@ router.get('/stats', verifyToken, readLimit, MessageController.getUserMessageSta
 
 // Finalizar o módulo exportando o router
 module.exports = router;
-
-// //routes/messages.js
-// const express = require('express');
-// const router = express.Router();
-// const messageController = require('../controllers/messageController');
-// const verifyToken = require('../middlewares/auth');
-// const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
-// const { logger } = require('../logger')
-// const { healthCheck } = require('../middlewares/healthMiddleware');
-
-// const ROUTE_NAME = 'messages'
-// // Aplicar middleware de health check a todas as rotas de interests
-// router.use(healthCheck(ROUTE_NAME));
-
-// // Middleware de log para todas as requisições
-// router.use((req, res, next) => {
-//   logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
-//     path: req.path,
-//     method: req.method,
-//     userId: req.user?.uid,
-//     params: req.params,
-//     body: req.body,
-//     query: req.query,
-//   });
-//   next();
-// });
-
-// /**
-//  * @swagger
-//  * tags:
-//  *   name: Messages
-//  *   description: Gerenciamento de mensagens
-//  */
-
-// /**
-//  * @swagger
-//  * /messages:
-//  *   get:
-//  *     summary: Retorna todas as mensagens
-//  *     tags: [Messages]
-//  *     responses:
-//  *       200:
-//  *         description: Mensagens retornadas com sucesso
-//  *         content:
-//  *           application/json:
-//  *             schema:
-//  *               type: array
-//  *               items:
-//  *                 $ref: '#/components/schemas/Message'
-//  *       500:
-//  *         description: Erro no servidor
-//  */
-// router.get('/', verifyToken, readLimit, messageController.getAllMessages);
-
-// /**
-//  * @swagger
-//  * /messages/{uidRemetente}/{uidDestinatario}/{id}:
-//  *   get:
-//  *     summary: Retorna uma mensagem pelo ID
-//  *     tags: [Messages]
-//  *     parameters:
-//  *       - in: path
-//  *         name: uidRemetente
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do remetente
-//  *       - in: path
-//  *         name: uidDestinatario
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do destinatário
-//  *       - in: path
-//  *         name: id
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID da mensagem
-//  *     responses:
-//  *       200:
-//  *         description: Mensagem retornada com sucesso
-//  *         content:
-//  *           application/json:
-//  *             schema:
-//  *               $ref: '#/components/schemas/Message'
-//  *       400:
-//  *         description: Erro na solicitação
-//  *       404:
-//  *         description: Mensagem não encontrada
-//  *       500:
-//  *         description: Erro no servidor
-//  */
-// router.get('/:uidRemetente/:uidDestinatario/:id', verifyToken, readLimit, messageController.getMessageById);
-
-// /**
-//  * @swagger
-//  * /messages/user/{uidRemetente}/{uidDestinatario}:
-//  *   get:
-//  *     summary: Retorna mensagens por ID de usuário
-//  *     tags: [Messages]
-//  *     parameters:
-//  *       - in: path
-//  *         name: uidRemetente
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do remetente
-//  *       - in: path
-//  *         name: uidDestinatario
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do destinatário
-//  *     responses:
-//  *       200:
-//  *         description: Mensagens retornadas com sucesso
-//  *         content:
-//  *           application/json:
-//  *             schema:
-//  *               type: array
-//  *               items:
-//  *                 $ref: '#/components/schemas/Message'
-//  *       400:
-//  *         description: Erro na solicitação
-//  *       404:
-//  *         description: Usuário não encontrado ou sem mensagens
-//  *       500:
-//  *         description: Erro no servidor
-//  */
-// router.get('/:uidRemetente/:uidDestinatario', verifyToken, messageController.getMessagesByUserId);
-
-// /**
-//  * @swagger
-//  * /messages:
-//  *   post:
-//  *     summary: Cria uma nova mensagem
-//  *     tags: [Messages]
-//  *     requestBody:
-//  *       required: true
-//  *       content:
-//  *         application/json:
-//  *           schema:
-//  *             $ref: '#/components/schemas/Message'
-//  *     responses:
-//  *       201:
-//  *         description: Mensagem criada com sucesso
-//  *         content:
-//  *           application/json:
-//  *             schema:
-//  *               $ref: '#/components/schemas/Message'
-//  *       400:
-//  *         description: Erro na solicitação
-//  *       500:
-//  *         description: Erro no servidor
-//  */
-// router.post('/', verifyToken, writeLimit, messageController.createMessage);
-
-// /**
-//  * @swagger
-//  * /messages/{uidRemetente}/{uidDestinatario}/{id}:
-//  *   put:
-//  *     summary: Atualiza uma mensagem pelo ID
-//  *     tags: [Messages]
-//  *     parameters:
-//  *       - in: path
-//  *         name: uidRemetente
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do remetente
-//  *       - in: path
-//  *         name: uidDestinatario
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do destinatário
-//  *       - in: path
-//  *         name: id
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID da mensagem
-//  *     requestBody:
-//  *       required: true
-//  *       content:
-//  *         application/json:
-//  *           schema:
-//  *             $ref: '#/components/schemas/Message'
-//  *     responses:
-//  *       200:
-//  *         description: Mensagem atualizada com sucesso
-//  *         content:
-//  *           application/json:
-//  *             schema:
-//  *               $ref: '#/components/schemas/Message'
-//  *       400:
-//  *         description: Erro na solicitação
-//  *       404:
-//  *         description: Mensagem não encontrada
-//  *       500:
-//  *         description: Erro no servidor
-//  */
-// router.put('/:uidRemetente/:uidDestinatario/:id', verifyToken, writeLimit, messageController.updateMessage);
-
-// /**
-//  * @swagger
-//  * /messages/{uidRemetente}/{uidDestinatario}/{id}:
-//  *   delete:
-//  *     summary: Deleta uma mensagem pelo ID
-//  *     tags: [Messages]
-//  *     parameters:
-//  *       - in: path
-//  *         name: uidRemetente
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do remetente
-//  *       - in: path
-//  *         name: uidDestinatario
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID do destinatário
-//  *       - in: path
-//  *         name: id
-//  *         schema:
-//  *           type: string
-//  *         required: true
-//  *         description: ID da mensagem
-//  *     responses:
-//  *       200:
-//  *         description: Mensagem deletada com sucesso
-//  *       400:
-//  *         description: Erro na solicitação
-//  *       404:
-//  *         description: Mensagem não encontrada
-//  *       500:
-//  *         description: Erro no servidor
-//  */
-// router.delete('/:uidRemetente/:uidDestinatario/:id', verifyToken, writeLimit, messageController.deleteMessage);
-
-// module.exports = router;

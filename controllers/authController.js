@@ -560,7 +560,7 @@ exports.checkSession = async (req, res) => {
 
   try {
     if (!userId) {
-      return res.status(400).json({ message: 'ID do usuário não fornecido' });
+      return res.status(400).json({ message: 'ID do usuário não fornecido 1' });
     }
 
     const token = authHeader.split(' ')[1];

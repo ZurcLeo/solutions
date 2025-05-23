@@ -5,15 +5,13 @@ const roleService = require('../services/roleService');
 const User = require('../models/User');
 
 /**
- * Obtém todas as roles de um usuário
+ * Obtém as roles de um usuário
  * @param {Object} req - Objeto de requisição
  * @param {Object} res - Objeto de resposta
  */
 const getUserRoles = async (req, res) => {
   try {
     const { userId } = req.params;
-    const contextType = req.query.contextType;
-    const resourceId = req.query.resourceId;
     
     // Verificar se o usuário existe
     const user = await User.getById(userId);
@@ -24,22 +22,21 @@ const getUserRoles = async (req, res) => {
       });
     }
     
-    const userRoles = await userRoleService.getUserRoles(userId, contextType, resourceId);
+    // Buscar as roles do usuário usando o serviço
+    const userRoles = await userRoleService.getUserRoles(userId);
     
-    // Enriquecer com informações da role
-    const roles = await roleService.getRoles();
-    const enrichedUserRoles = userRoles.map(userRole => {
-      const role = roles.find(r => r.id === userRole.roleId);
-      return {
-        ...userRole,
-        roleName: role ? role.name : 'Unknown',
-        roleDescription: role ? role.description : ''
-      };
+    // Log para depuração
+    logger.info('Roles do usuário obtidas pelo controller', {
+      controller: 'userRoleController',
+      method: 'getUserRoles',
+      userId,
+      rolesCount: userRoles.length
     });
     
+    // Retornar as roles
     res.status(200).json({
       success: true,
-      data: enrichedUserRoles
+      data: userRoles
     });
   } catch (error) {
     logger.error('Erro ao buscar roles do usuário', {

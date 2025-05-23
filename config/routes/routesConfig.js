@@ -7,6 +7,8 @@ module.exports = (app) => {
     { path: '/api/auth', handler: require('../../routes/auth') },
     { path: '/api/interests', handler: require('../../routes/interests') },
     { path: '/api/caixinha', handler: require('../../routes/caixinha') },
+    { path: '/api/rifas', handler: require('../../routes/rifas') },
+    { path: '/api/banking', handler: require('../../routes/bankAccount') },
     { path: '/api/email', handler: require('../../routes/email') },
     { path: '/api/groups', handler: require('../../routes/groupsCaixinha') },
     { path: '/api/invite', handler: require('../../routes/invite') },

@@ -220,6 +220,7 @@ static clearSearchCache() {
             saldoElosCoins: 0,
             isOwnerOrAdmin: false,
             roles: {},
+            caixinhas: [],
             reacoes: {},
             descricao: 'Escreva algo sobre voce.',
             interesses: {},

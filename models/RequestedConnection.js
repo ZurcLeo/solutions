@@ -5,7 +5,6 @@ const { logger } = require('../logger');
 
 
 class RequestedConnection {
-  // ... previous code ...
 
   constructor(data) {
     this.id = data.id;

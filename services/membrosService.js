@@ -54,7 +54,7 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
     });
 
     // 4. Obter usuário e atualizar seu array caixinhas
-    const usuarioRef = db.collection('users').doc(dados.userId);
+    const usuarioRef = db.collection('usuario').doc(dados.userId);
     const usuarioDoc = await usuarioRef.get();
     
     if (usuarioDoc.exists) {
@@ -130,7 +130,7 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
           .collection('caixinhas')
           .doc(caixinhaId)
           .collection('contribuicoes')
-          .where('usuarioId', '==', membro.userId)
+          .where('membroId', '==', membro.userId)
           .where('dataContribuicao', '>=', new Date(periodo.inicio || 0))
           .where('dataContribuicao', '<=', new Date(periodo.fim || Date.now()))
           .get();
@@ -389,7 +389,7 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
       .collection('caixinhas')
       .doc(caixinhaId)
       .collection('contribuicoes')
-      .where('usuarioId', '==', membroId)
+      .where('membroId', '==', membroId)
       .where('dataContribuicao', '>=', dataLimite)
       .get();
 
@@ -577,7 +577,7 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
   
       // 4. Se o status for inativo, remover a caixinha do array do usuário
       if (novoStatus === 'inativo') {
-        const userRef = db.collection('users').doc(userId);
+        const userRef = db.collection('usuario').doc(userId);
         const userDoc = await userRef.get();
         
         if (userDoc.exists) {
@@ -677,7 +677,7 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
       });
   
       // 5. Remover a caixinha do array caixinhas do usuário
-      const userRef = db.collection('users').doc(userId);
+      const userRef = db.collection('usuario').doc(userId);
       const userDoc = await userRef.get();
       
       if (userDoc.exists) {
@@ -727,7 +727,7 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
       .collection('caixinhas')
       .doc(caixinhaId)
       .collection('emprestimos')
-      .where('usuarioId', '==', membroId)
+      .where('membroId', '==', membroId)
       .where('status', 'in', ['ativo', 'pendente'])
       .get();
 
@@ -752,7 +752,7 @@ exports.adicionarMembro = async (caixinhaId, dados) => {
       .collection('caixinhas')
       .doc(caixinhaId)
       .collection('contribuicoes')
-      .where('usuarioId', '==', membroId)
+      .where('membroId', '==', membroId)
       .where('dataContribuicao', '>=', inicioMes)
       .get();
 

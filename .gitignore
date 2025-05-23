@@ -76,6 +76,7 @@ projectStructure.js
 exportsFirestore.js
 firebaseAdmin.js
 generateUrl.js
+secure-keys.txt
 # .gitignore
 certificates/
 *.crt

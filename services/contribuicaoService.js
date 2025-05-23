@@ -173,7 +173,7 @@ const criarTransacaoContribuicao = async (session, caixinhaId, data, contribuica
   const transacao = {
     tipo: 'contribuicao',
     valor: data.valor,
-    usuarioId: data.usuarioId,
+    membroId: data.membroId,
     data: new Date(),
     contribuicaoId
   };

@@ -22,7 +22,8 @@ const notificationSchema = Joi.object({
     'nova_reacao',
     'nova_mensagem',
     'nova_amizade',
-    'nova_caixinha'
+    'nova_caixinha',
+    'caixinha_invite'
   ).optional(),
   conteudo: Joi.string().optional(),
   notificationId: Joi.string().optional(),

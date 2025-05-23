@@ -164,5 +164,47 @@ const caixinhaSchema = {
         })
     })
   };
+
+  const governanceSchema = Joi.object({
+    type: Joi.string()
+      .valid('ADMIN_CONTROL', 'GROUP_DISPUTE')
+      .required()
+      .messages({
+        'any.only': 'O tipo de governança deve ser ADMIN_CONTROL ou GROUP_DISPUTE'
+      }),
+    
+    quorumType: Joi.string()
+      .valid('PERCENTAGE', 'COUNT')
+      .required()
+      .messages({
+        'any.only': 'O tipo de quórum deve ser PERCENTAGE ou COUNT'
+      }),
+    
+    quorumValue: Joi.number()
+      .when('quorumType', {
+        is: 'PERCENTAGE',
+        then: Joi.number().min(1).max(100).required(),
+        otherwise: Joi.number().min(1).required()
+      })
+      .messages({
+        'number.min': 'O valor do quórum deve ser pelo menos 1',
+        'number.max': 'O percentual de quórum não pode exceder 100%'
+      }),
+    
+    adminHasTiebreaker: Joi.boolean().default(true),
+    canChangeAfterMembers: Joi.boolean().default(false)
+  });
+  
+  // Adicionar ao schema create
+  create: Joi.object({
+    // campos existentes...
+    governanceModel: governanceSchema.optional()
+  });
+  
+  // Adicionar ao schema update
+  update: Joi.object({
+    // campos existentes...
+    governanceModel: governanceSchema.optional()
+  });
   
   module.exports = caixinhaSchema;

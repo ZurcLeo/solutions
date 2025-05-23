@@ -2,6 +2,7 @@ const {getFirestore} = require('../firebaseAdmin');
 const Contribuicao = require('./Contribuicao');
 const User = require('./User'); 
 const { logger } = require('../logger'); 
+const Membro = require('./Membro');
 const db = getFirestore();
 
 class Caixinha {
@@ -16,6 +17,7 @@ class Caixinha {
     this.contribuicao = data.contribuicao || [];
     this.contribuicaoData = data.contribuicaoData || null;
     this.saldoTotal = data.saldoTotal || 0;
+    this.permiteEmprestimos = data.permiteEmprestimos || false;
     this.diaVencimento = data.diaVencimento || 1;
     this.valorMulta = data.valorMulta || 0;
     this.valorJuros = data.valorJuros || 0;
@@ -24,6 +26,13 @@ class Caixinha {
     this.dataCriacao = data.dataCriacao ? new Date(data.dataCriacao) : new Date();
     this.bankAccountActive = data.bankAccountActive || false; //sera true quando o usuario registrar e validar os dados bancarios
     this.bankAccountData = data.bankAccountData || []; //deve conter os dados bancarios completos registrados no modelo bankAccount
+    this.governanceModel = data.governanceModel || {
+      type: 'GROUP_DISPUTE',       // ADMIN_CONTROL ou GROUP_DISPUTE
+      quorumType: 'PERCENTAGE',    // PERCENTAGE ou COUNT
+      quorumValue: 51,             // Valor percentual ou contagem absoluta
+      adminHasTiebreaker: true,    // Admin desempata em caso de empate
+      canChangeAfterMembers: false // Pode mudar governança após ter membros
+    };
   }
 
   static async getAll(userId) {
@@ -90,6 +99,35 @@ class Caixinha {
     }
   }
 
+  async updateGovernanceModel(governanceData) {
+    try {
+      // Verificar se já existem múltiplos membros e se não permite alteração
+      if (
+        this.members.length > 1 &&
+        !this.governanceModel.canChangeAfterMembers &&
+        governanceData.type !== this.governanceModel.type
+      ) {
+        throw new Error('Não é permitido alterar o tipo de governança após a adição de membros');
+      }
+      
+      const updatedModel = {
+        ...this.governanceModel,
+        ...governanceData
+      };
+      
+      return await this.update(this.id, { governanceModel: updatedModel });
+    } catch (error) {
+      logger.error('Erro ao atualizar modelo de governança', {
+        service: 'caixinhaModel',
+        method: 'updateGovernanceModel',
+        error: error.message,
+        stack: error.stack,
+        caixinhaId: this.id
+      });
+      throw error;
+    }
+  }
+
   static async getById(caixinhaId) {
 
     if (!caixinhaId || typeof caixinhaId !== 'string' || !caixinhaId.trim()) {
@@ -103,25 +141,7 @@ class Caixinha {
         throw new Error('Caixinha não encontrada.');
       }
 
-      // Buscar contribuições
-      const contribuicoesSnapshot = await db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('contribuicoes')
-        .get();
-
-      const contribuicoes = [];
-      contribuicoesSnapshot.forEach(doc => {
-        contribuicoes.push(new Contribuicao({ id: doc.id, ...doc.data() }));
-      });
-
-      const data = {
-        id: doc.id,
-        ...doc.data(),
-        contribuicoes 
-      };
-
-      return new Caixinha(data);
+      return new Caixinha({ id: doc.id, ...doc.data() });
     } catch (error) {
       logger.error('Erro ao buscar caixinha com contribuições', {
         service: 'caixinhaModel',
@@ -134,16 +154,21 @@ class Caixinha {
   }
 
   static async create(data) {
+    const adminId = data.adminId;
+    const userDoc = await User.getById(adminId);
+    
     logger.info('Iniciando criação de nova caixinha', {
       service: 'caixinhaModel',
       method: 'create',
       adminId: data.adminId,
-      caixinhaName: data.name
+      caixinhaName: data.name,
+      data,
+      userDoc
     });
-  
+    
     // Iniciar transação
     const batch = db.batch();
-  
+    
     try {
       // 1. Criar a instância da caixinha
       const caixinha = new Caixinha(data);
@@ -151,56 +176,94 @@ class Caixinha {
       // 2. Adicionar documento à coleção caixinhas
       const caixinhaRef = db.collection('caixinhas').doc();
       const caixinhaId = caixinhaRef.id;
-      
-      batch.set(caixinhaRef, { 
-        ...caixinha,
-        id: caixinhaId,
-        members: [],
-        totalMembros: 1, // O administrador é o primeiro membro
-        dataCriacao: caixinha.dataCriacao.toISOString() 
-      });
-  
-      // 3. Adicionar o administrador como membro na subcoleção membros
-      const membroRef = db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('membros')
-        .doc();
-  
-      batch.set(membroRef, {
-        userId: data.adminId,
-        role: 'admin',
-        status: 'ativo',
-        dataEntrada: new Date(),
-        contribuicoes: [],
-        emprestimos: []
-      });
-  
-      // 4. Adicionar referência da caixinha no documento do usuário
       const userRef = db.collection('usuario').doc(data.adminId);
-      const userDoc = await userRef.get();
-      
-      if (!userDoc.exists) {
+    
+      if (!userDoc || !userDoc.id) {
         throw new Error('Usuário administrador não encontrado');
       }
-      
-      const user = userDoc.data();
-      const updatedCaixinhas = [...(user.caixinhas || []), caixinhaId];
-      
-      batch.update(userRef, { 
-        caixinhas: updatedCaixinhas 
+    
+      const user = userDoc.data ? userDoc.data() : userDoc;
+    
+      batch.set(caixinhaRef, {
+        ...caixinha,
+        id: caixinhaId,
+        members: [data.adminId],
+        totalMembros: 1, // O administrador é o primeiro membro
+        dataCriacao: caixinha.dataCriacao.toISOString()
       });
-  
-      // 5. Executar a transação
+    
+      // 3. Criar um novo objeto combinando 'data' e 'user' para criar o membro
+      // Adicione caixinhaId ao objeto de dados
+      const membroData = { 
+        ...data, 
+        ...user, 
+        caixinhaId 
+      };
+      logger.info('membro data: ', membroData)
+      // Criar a referência para o documento de membro
+      const membroRef = db.collection('caixinhas').doc(caixinhaId).collection('membros').doc();
+      const membroId = membroRef.id;
+      
+      // Criar objeto membro
+      const membro = new Membro({
+        ...membroData,
+        memberId: membroId,
+        userId: membroData.adminId || membroData.uid,
+        active: true,
+        email: membroData.email,
+        fotoDoPerfil: membroData.fotoDoPerfil,
+        isAdmin: true,
+        joinedAt: new Date(),
+        role: 'admin'
+      });
+      
+      // Adicionar ao batch diretamente com a referência
+      batch.set(membroRef, { ...membro });
+    
+      // 4. Se permiteEmprestimos for true, criar a subcoleção emprestimos com as configurações
+      if (data.permiteEmprestimos) {
+        const configEmprestimosRef = db
+          .collection('caixinhas')
+          .doc(caixinhaId)
+          .collection('emprestimos')
+          .doc('configuracao');
+    
+        batch.set(configEmprestimosRef, {
+          valorMulta: data.valorMulta || 0,
+          valorJuros: data.valorJuros || 0,
+          limiteEmprestimo: data.limiteEmprestimo || 0,
+          prazoMaximoEmprestimo: data.prazoMaximoEmprestimo || 12,
+          taxaJuros: data.taxaJuros || 0,
+          dataCriacao: new Date().toISOString(),
+          ultimaAtualizacao: new Date().toISOString()
+        });
+    
+        logger.info('Configuração de empréstimos criada', {
+          service: 'caixinhaModel',
+          method: 'create',
+          caixinhaId: caixinhaId,
+          permiteEmprestimos: true
+        });
+      }
+    
+      // 5. Adicionar referência da caixinha no documento do usuário
+      const updatedCaixinhas = [...(user.caixinhas || []), caixinhaId];
+    
+      batch.update(userRef, {
+        caixinhas: updatedCaixinhas
+      });
+    
+      // 6. Executar a transação
       await batch.commit();
-  
+    
       logger.info('Caixinha criada com sucesso', {
         service: 'caixinhaModel',
         method: 'create',
         caixinhaId: caixinhaId,
-        adminId: data.adminId
+        adminId: data.adminId,
+        permiteEmprestimos: data.permiteEmprestimos
       });
-  
+    
       return { ...caixinha, id: caixinhaId };
     } catch (error) {
       logger.error('Erro ao criar caixinha', {
@@ -212,7 +275,7 @@ class Caixinha {
       });
       throw error;
     }
-  }
+ }
 
   static async update(id, data) {
     logger.info('Iniciando atualização de caixinha', {

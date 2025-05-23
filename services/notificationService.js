@@ -86,16 +86,13 @@ const notificationService = {
 
     try {
 
-      const type = notificationData.type;
-      const content = notificationData.content;
-      const url = notificationData.url;
-
-      const notificationRef = Notification.create(userId, type, content, url);
-      await notificationRef.set({
-        ...notificationData,
-        createdAt: FieldValue.serverTimestamp(),
-        lida: false
-      });
+      await Notification.create(
+        userId, 
+        notificationData.type, 
+        notificationData.content, 
+        notificationData.url
+      );
+      
       logger.info('Notificação criada com sucesso', {
         service: 'notificationService',
         function: 'createNotification',

@@ -67,7 +67,7 @@ exports.removeBestFriend = async (req, res) => {
 };
 
 exports.getActiveConnectionById = async (req, res) => {
-  const userId = req.uid;
+  const userId = req.user.uid;
   logger.info('loggando o usuario nas conexoes', userId);
   try {
     const connections = await ActiveConnection.getById(userId);

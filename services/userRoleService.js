@@ -73,29 +73,30 @@ class UserRoleService {
    * @param {string} resourceId - ID do recurso no contexto (opcional)
    * @returns {Promise<Array<UserRole>>} Lista de userRoles
    */
-  async getUserRoles(userId, contextType = null, resourceId = null) {
-    logger.info('Buscando roles do usuário', {
+async getUserRoles(userId, contextType = null, resourceId = null) {
+  logger.info('Buscando roles do usuário', {
+    service: 'userRoleService',
+    function: 'getUserRoles',
+    userId,
+    contextType,
+    resourceId
+  });
+  
+  try {
+    // Usar o modelo para obter as roles
+    return await UserRole.getUserRoles(userId, contextType, resourceId);
+  } catch (error) {
+    logger.error('Erro ao buscar roles do usuário', {
       service: 'userRoleService',
       function: 'getUserRoles',
       userId,
       contextType,
-      resourceId
+      resourceId,
+      error: error.message
     });
-    
-    try {
-      return await UserRole.getUserRoles(userId, contextType, resourceId);
-    } catch (error) {
-      logger.error('Erro ao buscar roles do usuário', {
-        service: 'userRoleService',
-        function: 'getUserRoles',
-        userId,
-        contextType,
-        resourceId,
-        error: error.message
-      });
-      throw error;
-    }
+    throw error;
   }
+}
 
   /**
    * Valida uma role de usuário

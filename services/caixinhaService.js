@@ -2,11 +2,9 @@
 const { logger } = require('../logger');
 const Caixinha = require('../models/Caixinhas');
 
-
-// Busca de todas as caixinhas
 const getAllCaixinhas = async (userId) => {
   if (!userId) {
-    throw new Error('ID do usuário não fornecido');
+    throw new Error('ID do usuário não fornecido 2');
   } else {
   try {
     // Recupera todas as caixinhas do banco de dados
@@ -30,7 +28,6 @@ const getAllCaixinhas = async (userId) => {
 }
 }
 
-// Criação de uma nova caixinha
 const createCaixinha = async (data) => {
   try {
     const caixinha = await Caixinha.create(data);
@@ -53,14 +50,14 @@ const createCaixinha = async (data) => {
 };
 
 // Busca de caixinha por ID
-const getCaixinhaById = async (id) => {
+const getCaixinhaById = async (caixinhaId) => {
   try {
-    const caixinha = await Caixinha.getById(id);
+    const caixinha = await Caixinha.getById(caixinhaId);
     
     logger.info('Caixinha encontrada', {
       service: 'caixinhaService',
       method: 'getCaixinhaById',
-      caixinhaId: id
+      caixinhaId
     });
     
     return caixinha;
@@ -68,7 +65,7 @@ const getCaixinhaById = async (id) => {
     logger.error('Erro ao buscar caixinha', {
       service: 'caixinhaService',
       method: 'getCaixinhaById',
-      caixinhaId: id,
+      caixinhaId,
       error: error.message
     });
     throw error;
@@ -124,12 +121,12 @@ const addMembro = async (caixinhaId, userId) => {
   try {
     const caixinha = await Caixinha.getById(caixinhaId);
     
-    if (caixinha.membros.includes(userId)) {
+    if (caixinha.members.includes(userId)) {
       throw new Error('Usuário já é membro desta caixinha');
     }
     
     const updatedCaixinha = await Caixinha.update(caixinhaId, {
-      membros: [...caixinha.membros, userId]
+      membros: [...caixinha.members, userId]
     });
     
     logger.info('Membro adicionado com sucesso', {

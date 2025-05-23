@@ -3,7 +3,7 @@ const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const LocalStorageService = require('../services/LocalStorageService')
 const FirestoreService = require('../utils/firestoreService');
-const dbServiceUserRole = LocalStorageService.collection('roles');
+const dbServiceUserRole = LocalStorageService.collection('user_roles');
 const User = require('./User');
 const Role = require('./Role');
 const RolePermission = require('./RolePermission');
@@ -41,53 +41,86 @@ class UserRole {
     };
   }
 
-  static async getUserRoles(userId, contextType = null, resourceId = null) {
-    try {
-      let query = dbServiceUserRole.where('userId', '==', userId);
-      
-      // Filtrar por tipo de contexto se fornecido
-      if (contextType) {
-        query = query.where('context.type', '==', contextType);
-      }
-      
-      // Executar a query
-      const userRolesCollection = await query.get();
-      
-      // Filtrar por resourceId se fornecido (precisa ser feito em memória)
-      let userRoles = userRolesCollection.docs.map(doc => {
-        const userRoleData = doc.data();
-        userRoleData.id = doc.id;
-        return new UserRole(userRoleData);
-      });
-      
-      if (resourceId && contextType) {
-        userRoles = userRoles.filter(userRole => 
-          userRole.context.resourceId === resourceId
-        );
-      }
+  // No modelo UserRole.js
+static async getUserRoles(userId, contextType = null, resourceId = null) {
+  try {
+    logger.info('Buscando roles do usuário', { 
+      service: 'userRoleModel', 
+      function: 'getUserRoles', 
+      userId,
+      contextType,
+      resourceId
+    });
 
-      logger.info('Roles do usuário obtidas com sucesso', { 
-        service: 'userRoleModel', 
-        function: 'getUserRoles', 
-        userId,
-        contextType,
-        resourceId,
-        count: userRoles.length 
+    // Buscar o usuário no modelo User
+    const user = await User.getById(userId);
+    
+    if (!user) {
+      logger.warn('Usuário não encontrado ao buscar roles', {
+        service: 'userRoleModel',
+        function: 'getUserRoles',
+        userId
       });
-      
-      return userRoles;
-    } catch (error) {
-      logger.error('Erro ao buscar roles do usuário', { 
-        service: 'userRoleModel', 
-        function: 'getUserRoles', 
-        userId,
-        contextType,
-        resourceId,
-        error: error.message 
-      });
-      throw error;
+      return [];
     }
+    
+    // Obter as roles do objeto user
+    const userRoles = user.roles || {};
+    
+    // Converter o objeto de roles para um array de UserRole
+    const userRoleArray = Object.entries(userRoles).map(([roleId, roleData]) => {
+      return new UserRole({
+        id: `${userId}_${roleId}`, // Criar um ID composto
+        userId: userId,
+        roleId: roleId,
+        roleName: roleData.roleName || roleData.name || roleId,
+        context: roleData.context || { type: 'global', resourceId: null },
+        validationStatus: roleData.validationStatus || 'pending',
+        validatedAt: roleData.validatedAt || null,
+        expiresAt: roleData.expiresAt || null,
+        createdAt: roleData.assignedAt || new Date(),
+        updatedAt: roleData.updatedAt || roleData.assignedAt || new Date(),
+        metadata: roleData.metadata || {}
+      });
+    });
+    
+    // Filtrar por contexto e resourceId se fornecidos
+    let filteredRoles = userRoleArray;
+    
+    if (contextType) {
+      filteredRoles = filteredRoles.filter(role => 
+        role.context && role.context.type === contextType
+      );
+    }
+    
+    if (resourceId && contextType) {
+      filteredRoles = filteredRoles.filter(role => 
+        role.context && role.context.resourceId === resourceId
+      );
+    }
+    
+    logger.info('Roles do usuário obtidas com sucesso', { 
+      service: 'userRoleModel', 
+      function: 'getUserRoles', 
+      userId,
+      contextType,
+      resourceId,
+      count: filteredRoles.length 
+    });
+    
+    return filteredRoles;
+  } catch (error) {
+    logger.error('Erro ao buscar roles do usuário', { 
+      service: 'userRoleModel', 
+      function: 'getUserRoles', 
+      userId,
+      contextType,
+      resourceId,
+      error: error.message 
+    });
+    throw error;
   }
+}
 
   static async getById(userRoleId) {
     if (!userRoleId) {
@@ -128,10 +161,79 @@ class UserRole {
 
   static async assignRoleToUser(userId, roleId, context = { type: 'global', resourceId: null }, options = {}) {
     try {
-      return await User.addRole(userId, roleId, context, options);
+      logger.info('Iniciando atribuição de role ao usuário', {
+        service: 'userRoleModel',
+        function: 'assignRoleToUser',
+        userId,
+        roleId
+      });
+  
+      // 1. Obter a role do LocalStorage
+      const roleDoc = await dbServiceRole.doc(roleId).get();
+      
+      if (!roleDoc.exists) {
+        throw new Error(`Role ${roleId} não encontrada`);
+      }
+      
+      const roleData = roleDoc.data();
+      
+      // 2. Criar o registro da userRole no LocalStorage para rastreamento
+      const userRoleData = {
+        userId,
+        roleId,
+        roleName: roleData.name,
+        context: context || { type: 'global', resourceId: null },
+        validationStatus: options.validationStatus || 'pending',
+        validatedAt: options.validationStatus === 'validated' ? new Date().toISOString() : null,
+        validationData: options.validationData || null,
+        expiresAt: options.expiresAt || null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: options.createdBy || null,
+        metadata: options.metadata || {}
+      };
+      
+      // Gerar ID único para o userRole
+      const userRoleId = `${userId}_${roleId}_${Date.now()}`;
+      await dbServiceUserRole.doc(userRoleId).set(userRoleData);
+      
+      // 3. Atualizar o objeto do usuário no Firestore
+      const db = require('../firebaseAdmin').getFirestore();
+      const userRef = db.collection('usuario').doc(userId);
+      const userDoc = await userRef.get();
+      
+      if (!userDoc.exists) {
+        throw new Error('Usuário não encontrado');
+      }
+      
+      // 4. Construir o objeto de role para salvar no perfil do usuário
+      const userRole = {
+        roleId,
+        roleName: roleData.name,
+        context: context || { type: 'global', resourceId: null },
+        validationStatus: options.validationStatus || 'pending',
+        assignedAt: new Date().toISOString(),
+        metadata: options.metadata || {}
+      };
+      
+      // 5. Atualizar o documento do usuário
+      await userRef.update({
+        [`roles.${roleId}`]: userRole
+      });
+      
+      logger.info('Role atribuída ao usuário com sucesso', {
+        service: 'userRoleModel',
+        function: 'assignRoleToUser',
+        userId,
+        roleId,
+        userRoleId
+      });
+      
+      // Retornar o objeto completo com ID
+      return { id: userRoleId, ...userRoleData };
     } catch (error) {
       logger.error('Erro ao atribuir role ao usuário', {
-        service: 'userRoleService',
+        service: 'userRoleModel',
         function: 'assignRoleToUser',
         userId,
         roleId,

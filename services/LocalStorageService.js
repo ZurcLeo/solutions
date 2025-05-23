@@ -75,36 +75,50 @@ class LocalCollection {
   }
 
   // Obter um documento por ID
-  async doc(id) {
-    try {
-      const data = await this._loadData();
+doc(id) {
+  const self = this;
+  
+  return {
+    id,
+    async get() {
+      const data = await self._loadData();
       
       return {
         id,
-        async get() {
-          return {
-            id,
-            data: () => data[id] || null,
-            exists: !!data[id]
-          };
-        },
-        async set(docData) {
-          const updatedData = { ...data };
-          updatedData[id] = { ...docData };
-          await this._parent._saveData(updatedData);
-          return true;
-        },
-        _parent: this
+        data: () => data[id] || null,
+        exists: !!data[id]
       };
-    } catch (error) {
-      logger.error(`Erro ao obter documento ${id} da coleção ${this.collectionName}`, {
-        service: 'LocalCollection',
-        function: 'doc',
-        error: error.message
-      });
-      throw error;
-    }
-  }
+    },
+    async update(updateData) {
+      const data = await self._loadData();
+      
+      if (!data[id]) {
+        throw new Error(`Documento ${id} não encontrado na coleção ${self.collectionName}`);
+      }
+      
+      // Mesclar dados atuais com atualizações
+      data[id] = { ...data[id], ...updateData };
+      await self._saveData(data);
+      return true;
+    },
+    async set(docData) {
+      const data = await self._loadData();
+      data[id] = { ...docData };
+      await self._saveData(data);
+      return true;
+    },
+    async delete() {
+      const data = await self._loadData();
+      if (data[id]) {
+        delete data[id];
+        await self._saveData(data);
+      }
+      return true;
+    },
+    // Referência para a coleção pai
+    _parent: self
+  };
+}
 
   // Simular queries - muito simplificado
   where(field, operator, value) {

@@ -1,5 +1,6 @@
 // src/controllers/caixinhaController.js
 const { logger } = require('../logger');
+const Membro = require('../models/Membro')
 const CaixinhaService = require('../services/caixinhaService');
 const ContribuicaoService = require('../services/contribuicaoService');
 const MembrosService = require('../services/membrosService');
@@ -11,7 +12,7 @@ const TransactionService = require('../services/transactionService');
 
 const getCaixinhas = async (req, res) => {
 
-  const {userId} = req.params;
+  const userId = req.user.uid;
     // Log the start of the request
     logger.info('Iniciando busca de caixinhas', {
       controller: 'CaixinhaController',
@@ -34,7 +35,7 @@ const getCaixinhas = async (req, res) => {
       logger.info('Caixinhas recuperadas com sucesso', {
         controller: 'CaixinhaController',
         method: 'getCaixinhas',
-        userId: req.user.uid,
+        userId,
         count: caixinhas.length
       });
   
@@ -48,7 +49,7 @@ const getCaixinhas = async (req, res) => {
         method: 'getCaixinhas',
         error: error.message,
         stack: error.stack,
-        userId: req.user?.uid
+        userId: req.user?.ucaixinhaId
       });
   
       return res.status(500).json({
@@ -73,7 +74,7 @@ const getCaixinhas = async (req, res) => {
         caixinhaId,
         acao,
         emprestimoId,
-        userId: req.user.uid
+        userId: req.user.ucaixinhaId
       });
 
       let resultado;
@@ -84,7 +85,7 @@ const getCaixinhas = async (req, res) => {
             caixinhaId,
             {
               ...dados,
-              usuarioId: req.user.uid
+              membroId: req.user.uid
             }
           );
           break;
@@ -114,7 +115,7 @@ const getCaixinhas = async (req, res) => {
           break;
 
         default:
-          throw new Error('Ação inválida');
+          throw new Error('Ação inválcaixinhaIda');
       }
 
       res.status(200).json(resultado);
@@ -148,7 +149,7 @@ const getCaixinhas = async (req, res) => {
         caixinhaId,
         tipo,
         filtros,
-        userId: req.user.uid
+        userId: req.user.ucaixinhaId
       });
 
       let relatorio;
@@ -171,7 +172,7 @@ const getCaixinhas = async (req, res) => {
           break;
 
         default:
-          throw new Error('Tipo de relatório inválido');
+          throw new Error('Tipo de relatório inválcaixinhaIdo');
       }
 
       res.status(200).json(relatorio);
@@ -202,7 +203,7 @@ const getCaixinhas = async (req, res) => {
         controller: 'CaixinhaController',
         method: 'verificarConfiguracoes',
         caixinhaId,
-        userId: req.user.uid
+        userId: req.user.ucaixinhaId
       });
 
       const configuracoes = await CaixinhaService.getConfiguracoes(caixinhaId);
@@ -228,22 +229,22 @@ const getCaixinhas = async (req, res) => {
    * Busca uma caixinha específica por ID
    */
   const getCaixinhaById = async (req, res) => {
-    const { id } = req.params;
+    const { caixinhaId } = req.params;
   
-    if (!id || typeof id !== 'string' || !id.trim()) {
-      logger.warn('ID da caixinha ausente ou inválido', { controller: 'CaixinhaController', method: 'getCaixinhaById' });
+    if (!caixinhaId || typeof caixinhaId !== 'string' || !caixinhaId.trim()) {
+      logger.warn('ID da caixinha ausente ou inválcaixinhaIdo', { controller: 'CaixinhaController', method: 'getCaixinhaById' });
       return res.status(400).json({ message: 'ID da caixinha é obrigatório.' });
     }
-  
+
     try {
-      const caixinha = await CaixinhaService.getCaixinhaById(id);
+      const caixinha = await CaixinhaService.getCaixinhaById(caixinhaId);
       if (!caixinha) {
         return res.status(404).json({ message: 'Caixinha não encontrada' });
       }
   
       res.status(200).json(caixinha);
     } catch (error) {
-      logger.error('Erro ao buscar caixinha', { controller: 'CaixinhaController', method: 'getCaixinhaById', caixinhaId: id, error: error.message });
+      logger.error('Erro ao buscar caixinha', { controller: 'CaixinhaController', method: 'getCaixinhaById', caixinhaId: caixinhaId, error: error.message });
       res.status(500).json({ message: 'Erro ao buscar caixinha', error: error.message });
     }
   };
@@ -286,25 +287,25 @@ const getCaixinhas = async (req, res) => {
    * Atualiza uma caixinha existente
    */
  const updateCaixinha = async (req, res) => {
-    const { id } = req.params;
+    const { caixinhaId } = req.params;
 
     try {
       logger.info('Atualizando caixinha', {
         controller: 'CaixinhaController',
         method: 'updateCaixinha',
-        caixinhaId: id,
-        userId: req.user.uid,
+        caixinhaId: caixinhaId,
+        userId: req.user.ucaixinhaId,
         data: req.body
       });
 
-      const caixinha = await CaixinhaService.updateCaixinha(id, req.body);
+      const caixinha = await CaixinhaService.updateCaixinha(caixinhaId, req.body);
       
       res.status(200).json(caixinha);
     } catch (error) {
       logger.error('Erro ao atualizar caixinha', {
         controller: 'CaixinhaController',
         method: 'updateCaixinha',
-        caixinhaId: id,
+        caixinhaId: caixinhaId,
         error: error.message,
         stack: error.stack
       });
@@ -320,24 +321,24 @@ const getCaixinhas = async (req, res) => {
    * Remove uma caixinha
    */
  const deleteCaixinha = async (req, res) => {
-    const { id } = req.params;
+    const { caixinhaId } = req.params;
 
     try {
       logger.info('Removendo caixinha', {
         controller: 'CaixinhaController',
         method: 'deleteCaixinha',
-        caixinhaId: id,
-        userId: req.user.uid
+        caixinhaId: caixinhaId,
+        userId: req.user.ucaixinhaId
       });
 
-      await CaixinhaService.deleteCaixinha(id);
+      await CaixinhaService.deleteCaixinha(caixinhaId);
       
-      res.status(200).json({ message: 'Caixinha removida com sucesso' });
+      res.status(200).json({ message: 'Caixinha removcaixinhaIda com sucesso' });
     } catch (error) {
       logger.error('Erro ao remover caixinha', {
         controller: 'CaixinhaController',
         method: 'deleteCaixinha',
-        caixinhaId: id,
+        caixinhaId: caixinhaId,
         error: error.message,
         stack: error.stack
       });
@@ -360,7 +361,7 @@ const getCaixinhas = async (req, res) => {
         controller: 'CaixinhaController',
         method: 'addContribuicao',
         caixinhaId,
-        userId: req.user.uid,
+        userId: req.user.ucaixinhaId,
         data: req.body
       });
 
@@ -368,7 +369,7 @@ const getCaixinhas = async (req, res) => {
         caixinhaId,
         {
           ...req.body,
-          usuarioId: req.user.uid
+          membroId: req.user.ucaixinhaId
         }
       );
 
@@ -389,10 +390,31 @@ const getCaixinhas = async (req, res) => {
     }
   }
 
+/**
+ * Obtém convites enviados pelo usuário
+ * @param {Object} req - Objeto de requisição
+ * @param {Object} res - Objeto de resposta
+ */
+const getMembers = async (req, res) => {
+  try {
+    const {caixinhaId} = req.params; // Obtido do middleware de autenticação
+    
+    const membros = await Membro.getAllByCaixinhaId(caixinhaId);
+    
+    res.status(200).json(membros);
+  } catch (error) {
+    console.error('Erro ao buscar membros:', error);
+    res.status(400).json({ 
+      success: false, 
+      message: error.message || 'Erro ao buscar membros.'
+    });
+  }
+};
+
   /**
  * Gerencia membros da caixinha
  */
- const gerenciarMembros = async (req, res) => {
+const gerenciarMembros = async (req, res) => {
     const { caixinhaId } = req.params; // ID da caixinha
     const { acao, membroId, dados } = req.body; // Detalhes da ação, membro e dados adicionais
   
@@ -404,7 +426,7 @@ const getCaixinhas = async (req, res) => {
         caixinhaId,
         acao,
         membroId,
-        userId: req.user?.uid // Verificação segura do UID do usuário
+        userId: req.user?.ucaixinhaId // Verificação segura do UID do usuário
       });
   
       let resultado;
@@ -422,7 +444,7 @@ const getCaixinhas = async (req, res) => {
           resultado = await MembrosService.atualizarStatusMembro(
             caixinhaId,
             membroId,
-            dados?.novoStatus, // Novo status fornecido
+            dados?.novoStatus, // Novo status forneccaixinhaIdo
             dados?.motivo // Motivo da alteração
           );
           break;
@@ -431,7 +453,7 @@ const getCaixinhas = async (req, res) => {
           resultado = await MembrosService.removerMembro(
             caixinhaId,
             membroId,
-            dados?.motivo // Motivo da remoção, se fornecido
+            dados?.motivo // Motivo da remoção, se forneccaixinhaIdo
           );
           break;
   
@@ -439,12 +461,12 @@ const getCaixinhas = async (req, res) => {
           resultado = await MembrosService.transferirAdministracao(
             caixinhaId,
             membroId,
-            dados?.motivo // Motivo da transferência, se fornecido
+            dados?.motivo // Motivo da transferência, se forneccaixinhaIdo
           );
           break;
   
-        default: // Ação inválida
-          throw new Error('Ação inválida'); // Lança erro para ações não reconhecidas
+        default: // Ação inválcaixinhaIda
+          throw new Error('Ação inválcaixinhaIda'); // Lança erro para ações não reconheccaixinhaIdas
       }
   
       // Log de sucesso e resposta para o cliente
@@ -493,5 +515,6 @@ const getCaixinhas = async (req, res) => {
     updateCaixinha,
     deleteCaixinha,
     addContribuicao,
+    getMembers,
     gerenciarMembros
   }

@@ -189,75 +189,79 @@ class Message {
     }
   }
 
-  /**
+/**
    * Atualiza as referências de conversa nos documentos de usuário
    * @private
    */
-  static async updateUserConversationReferences(conversationId, sender, recipient, content, timestamp) {
-    const batch = db.batch();
-    
-    try {
-      // Buscar dados dos usuários para exibição
-      const [senderDoc, recipientDoc] = await Promise.all([
-        db.collection('usuario').doc(sender).get(),
-        db.collection('usuario').doc(recipient).get()
-      ]);
-      
-      const senderData = senderDoc.exists ? senderDoc.data() : {};
-      const recipientData = recipientDoc.exists ? recipientDoc.data() : {};
-      
-      // Preparar dados para o remetente (usando campo "conversas" em português)
-      const senderUpdate = {
-        [`conversas.${conversationId}`]: {
+static async updateUserConversationReferences(conversationId, sender, recipient, content, timestamp) {
+  const batch = db.batch();
+
+  try {
+    // Buscar dados dos usuários para exibição
+    const [senderDoc, recipientDoc] = await Promise.all([
+      db.collection('usuario').doc(sender).get(),
+      db.collection('usuario').doc(recipient).get()
+    ]);
+
+    const senderData = senderDoc.exists ? senderDoc.data() : {};
+    const recipientData = recipientDoc.exists ? recipientDoc.data() : {};
+
+    // Preparar dados para o remetente (usando campo "conversas" em português)
+    const senderUpdate = {
+      conversas: {
+        [conversationId]: { // Usando chaves computadas aqui
           com: recipient,
           nome: recipientData.nome || recipientData.displayName || '',
           foto: recipientData.fotoDoPerfil || '',
           naoLidas: 0, // Remetente já "leu" sua própria mensagem
           ultimoAcesso: timestamp
         }
-      };
-      
-      // Preparar dados para o destinatário (incrementar não lidas)
-      const currentUnreadCount = 
-        (recipientData.conversas && 
-         recipientData.conversas[conversationId] && 
-         recipientData.conversas[conversationId].naoLidas) || 0;
-      
-      const recipientUpdate = {
-        [`conversas.${conversationId}`]: {
+      }
+    };
+
+    // Preparar dados para o destinatário (incrementar não lidas)
+    const currentUnreadCount =
+      (recipientData.conversas &&
+       recipientData.conversas[conversationId] &&
+       recipientData.conversas[conversationId].naoLidas) || 0;
+
+    const recipientUpdate = {
+      conversas: {
+        [conversationId]: { // Usando chaves computadas aqui
           com: sender,
           nome: senderData.nome || senderData.displayName || '',
           foto: senderData.fotoDoPerfil || '',
           naoLidas: currentUnreadCount + 1,
-          ultimoAcesso: recipientData.conversas && 
-                      recipientData.conversas[conversationId] && 
-                      recipientData.conversas[conversationId].ultimoAcesso || null
+          ultimoAcesso: recipientData.conversas &&
+                      recipientData.conversas[conversationId] &&
+                      recipientData.conversas[conversationId].ultimoAcesso || timestamp // Atualizado para usar timestamp se não existir
         }
-      };
-      
-      // Atualizar o documento de metadados da conversa com a última mensagem
-      const conversationUpdate = {
-        ultimaAtualizacao: timestamp,
-        ultimaMensagem: {
-          texto: content.substring(0, 100), // Limite de caracteres para preview
-          timestamp,
-          remetente: sender
-        }
-      };
-      
-      // Aplicar atualizações nos documentos de usuário
-      batch.set(db.collection('usuario').doc(sender), senderUpdate, { merge: true });
-      batch.set(db.collection('usuario').doc(recipient), recipientUpdate, { merge: true });
-      
-      // Atualizar documento de metadados da conversa
-      batch.update(db.collection('conversations').doc(conversationId), conversationUpdate);
-      
-      await batch.commit();
-    } catch (error) {
-      console.error('Erro ao atualizar referências de conversa:', error);
-      throw error;
-    }
+      }
+    };
+
+    // Atualizar o documento de metadados da conversa com a última mensagem
+    const conversationUpdate = {
+      ultimaAtualizacao: timestamp,
+      ultimaMensagem: {
+        texto: content.substring(0, 100), // Limite de caracteres para preview
+        timestamp,
+        remetente: sender
+      }
+    };
+
+    // Aplicar atualizações nos documentos de usuário
+    batch.set(db.collection('usuario').doc(sender), senderUpdate, { merge: true });
+    batch.set(db.collection('usuario').doc(recipient), recipientUpdate, { merge: true });
+
+    // Atualizar documento de metadados da conversa
+    batch.update(db.collection('conversations').doc(conversationId), conversationUpdate);
+
+    await batch.commit();
+  } catch (error) {
+    console.error('Erro ao atualizar referências de conversa:', error);
+    throw error;
   }
+}
 
   static async checkConversationExists(conversationId) {
     try {
