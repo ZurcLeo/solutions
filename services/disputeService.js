@@ -4,9 +4,9 @@ const Dispute = require('../models/Dispute');
 const Caixinha = require('../models/Caixinhas');
 
 // Processa o resultado de uma disputa baseada nos votos atuais
-const processDisputeResult = async (disputeId) => {
+const processDisputeResult = async (caixinhaId, disputeId) => {
   try {
-    const dispute = await Dispute.getById(disputeId);
+    const dispute = await Dispute.getById(caixinhaId, disputeId);
     const caixinha = await Caixinha.getById(dispute.caixinhaId);
     
     // Se a disputa já estiver resolvida, não fazer nada
@@ -17,7 +17,7 @@ const processDisputeResult = async (disputeId) => {
     // Verificar se expirou
     const now = new Date();
     if (new Date(dispute.expiresAt) < now) {
-      return await Dispute.update(disputeId, {
+      return await Dispute.update(caixinhaId, disputeId, {
         status: 'EXPIRED',
         resolvedAt: now.toISOString()
       });
@@ -65,7 +65,7 @@ const processDisputeResult = async (disputeId) => {
     // Atualizar status
     const newStatus = isApproved ? 'APPROVED' : 'REJECTED';
     
-    const updatedDispute = await Dispute.update(disputeId, {
+    const updatedDispute = await Dispute.update(caixinhaId, disputeId, {
       status: newStatus,
       resolvedAt: now.toISOString()
     });
@@ -198,9 +198,9 @@ const getDisputes = async (caixinhaId, status) => {
 };
 
 // Busca uma disputa específica
-const getDisputeById = async (disputeId) => {
+const getDisputeById = async (caixinhaId, disputeId) => {
   try {
-    return await Dispute.getById(disputeId);
+    return await Dispute.getById(caixinhaId, disputeId);
   } catch (error) {
     logger.error('Erro ao buscar disputa', {
       service: 'disputeService',
@@ -255,10 +255,10 @@ const voteOnDispute = async (caixinhaId, disputeId, voteData) => {
     }
     
     // Registrar o voto
-    await Dispute.addVote(disputeId, voteData);
+    await Dispute.addVote(caixinhaId, disputeId, voteData);
     
     // Processar resultado
-    const updatedDispute = await processDisputeResult(disputeId);
+    const updatedDispute = await processDisputeResult(caixinhaId, disputeId);
     
     logger.info('Voto registrado com sucesso', {
       service: 'disputeService',
@@ -286,7 +286,7 @@ const voteOnDispute = async (caixinhaId, disputeId, voteData) => {
 // Cancela uma disputa
 const cancelDispute = async (caixinhaId, disputeId, userId, reason) => {
   try {
-    const dispute = await Dispute.getById(disputeId);
+    const dispute = await Dispute.getById(caixinhaId, disputeId);
     const caixinha = await Caixinha.getById(caixinhaId);
     
     // Verificar permissão para cancelar
@@ -298,7 +298,7 @@ const cancelDispute = async (caixinhaId, disputeId, userId, reason) => {
     }
     
     // Atualizar status da disputa
-    const updatedDispute = await Dispute.update(disputeId, {
+    const updatedDispute = await Dispute.update(caixinhaId, disputeId, {
       status: 'CANCELLED',
       resolvedAt: new Date().toISOString(),
       cancelledBy: userId,
@@ -377,6 +377,80 @@ const createRuleChangeDispute = async (caixinhaId, userId, currentRules, propose
   }
 };
 
+// Obter informações de votação de uma disputa específica
+const getDisputeVoteInfo = async (caixinhaId, disputeId, userId) => {
+  try {
+    const dispute = await Dispute.getById(caixinhaId, disputeId);
+    if (!dispute) {
+      throw new Error('Disputa não encontrada');
+    }
+    
+    // Verificar se o usuário já votou
+    const hasUserVoted = dispute.votes.some(vote => vote.userId === userId);
+    const userVote = dispute.votes.find(vote => vote.userId === userId);
+    
+    // Calcular estatísticas de votação
+    const totalVotes = dispute.votes.length;
+    const positiveVotes = dispute.votes.filter(vote => vote.vote === true).length;
+    const negativeVotes = dispute.votes.filter(vote => vote.vote === false).length;
+    
+    // Obter informações da caixinha para calcular quórum
+    const caixinha = await Caixinha.getById(caixinhaId);
+    const totalMembers = caixinha.members.length;
+    const quorumPercentage = (totalVotes / totalMembers) * 100;
+    
+    // Verificar se a disputa ainda está ativa
+    const now = new Date();
+    const isExpired = new Date(dispute.expiresAt) < now;
+    const isActive = dispute.status === 'OPEN' && !isExpired;
+    
+    const voteInfo = {
+      disputeId: dispute.id,
+      status: dispute.status,
+      isActive,
+      isExpired,
+      expiresAt: dispute.expiresAt,
+      hasUserVoted,
+      userVote: userVote ? {
+        vote: userVote.vote,
+        comment: userVote.comment,
+        timestamp: userVote.timestamp
+      } : null,
+      statistics: {
+        totalVotes,
+        positiveVotes,
+        negativeVotes,
+        totalMembers,
+        quorumPercentage: Math.round(quorumPercentage * 100) / 100
+      },
+      canVote: isActive && !hasUserVoted
+    };
+    
+    logger.info('Informações de votação obtidas com sucesso', {
+      service: 'disputeService',
+      method: 'getDisputeVoteInfo',
+      caixinhaId,
+      disputeId,
+      userId,
+      hasUserVoted,
+      canVote: voteInfo.canVote
+    });
+    
+    return voteInfo;
+  } catch (error) {
+    logger.error('Erro ao obter informações de votação', {
+      service: 'disputeService',
+      method: 'getDisputeVoteInfo',
+      error: error.message,
+      stack: error.stack,
+      caixinhaId,
+      disputeId,
+      userId
+    });
+    throw error;
+  }
+};
+
 module.exports = {
   getDisputes,
   getDisputeById,
@@ -385,5 +459,6 @@ module.exports = {
   cancelDispute,
   checkDisputeRequirement,
   createRuleChangeDispute,
-  processDisputeResult
+  processDisputeResult,
+  getDisputeVoteInfo
 };

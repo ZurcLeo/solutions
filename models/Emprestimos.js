@@ -7,20 +7,20 @@ class Emprestimos {
     this.id = data.id || null;
     this.caixinhaId = data.caixinhaId;
     this.memberId = data.memberId;
-    this.valorSolicitado = data.valorSolicitado;
+    this.valorSolicitado = parseFloat(data.valorSolicitado) || 0;
     this.dataSolicitacao = data.dataSolicitacao instanceof Date ? 
       data.dataSolicitacao : new Date(data.dataSolicitacao || Date.now());
     this.status = data.status || 'pendente';
     this.votos = data.votos || {};
-    this.prazoMeses = data.prazoMeses || 12;
+    this.prazoMeses = parseInt(data.prazoMeses) || 12;
     this.parcelas = data.parcelas || [];
-    this.valorTotal = data.valorTotal || this.valorSolicitado; // Será calculado com juros
-    this.taxaJurosAplicada = data.taxaJurosAplicada || 0;
-    this.valorMultaAplicada = data.valorMultaAplicada || 0;
-    this.dataAprovacao = data.dataAprovacao || null;
-    this.dataRejeitacao = data.dataRejeitacao || null;
+    this.valorTotal = parseFloat(data.valorTotal) || this.valorSolicitado;
+    this.taxaJurosAplicada = parseFloat(data.taxaJurosAplicada) || 0;
+    this.valorMultaAplicada = parseFloat(data.valorMultaAplicada) || 0;
+    this.dataAprovacao = data.dataAprovacao ? new Date(data.dataAprovacao) : null;
+    this.dataRejeitacao = data.dataRejeitacao ? new Date(data.dataRejeitacao) : null;
     this.motivoRejeitacao = data.motivoRejeitacao || '';
-    this.dataQuitacao = data.dataQuitacao || null;
+    this.dataQuitacao = data.dataQuitacao ? new Date(data.dataQuitacao) : null;
   }
 
   // Método para obter a configuração de empréstimos da caixinha
@@ -110,8 +110,7 @@ class Emprestimos {
       let query = db
         .collection('caixinhas')
         .doc(caixinhaId)
-        .collection('emprestimos')
-        .where('id', '!=', 'configuracao');
+        .collection('emprestimos');
       
       // Aplicar filtros se fornecidos
       if (filtros.status) {
@@ -119,11 +118,11 @@ class Emprestimos {
       }
       
       if (filtros.userId) {
-        query = query.where('userId', '==', filtros.userId);
+        query = query.where('memberId', '==', filtros.userId);
       }
       
-      // Ordenar por data de solicitação (mais recentes primeiro)
-      query = query.orderBy('dataSolicitacao', 'desc');
+      // Não ordenar na query para evitar problemas com índices
+      // A ordenação será feita depois em memória
       
       const snapshot = await query.get();
       
@@ -133,6 +132,13 @@ class Emprestimos {
         if (doc.id !== 'configuracao') {
           emprestimos.push(new Emprestimos({ id: doc.id, ...doc.data() }));
         }
+      });
+      
+      // Ordenar em memória por data de solicitação (mais recentes primeiro)
+      emprestimos.sort((a, b) => {
+        const dateA = new Date(a.dataSolicitacao);
+        const dateB = new Date(b.dataSolicitacao);
+        return dateB - dateA; // Ordem decrescente
       });
       
       logger.info('Empréstimos recuperados com sucesso', {
@@ -239,23 +245,30 @@ class Emprestimos {
         throw new Error('Configuração de empréstimos não encontrada');
       }
       
+      // Normalizar os dados de entrada
+      const valorSolicitado = parseFloat(data.valor || data.valorSolicitado);
+      const prazoMeses = parseInt(data.parcelas || data.prazoMeses || 12);
+      
       // Verificar limite de empréstimo
-      if (configuracao.limiteEmprestimo > 0 && data.valorSolicitado > configuracao.limiteEmprestimo) {
+      if (configuracao.limiteEmprestimo > 0 && valorSolicitado > configuracao.limiteEmprestimo) {
         throw new Error(`O valor solicitado excede o limite de empréstimo (${configuracao.limiteEmprestimo})`);
       }
       
       // Verificar prazo máximo
-      if (data.prazoMeses > configuracao.prazoMaximoEmprestimo) {
+      if (prazoMeses > configuracao.prazoMaximoEmprestimo) {
         throw new Error(`O prazo solicitado excede o prazo máximo permitido (${configuracao.prazoMaximoEmprestimo} meses)`);
       }
       
       // Calcular valor total com juros
       const taxaJuros = parseFloat(configuracao.taxaJuros || 0);
-      const valorTotal = data.valorSolicitado * (1 + (taxaJuros / 100) * (data.prazoMeses / 12));
+      const valorTotal = valorSolicitado * (1 + (taxaJuros / 100) * (prazoMeses / 12));
       
       // Criar objeto de empréstimo
       const emprestimo = new Emprestimos({
         ...data,
+        memberId: data.userId,
+        valorSolicitado,
+        prazoMeses,
         caixinhaId,
         dataSolicitacao: new Date(),
         status: 'pendente',

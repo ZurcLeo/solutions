@@ -20,7 +20,8 @@ module.exports = (app) => {
     { path: '/api/recaptcha', handler: require('../../routes/recaptcha') },
     { path: '/api/users', handler: require('../../routes/user') },
     { path: '/api/video-sdk', handler: require('../../routes/videosdk') },
-    { path: '/api/connections', handler: require('../../routes/connections') }
+    { path: '/api/connections', handler: require('../../routes/connections') },
+    { path: '/api/webhook', handler: require('../../routes/webhook') }
     // Adicione todas as outras rotas aqui
   ];
 

@@ -830,6 +830,66 @@ router.post('/:caixinhaId/disputes',
 /**
  * @swagger
  * /caixinha/{caixinhaId}/disputes/{disputeId}/vote:
+ *   get:
+ *     summary: Obtém informações sobre a votação de uma disputa
+ *     tags: [Caixinhas]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: caixinhaId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID da caixinha
+ *       - in: path
+ *         name: disputeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID da disputa
+ *     responses:
+ *       200:
+ *         description: Informações de votação retornadas com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 disputeId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                 isActive:
+ *                   type: boolean
+ *                 hasUserVoted:
+ *                   type: boolean
+ *                 canVote:
+ *                   type: boolean
+ *                 statistics:
+ *                   type: object
+ *                   properties:
+ *                     totalVotes:
+ *                       type: number
+ *                     positiveVotes:
+ *                       type: number
+ *                     negativeVotes:
+ *                       type: number
+ *                     quorumPercentage:
+ *                       type: number
+ *       404:
+ *         description: Disputa não encontrada
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/:caixinhaId/disputes/:disputeId/vote', 
+  verifyToken, 
+  readLimit, 
+  disputeController.getDisputeVoteInfo);
+
+/**
+ * @swagger
+ * /caixinha/{caixinhaId}/disputes/{disputeId}/vote:
  *   post:
  *     summary: Vota em uma disputa
  *     tags: [Caixinhas]

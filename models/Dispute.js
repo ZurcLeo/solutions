@@ -117,8 +117,12 @@ class Dispute {
 
     try {
       const dispute = new Dispute(data);
+      
+      // Remover o campo id undefined antes de enviar para Firestore
+      const { id, ...disputeData } = dispute;
+      
       const docRef = await this._getDisputesCollection(dispute.caixinhaId).add({
-        ...dispute,
+        ...disputeData,
         createdAt: dispute.createdAt.toISOString(),
         expiresAt: dispute.expiresAt.toISOString(),
         resolvedAt: dispute.resolvedAt ? dispute.resolvedAt.toISOString() : null

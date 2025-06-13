@@ -133,4 +133,105 @@ router.get('/purchases', readLimit, paymentsController.getPurchases);
 router.post('/pix', verifyToken, paymentsController.createPixPayment);
 router.get('/status/:paymentId', verifyToken, paymentsController.checkPixPaymentStatus);
 
+/**
+ * @swagger
+ * /payments/card:
+ *   post:
+ *     summary: Processa pagamento com cartão usando MercadoPago SDK V2
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - device_id
+ *               - amount
+ *               - payer
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Token do cartão gerado pelo SDK V2
+ *               device_id:
+ *                 type: string
+ *                 description: ID do dispositivo gerado automaticamente pelo SDK V2
+ *               amount:
+ *                 type: number
+ *                 description: Valor do pagamento
+ *               currency:
+ *                 type: string
+ *                 default: BRL
+ *               description:
+ *                 type: string
+ *                 description: Descrição do pagamento
+ *               payer:
+ *                 type: object
+ *                 required:
+ *                   - email
+ *                   - identification
+ *                 properties:
+ *                   email:
+ *                     type: string
+ *                   first_name:
+ *                     type: string
+ *                   last_name:
+ *                     type: string
+ *                   identification:
+ *                     type: object
+ *                     properties:
+ *                       type:
+ *                         type: string
+ *                         enum: [CPF, CNPJ]
+ *                       number:
+ *                         type: string
+ *               installments:
+ *                 type: integer
+ *                 default: 1
+ *               payment_method_id:
+ *                 type: string
+ *                 description: ID do método de pagamento (visa, mastercard, etc)
+ *               issuer_id:
+ *                 type: string
+ *                 description: ID do emissor do cartão
+ *               metadata:
+ *                 type: object
+ *                 description: Metadados adicionais
+ *     responses:
+ *       200:
+ *         description: Pagamento processado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   enum: [approved, pending, rejected]
+ *                 status_detail:
+ *                   type: string
+ *                 payment_method_id:
+ *                   type: string
+ *                 amount:
+ *                   type: number
+ *                 installments:
+ *                   type: integer
+ *                 date_created:
+ *                   type: string
+ *                 date_approved:
+ *                   type: string
+ *       400:
+ *         description: Dados inválidos ou pagamento rejeitado
+ *       401:
+ *         description: Não autorizado
+ *       500:
+ *         description: Erro no servidor
+ */
+router.post('/card', verifyToken, writeLimit, paymentsController.createCardPayment);
+
 module.exports = router;

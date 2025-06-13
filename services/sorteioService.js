@@ -71,17 +71,49 @@ const obterNumeroAleatorioRandomOrg = async (min, max, quantidade = 1) => {
     // Usar a API do Random.org
     const response = await axios.get(`https://www.random.org/integers/?num=${quantidade}&min=${min}&max=${max}&col=1&base=10&format=plain&rnd=new`);
     
-    if (!response.data) {
+    if (!response.data && response.data !== 0) {
       throw new Error('Não foi possível obter número aleatório do Random.org');
     }
     
-    // Parsear o resultado (normalmente é retornado como texto)
-    const numeroSorteado = parseInt(response.data.trim());
+    // Log do tipo e valor recebido para debugging
+    logger.debug('Resposta do Random.org', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      dataType: typeof response.data,
+      dataValue: response.data,
+      dataLength: response.data?.length
+    });
+    
+    let numeroSorteado;
+    
+    // Verificar o tipo de dado retornado e tratar adequadamente
+    if (typeof response.data === 'number') {
+      // Se já é número, usar diretamente
+      numeroSorteado = response.data;
+    } else if (typeof response.data === 'string') {
+      // Se é string, fazer trim e converter
+      numeroSorteado = parseInt(response.data.trim());
+    } else {
+      // Se é outro tipo, tentar converter para string primeiro
+      numeroSorteado = parseInt(String(response.data).trim());
+    }
+    
+    // Validar se o número é válido
+    if (isNaN(numeroSorteado)) {
+      throw new Error(`Número inválido retornado do Random.org: ${response.data}`);
+    }
+    
+    // Validar se o número está no range esperado
+    if (numeroSorteado < min || numeroSorteado > max) {
+      throw new Error(`Número fora do range esperado: ${numeroSorteado} (esperado: ${min}-${max})`);
+    }
     
     logger.info('Número aleatório obtido com sucesso do Random.org', {
       service: 'sorteioService',
       method: 'obterNumeroAleatorioRandomOrg',
-      numeroSorteado
+      numeroSorteado,
+      originalData: response.data,
+      dataType: typeof response.data
     });
     
     return numeroSorteado;
@@ -90,16 +122,29 @@ const obterNumeroAleatorioRandomOrg = async (min, max, quantidade = 1) => {
       service: 'sorteioService',
       method: 'obterNumeroAleatorioRandomOrg',
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
+      min,
+      max,
+      quantidade
     });
     
     // Fallback para geração local em caso de falha
     logger.info('Utilizando fallback local para geração de número aleatório', {
       service: 'sorteioService',
-      method: 'obterNumeroAleatorioRandomOrg'
+      method: 'obterNumeroAleatorioRandomOrg',
+      fallback: true
     });
     
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+    const numeroLocal = Math.floor(Math.random() * (max - min + 1)) + min;
+    
+    logger.info('Número aleatório gerado localmente', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      numeroSorteado: numeroLocal,
+      fallback: true
+    });
+    
+    return numeroLocal;
   }
 };
 

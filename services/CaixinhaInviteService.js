@@ -242,6 +242,7 @@ async acceptInvite(caxinhaInviteId, userId) {
     // Procurar o convite em todas as caixinhas
     let invite = null;
     let caixinhaId = null;
+    let inviteDocRef = null; // Armazenar a referência real do documento
     
     // Tentar buscar diretamente da coleção do usuário (novo método)
     try {
@@ -251,6 +252,22 @@ async acceptInvite(caxinhaInviteId, userId) {
       if (foundInvite) {
         invite = foundInvite;
         caixinhaId = foundInvite.caixinhaId;
+        
+        // Verificar se o documento realmente existe no Firestore
+        const tempInviteRef = db
+          .collection('caixinhas')
+          .doc(caixinhaId)
+          .collection('pendingRequests')
+          .doc(caxinhaInviteId);
+        
+        const inviteDoc = await tempInviteRef.get();
+        if (inviteDoc.exists) {
+          inviteDocRef = tempInviteRef;
+        } else {
+          // Documento não existe no caminho esperado, continuar busca
+          invite = null;
+          caixinhaId = null;
+        }
       }
     } catch (error) {
       logger.warn('Erro ao buscar convite na coleção do usuário:', error);
@@ -258,7 +275,7 @@ async acceptInvite(caxinhaInviteId, userId) {
     }
     
     // Se não encontrou na coleção do usuário, buscar manualmente em todas as caixinhas
-    if (!invite) {
+    if (!invite || !inviteDocRef) {
       // Listagem de caixinhas para buscar o convite
       const caixinhasSnapshot = await db.collection('caixinhas').get();
       
@@ -266,20 +283,35 @@ async acceptInvite(caxinhaInviteId, userId) {
         const tempCaixinhaId = caixinhaDoc.id;
         
         try {
-          const tempInvite = await CaixinhaInvite.getById(tempCaixinhaId, caxinhaInviteId);
-          if (tempInvite) {
-            invite = tempInvite;
-            caixinhaId = tempCaixinhaId;
-            break;
+          // Buscar o convite e verificar se o documento existe
+          const tempInviteRef = db
+            .collection('caixinhas')
+            .doc(tempCaixinhaId)
+            .collection('pendingRequests')
+            .doc(caxinhaInviteId);
+          
+          const inviteDoc = await tempInviteRef.get();
+          
+          if (inviteDoc.exists) {
+            const inviteData = inviteDoc.data();
+            
+            // Verificar se o convite é para o usuário correto (se targetId estiver definido)
+            if (!inviteData.targetId || inviteData.targetId === userId) {
+              invite = { id: caxinhaInviteId, ...inviteData };
+              caixinhaId = tempCaixinhaId;
+              inviteDocRef = tempInviteRef;
+              break;
+            }
           }
         } catch (err) {
+          logger.warn(`Erro ao buscar convite na caixinha ${tempCaixinhaId}:`, err);
           // Continuar procurando em outras caixinhas
         }
       }
     }
     
-    if (!invite) {
-      throw new Error('Convite não encontrado.');
+    if (!invite || !inviteDocRef) {
+      throw new Error('Convite não encontrado ou já foi processado.');
     }
     
     // Verificar se o convite é para o usuário correto
@@ -293,16 +325,13 @@ async acceptInvite(caxinhaInviteId, userId) {
     }
     
     // Verificar se o convite está expirado
-    if (invite.status === 'expired') {
-      if (!invite.expiresAt || invite.expiresAt > new Date()) {
-        // Atualizar status para expirado
-        await CaixinhaInvite.updateStatus(caixinhaId, caxinhaInviteId, {
-          status: 'expired',
-          respondedAt: new Date()
-        });
-      } else {
-        throw new Error('Este convite já expirou.');
-      }
+    if (invite.expiresAt && invite.expiresAt.toDate() < new Date()) {
+      // Atualizar status para expirado
+      await inviteDocRef.update({
+        status: 'expired',
+        respondedAt: new Date()
+      });
+      throw new Error('Este convite já expirou.');
     }
     
     // Buscar dados do usuário
@@ -311,17 +340,36 @@ async acceptInvite(caxinhaInviteId, userId) {
       throw new Error('Usuário não encontrado.');
     }
     
+    // Verificar se o usuário já é membro da caixinha
+    const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+    const caixinhaDoc = await caixinhaRef.get();
+    
+    if (!caixinhaDoc.exists) {
+      throw new Error('Caixinha não encontrada.');
+    }
+    
+    const caixinhaData = caixinhaDoc.data();
+    const members = caixinhaData.members || [];
+    
+    if (members.includes(userId)) {
+      // Usuário já é membro, apenas atualizar o status do convite
+      await inviteDocRef.update({
+        status: 'accepted',
+        respondedAt: new Date()
+      });
+      
+      return {
+        success: true,
+        caixinhaId,
+        message: 'Você já é membro desta caixinha.'
+      };
+    }
+    
     // Criar batch para operações em transação
     const batch = db.batch();
     
-    // 1. Atualizar status do convite
-    const inviteRef = db
-      .collection('caixinhas')
-      .doc(caixinhaId)
-      .collection('convites')
-      .doc(caxinhaInviteId);
-    
-    batch.update(inviteRef, {
+    // 1. Atualizar status do convite (usando a referência real encontrada)
+    batch.update(inviteDocRef, {
       status: 'accepted',
       respondedAt: new Date()
     });
@@ -347,21 +395,10 @@ async acceptInvite(caxinhaInviteId, userId) {
     });
     
     // 3. Atualizar o array members no documento principal da caixinha
-    const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-    const caixinhaDoc = await caixinhaRef.get();
-    
-    if (caixinhaDoc.exists) {
-      const caixinhaData = caixinhaDoc.data();
-      const members = caixinhaData.members || [];
-      
-      // Adicionar o userId ao array members se ainda não estiver presente
-      if (!members.includes(userId)) {
-        batch.update(caixinhaRef, {
-          members: [...members, userId],
-          totalMembros: (caixinhaData.totalMembros || members.length) + 1
-        });
-      }
-    }
+    batch.update(caixinhaRef, {
+      members: [...members, userId],
+      totalMembros: (caixinhaData.totalMembros || members.length) + 1
+    });
     
     // 4. Adicionar referência da caixinha no documento do usuário
     const userRef = db.collection('usuario').doc(userId);
@@ -369,24 +406,34 @@ async acceptInvite(caxinhaInviteId, userId) {
     
     if (userDoc.exists) {
       const targetUser = userDoc.data();
-      const updatedCaixinhas = [...(targetUser.caixinhas || []), caixinhaId];
+      const userCaixinhas = targetUser.caixinhas || [];
       
-      batch.update(userRef, { 
-        caixinhas: updatedCaixinhas 
-      });
+      // Adicionar caixinha apenas se não estiver na lista
+      if (!userCaixinhas.includes(caixinhaId)) {
+        batch.update(userRef, { 
+          caixinhas: [...userCaixinhas, caixinhaId] 
+        });
+      }
     }
     
     // Executar todas as operações em transação
     await batch.commit();
     
+    logger.info(`Convite ${caxinhaInviteId} aceito com sucesso para usuário ${userId} na caixinha ${caixinhaId}`);
+    
     // Enviar notificação para o remetente do convite
-    await this._sendInviteNotification({
-      caixinhaId,
-      type: 'response',
-      userId: invite.senderId,
-      targetId: userId,
-      status: 'accepted'
-    });
+    try {
+      await this._sendInviteNotification({
+        caixinhaId,
+        type: 'response',
+        userId: invite.senderId,
+        targetId: userId,
+        status: 'accepted'
+      });
+    } catch (notificationError) {
+      logger.warn('Erro ao enviar notificação:', notificationError);
+      // Não falhar a operação principal por erro de notificação
+    }
 
     return {
       success: true,
@@ -395,7 +442,15 @@ async acceptInvite(caxinhaInviteId, userId) {
     };
   } catch (error) {
     logger.error('Erro ao aceitar convite:', error);
-    throw error;
+    
+    // Re-lançar com mensagem mais específica baseada no tipo de erro
+    if (error.code === 5) { // NOT_FOUND
+      throw new Error('Convite não encontrado ou já foi processado.');
+    } else if (error.code === 6) { // ALREADY_EXISTS
+      throw new Error('Você já é membro desta caixinha.');
+    } else {
+      throw error;
+    }
   }
 }
 

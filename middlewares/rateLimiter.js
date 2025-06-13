@@ -6,9 +6,10 @@ const { logger } = require('../logger');
 const RATE_LIMIT_CONFIG = {
   standard: { points: 100, duration: 60, blockDuration: 300 },
   auth: { points: 5, duration: 3600, blockDuration: 3600 },
-  read: { points: 200, duration: 60, blockDuration: 300 },
-  write: { points: 50, duration: 60, blockDuration: 600 },
+  read: { points: 100, duration: 60, blockDuration: 300 }, // Reduzido para dados sensíveis
+  write: { points: 20, duration: 60, blockDuration: 900 }, // Mais restritivo para operações bancárias
   connection: { points: 10, duration: 3600, blockDuration: 3600 },
+  banking: { points: 10, duration: 60, blockDuration: 600 }, // Específico para operações bancárias
 };
 
 // Initialize limiters with configuration
@@ -55,6 +56,7 @@ const writeLimit = createRateLimitMiddleware(limiters.write, 'write');
 const connectionLimit = createRateLimitMiddleware(limiters.connection, 'connection');
 const authRateLimiter = createRateLimitMiddleware(limiters.auth, 'auth');
 const rateLimiter = createRateLimitMiddleware(limiters.standard, 'standard');
+const bankingLimit = createRateLimitMiddleware(limiters.banking, 'banking');
 
 
 module.exports = {
@@ -63,4 +65,5 @@ module.exports = {
   readLimit,
   writeLimit,
   connectionLimit,
+  bankingLimit,
 };

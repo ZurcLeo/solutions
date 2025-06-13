@@ -60,14 +60,7 @@ const getDisputeById = async (req, res) => {
   });
   
   try {
-    const dispute = await disputeService.getDisputeById(disputeId);
-    
-    if (dispute.caixinhaId !== caixinhaId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Disputa não pertence a esta caixinha'
-      });
-    }
+    const dispute = await disputeService.getDisputeById(caixinhaId, disputeId);
     
     logger.info('Disputa recuperada com sucesso', {
       controller: 'DisputeController',
@@ -393,6 +386,60 @@ const createDispute = async (req, res) => {
     }
   };
   
+  /**
+   * Obtém informações de votação de uma disputa específica
+   */
+  const getDisputeVoteInfo = async (req, res) => {
+    const { caixinhaId, disputeId } = req.params;
+    const userId = req.user.uid;
+    
+    logger.info('Buscando informações de votação da disputa', {
+      controller: 'DisputeController',
+      method: 'getDisputeVoteInfo',
+      caixinhaId,
+      disputeId,
+      userId
+    });
+    
+    try {
+      const voteInfo = await disputeService.getDisputeVoteInfo(caixinhaId, disputeId, userId);
+      
+      logger.info('Informações de votação recuperadas com sucesso', {
+        controller: 'DisputeController',
+        method: 'getDisputeVoteInfo',
+        disputeId,
+        caixinhaId,
+        hasUserVoted: voteInfo.hasUserVoted
+      });
+      
+      res.status(200).json(voteInfo);
+    } catch (error) {
+      logger.error('Erro ao buscar informações de votação', {
+        controller: 'DisputeController',
+        method: 'getDisputeVoteInfo',
+        error: error.message,
+        stack: error.stack,
+        caixinhaId,
+        disputeId,
+        userId
+      });
+      
+      if (error.message === 'Disputa não encontrada') {
+        return res.status(404).json({
+          success: false,
+          message: 'Disputa não encontrada',
+          error: error.message
+        });
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao buscar informações de votação',
+        error: error.message
+      });
+    }
+  };
+
   module.exports = {
     getDisputes,
     getDisputeById,
@@ -400,5 +447,6 @@ const createDispute = async (req, res) => {
     voteOnDispute,
     cancelDispute,
     checkDisputeRequirement,
-    createRuleChangeDispute
+    createRuleChangeDispute,
+    getDisputeVoteInfo
   };

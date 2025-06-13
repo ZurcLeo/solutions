@@ -403,7 +403,7 @@ const gerarComprovanteSorteio = async (caixinhaId, rifaId) => {
     }
 
     // Gerar comprovante
-    const comprovante = await SorteioService.gerarComprovante(caixinhaId, rifaId, rifa.sorteioResultado);
+    const comprovante = await SorteioService.gerarComprovante(rifaId, rifa.sorteioResultado);
     
     // Atualizar rifa com o comprovante gerado, se ainda não tiver
     if (!rifa.sorteioResultado.comprovante) {
