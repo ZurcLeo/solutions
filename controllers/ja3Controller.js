@@ -6,11 +6,8 @@ const { createHash } = require('crypto');
 const db = getFirestore();
 
 exports.calculateJA3 = async (req, res) => {
+    // OPTIONS requests are handled by CORS middleware
     if (req.method === 'OPTIONS') {
-        res.set('Access-Control-Allow-Origin', '*');
-        res.set('Access-Control-Allow-Methods', 'GET, POST');
-        res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        res.set('Access-Control-Max-Age', '3600');
         return res.status(204).send('');
     }
 
@@ -29,10 +26,8 @@ exports.calculateJA3 = async (req, res) => {
 
         await userRef.set({ ja3Hash }, { merge: true });
 
-        res.set('Access-Control-Allow-Origin', '*');
         return res.status(200).json({ ja3Hash });
     } catch (error) {
-        res.set('Access-Control-Allow-Origin', '*');
         return res.status(500).json({ error: 'Failed to calculate JA3 hash', details: error.message });
     }
 };

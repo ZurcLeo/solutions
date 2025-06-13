@@ -20,10 +20,17 @@ const developmentOrigins = [
   'https://localhost:9000'
 ];
 
-// Determine environment and select appropriate origins
+// Always include production origins, add development ones if needed
 const allowedOrigins = process.env.NODE_ENV === 'production' 
-  ? productionOrigins 
+  ? [...productionOrigins] 
   : [...productionOrigins, ...developmentOrigins];
+
+// Log allowed origins for debugging
+logger.info('CORS origins configured', {
+  service: 'corsMiddleware',
+  environment: process.env.NODE_ENV,
+  allowedOrigins: allowedOrigins
+});
 
 // Enhanced CORS configuration with proper COOP settings
 const corsOptions = {
@@ -45,7 +52,7 @@ const corsOptions = {
     }
 
     if (allowedOrigins.includes(origin)) {
-      logger.info('Origem permitida', {
+      logger.info('Origem permitida por lista exata', {
         service: 'corsMiddleware',
         origin,
         environment: process.env.NODE_ENV
@@ -53,12 +60,23 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    logger.warn('Origem bloqueada', {
+    // Check for eloscloud.com domain and subdomains
+    if (origin && /^https:\/\/(.*\.)?eloscloud\.com(\.br)?$/.test(origin)) {
+      logger.info('Origem permitida por regex (eloscloud domain)', {
+        service: 'corsMiddleware',
+        origin,
+        environment: process.env.NODE_ENV
+      });
+      return callback(null, true);
+    }
+
+    logger.error('Origem bloqueada por CORS', {
       service: 'corsMiddleware',
       origin,
-      environment: process.env.NODE_ENV
+      environment: process.env.NODE_ENV,
+      allowedOrigins: allowedOrigins
     });
-    return callback(new Error('Origem não permitida por CORS'));
+    return callback(new Error(`Origem '${origin}' não permitida por CORS`));
   },
 
   // Critical headers for authentication and cookies
@@ -102,42 +120,8 @@ const corsOptions = {
   optionsSuccessStatus: 204
 };
 
-// Enhanced middleware with proper COOP and security headers
-const corsMiddleware = (req, res, next) => {
-  if (process.env.NODE_ENV === 'development') {
-    // Critical for popup functionality
-    res.header('Access-Control-Allow-Credentials', 'true');
-    
-    // Descomentar cada uma destas linhas
-    res.header('Cross-Origin-Opener-Policy', 'same-origin-allow-popups'); // Allows popups while maintaining security
-    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.header('Cross-Origin-Embedder-Policy', 'unsafe-none');
-    
-    // Fix cookie format and security settings
-    res.header('Set-Cookie', [
-      'SameSite=None',
-      'Secure',
-      'HttpOnly',
-      'Path=/'
-    ].join('; ')); // Space after semicolon important
-  } else {
-    // Production settings - same as development for consistency
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Cross-Origin-Opener-Policy', 'same-origin-allow-popups'); // Allows popups while maintaining security
-    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.header('Cross-Origin-Embedder-Policy', 'unsafe-none');
-    
-    // Fix cookie format and security settings
-    res.header('Set-Cookie', [
-      'SameSite=None',
-      'Secure',
-      'HttpOnly',
-      'Path=/'
-    ].join('; ')); // Space after semicolon important
-  }
+// Apply CORS first, then add custom headers
+const corsMiddleware = cors(corsOptions);
 
-  // Apply CORS middleware with our options
-  cors(corsOptions)(req, res, next);
-}
-
+// Export the direct CORS middleware
 module.exports = corsMiddleware;

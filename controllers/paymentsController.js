@@ -8,8 +8,6 @@ const PaymentService = require('../services/paymentService');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 exports.createPaymentIntent = async (req, res) => {
-    res.set('Access-Control-Allow-Origin', 'https://eloscloud.com');
-
     const { quantidade, valor, userId, description, recaptchaToken } = req.body;
 
     if (!quantidade || typeof quantidade !== 'number' || !valor || typeof valor !== 'number' || !userId || typeof userId !== 'string' || !description || typeof description !== 'string' || !recaptchaToken || typeof recaptchaToken !== 'string') {
