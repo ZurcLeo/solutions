@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const https = require('https');
 const swaggerUi = require('swagger-ui-express');
 const { logger } = require('./logger');
@@ -26,7 +27,10 @@ if (process.env.NODE_ENV === 'production') {
   logger.info('Trust proxy disabled for development');
 }
 
-const server = https.createServer(getCertificates(), app);
+// Use HTTP em produção (Render gerencia SSL) e HTTPS em desenvolvimento
+const server = process.env.NODE_ENV === 'production' 
+  ? http.createServer(app)
+  : https.createServer(getCertificates(), app);
 const io = configureSocket(server);
 
 // Configurações básicas
@@ -57,9 +61,10 @@ Promise.all([
   encryptionService.initialized // Aguardar inicialização do serviço de criptografia
 ])
   .then(() => {
-    // Iniciar o servidor HTTPS (server) em vez de criar um novo com app.listen()
-    server.listen(PORT, () => {
-      console.log(`Servidor HTTPS rodando na porta ${PORT}`);
+    // Iniciar o servidor
+    server.listen(PORT, '0.0.0.0', () => {
+      const protocol = process.env.NODE_ENV === 'production' ? 'HTTP' : 'HTTPS';
+      console.log(`Servidor ${protocol} rodando na porta ${PORT}`);
     });
   })
   .catch(err => {
