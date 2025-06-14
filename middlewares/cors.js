@@ -39,7 +39,8 @@ const corsOptions = {
       service: 'corsMiddleware',
       function: 'origin',
       origin,
-      environment: process.env.NODE_ENV
+      environment: process.env.NODE_ENV,
+      userAgent: origin ? 'browser' : 'server-to-server'
     });
 
     // Allow requests without origin (e.g., mobile apps, postman)

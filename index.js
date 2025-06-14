@@ -16,6 +16,16 @@ const gracefulShutdown = require('./config/shutdown/gracefulShutdownConfig');
 const {initializeLocalStorage} = require('./config/scripts/initializeLocalData');
 
 const app = express();
+
+// Trust proxy - CRÍTICO para deployment em plataformas como Render.com
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1); // Trust first proxy (Render.com)
+  logger.info('Trust proxy enabled for production');
+} else {
+  app.set('trust proxy', false);
+  logger.info('Trust proxy disabled for development');
+}
+
 const server = https.createServer(getCertificates(), app);
 const io = configureSocket(server);
 

@@ -46,8 +46,32 @@ const publicHealthCheck = async (req, res) => {
     
     publicStatus.responseTime = `${responseTime.toFixed(2)}ms`;
     
+    // Adicionar informações de proxy para debug
+    const proxyInfo = {
+      headers: {
+        'x-forwarded-for': req.headers['x-forwarded-for'],
+        'x-forwarded-proto': req.headers['x-forwarded-proto'],
+        'x-forwarded-host': req.headers['x-forwarded-host'],
+        'x-real-ip': req.headers['x-real-ip'],
+        origin: req.headers.origin,
+        host: req.headers.host,
+        'user-agent': req.headers['user-agent']
+      },
+      connection: {
+        ip: req.ip,
+        ips: req.ips,
+        secure: req.secure,
+        protocol: req.protocol
+      },
+      app: {
+        trustProxy: req.app.get('trust proxy'),
+        env: process.env.NODE_ENV
+      }
+    };
+
     res.status(200).json({
       ...publicStatus,
+      proxy: proxyInfo,
       timestamp: new Date().toISOString(),
       version: process.env.APP_VERSION || '1.0.0',
       uptime: `${Math.floor(os.uptime() / 3600)} hours`,
