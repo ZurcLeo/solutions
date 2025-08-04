@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: models/Permission.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: models/Permission.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>// models/Permission.js
+const { getFirestore } = require('../firebaseAdmin');
+const { logger } = require('../logger');
+const LocalStorageService = require('../services/LocalStorageService');
+const FirestoreService = require('../utils/firestoreService');
+const dbServicePermission = LocalStorageService.collection('permissions');
+const { permissions: initialPermissions } = require('../config/data/initialData');
+
+class Permission {
+  constructor(data) {
+    this.id = data.id;
+    this.name = data.name;
+    this.description = data.description || '';
+    this.resource = data.resource;
+    this.action = data.action;
+    this.createdAt = data.createdAt || new Date();
+    this.updatedAt = data.updatedAt || new Date();
+  }
+
+  toPlainObject() {
+    return {
+      id: this.id,
+      name: this.name,
+      description: this.description,
+      resource: this.resource,
+      action: this.action,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt
+    };
+  }
+
+  /**
+   * Obtém uma lista de todas as permissões, mesclando as permissões do LocalStorage e do initialData
+   * @param {Object} filters - Filtros opcionais para busca
+   * @returns {Promise&lt;Array&lt;Permission>>} - Lista de permissões
+   */
+  static async findAll(filters = {}) {
+    try {
+      let query = dbServicePermission;
+      
+      // Aplicar filtros se fornecidos
+      if (filters.resource) {
+        query = query.where('resource', '==', filters.resource);
+      }
+      
+      if (filters.action) {
+        query = query.where('action', '==', filters.action);
+      }
+      
+      const permissionsCollection = await query.get();
+      
+      // Aqui está a diferença: permissionsCollection já é o array de documentos
+      const permissions = permissionsCollection.map(doc => {
+        const permissionData = doc.data();
+        permissionData.id = doc.id;
+        return new Permission(permissionData);
+      });
+  
+      logger.info('Permissões obtidas com sucesso', { 
+        service: 'permissionModel', 
+        function: 'findAll', 
+        count: permissions.length,
+        filters
+      });
+      
+      return permissions;
+    } catch (error) {
+      logger.error('Erro ao buscar permissões', { 
+        service: 'permissionModel', 
+        function: 'findAll', 
+        error: error.message,
+        filters
+      });
+      throw new Error('Erro ao buscar permissões');
+    }
+  }
+  
+
+  /**
+   * Obtém uma permissão pelo ID, buscando primeiro no LocalStorage e depois no initialData
+   * @param {string} permissionId - ID da permissão
+   * @returns {Promise&lt;Permission>} - Objeto Permission
+   */
+  static async getById(permissionId) {
+    if (!permissionId) {
+      const error = new Error('permissionId não fornecido');
+      logger.error('Erro no getById', { 
+        service: 'permissionModel', 
+        function: 'getById', 
+        error: error.message 
+      });
+      throw error;
+    }
+  
+    try {
+      // Verificar primeiro no armazenamento local
+      const permissionDoc = await dbServicePermission.doc(permissionId).get();
+      
+      if (permissionDoc.exists) {
+        const permissionData = permissionDoc.data();
+        permissionData.id = permissionId;
+        return new Permission(permissionData);
+      }
+      
+      // Se não encontrou, verificar nos dados iniciais
+      const initialPerm = initialPermissions[permissionId];
+      if (initialPerm) {
+        return new Permission({
+          id: permissionId,
+          ...initialPerm
+        });
+      }
+      
+      // Se não encontrou em nenhum lugar
+      logger.warn('Permissão não encontrada', { 
+        service: 'permissionModel', 
+        function: 'getById', 
+        permissionId 
+      });
+      throw new Error('Permissão não encontrada');
+    } catch (error) {
+      logger.error('Erro ao obter permissão por ID', { 
+        service: 'permissionModel', 
+        function: 'getById', 
+        permissionId, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Cria uma nova permissão que sobrescreve a versão do initialData, se existir
+   * @param {Object} permissionData - Dados da permissão
+   * @returns {Promise&lt;Permission>} - Permissão criada
+   */
+  static async create(permissionData) {
+    try {
+      // Verificar se já existe uma permissão com esse nome no banco
+      const existingPermissions = await dbServicePermission.where('name', '==', permissionData.name).get();
+      
+      if (!existingPermissions.empty) {
+        throw new Error(`Permissão com nome '${permissionData.name}' já existe`);
+      }
+      
+      // Verificar se já existe nos dados iniciais
+      const initialPermExists = Object.values(initialPermissions).some(
+        p => p.name === permissionData.name
+      );
+      
+      // Criar o objeto Permission
+      const permission = new Permission({
+        ...permissionData,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      
+      // Se existir nos dados iniciais, logar aviso
+      if (initialPermExists) {
+        logger.warn('Criando permissão personalizada que sobrescreve definição inicial', {
+          service: 'permissionModel',
+          function: 'create',
+          permissionName: permission.name
+        });
+      }
+      
+      // Persistir no banco
+      const docRef = await dbServicePermission.add(permission.toPlainObject());
+      permission.id = docRef.id;
+      
+      logger.info('Permissão criada com sucesso', { 
+        service: 'permissionModel', 
+        function: 'create', 
+        permissionId: permission.id 
+      });
+      
+      return permission;
+    } catch (error) {
+      logger.error('Erro ao criar permissão', { 
+        service: 'permissionModel', 
+        function: 'create', 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Atualiza uma permissão existente
+   * @param {string} permissionId - ID da permissão
+   * @param {Object} data - Novos dados
+   * @returns {Promise&lt;Permission>} - Permissão atualizada
+   */
+  static async update(permissionId, data) {
+    if (!permissionId) throw new Error('ID da permissão é obrigatório');
+    
+    try {
+      // Verificar se existe nos dados iniciais
+      const isInitialPermission = initialPermissions[permissionId] !== undefined;
+      
+      // Verificar se existe no banco
+      const permissionRef = dbServicePermission.doc(permissionId);
+      const permissionDoc = await permissionRef.get();
+      
+      // Se for uma permissão inicial que não existe no banco, criar cópia antes de atualizar
+      if (isInitialPermission &amp;&amp; !permissionDoc.exists) {
+        logger.info('Criando cópia local de permissão inicial para atualização', {
+          service: 'permissionModel',
+          function: 'update',
+          permissionId
+        });
+        
+        // Criar cópia local da permissão inicial
+        await permissionRef.set({
+          ...initialPermissions[permissionId],
+          id: permissionId,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      } else if (!permissionDoc.exists &amp;&amp; !isInitialPermission) {
+        throw new Error('Permissão não encontrada');
+      }
+      
+      // Se estiver tentando atualizar o nome, verificar duplicidade
+      if (data.name) {
+        const existingPermissions = await dbServicePermission
+          .where('name', '==', data.name)
+          .get();
+        
+        // Se existir uma permissão com esse nome que não seja a atual
+        for (const doc of existingPermissions.docs) {
+          if (doc.id !== permissionId) {
+            throw new Error(`Permissão com nome '${data.name}' já existe`);
+          }
+        }
+        
+        // Verificar também nos dados iniciais
+        const existsInInitial = Object.entries(initialPermissions)
+          .some(([id, perm]) => id !== permissionId &amp;&amp; perm.name === data.name);
+        
+        if (existsInInitial) {
+          throw new Error(`Permissão com nome '${data.name}' já existe nos dados iniciais`);
+        }
+      }
+      
+      // Preparar dados de atualização
+      const updateData = {
+        ...data,
+        updatedAt: new Date()
+      };
+      
+      // Atualizar no banco
+      await permissionRef.update(updateData);
+      
+      // Obter permissão atualizada
+      const updatedPermissionDoc = await permissionRef.get();
+      const updatedPermissionData = updatedPermissionDoc.data();
+      updatedPermissionData.id = permissionId;
+      
+      logger.info('Permissão atualizada com sucesso', { 
+        service: 'permissionModel', 
+        function: 'update', 
+        permissionId 
+      });
+      
+      return new Permission(updatedPermissionData);
+    } catch (error) {
+      logger.error('Erro ao atualizar permissão', { 
+        service: 'permissionModel', 
+        function: 'update', 
+        permissionId, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Remove uma permissão do banco (não afeta as permissões do initialData)
+   * @param {string} permissionId - ID da permissão
+   * @returns {Promise&lt;boolean>} - Sucesso da operação
+   */
+  static async delete(permissionId) {
+    if (!permissionId) throw new Error('ID da permissão é obrigatório');
+    
+    try {
+      // Verificar se existe nos dados iniciais
+      const isInitialPermission = initialPermissions[permissionId] !== undefined;
+      
+      if (isInitialPermission) {
+        logger.warn('Tentativa de remover permissão definida nos dados iniciais', {
+          service: 'permissionModel',
+          function: 'delete',
+          permissionId
+        });
+        throw new Error('Não é possível remover permissões definidas nos dados iniciais');
+      }
+      
+      // Verificar se existe no banco
+      const permissionRef = dbServicePermission.doc(permissionId);
+      const permissionDoc = await permissionRef.get();
+      
+      if (!permissionDoc.exists) {
+        throw new Error('Permissão não encontrada');
+      }
+      
+      // TODO: Verificar se a permissão está sendo usada por roles
+      // Se implementarmos essa verificação, podemos adicionar aqui
+      
+      // Remover do banco
+      await permissionRef.delete();
+      
+      logger.info('Permissão excluída com sucesso', { 
+        service: 'permissionModel', 
+        function: 'delete', 
+        permissionId 
+      });
+      
+      return true;
+    } catch (error) {
+      logger.error('Erro ao excluir permissão', { 
+        service: 'permissionModel', 
+        function: 'delete', 
+        permissionId, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Obtém uma permissão pelo nome, buscando no LocalStorage e no initialData
+   * @param {string} permissionName - Nome da permissão
+   * @returns {Promise&lt;Permission>} - Objeto Permission
+   */
+  static async getByName(permissionName) {
+    try {
+      // Buscar no banco
+      const permissionsDb = await dbServicePermission
+        .where('name', '==', permissionName)
+        .limit(1)
+        .get();
+      
+      if (!permissionsDb.empty) {
+        const doc = permissionsDb.docs[0];
+        const data = doc.data();
+        data.id = doc.id;
+        return new Permission(data);
+      }
+      
+      // Buscar nos dados iniciais
+      const initialPerm = Object.entries(initialPermissions)
+        .find(([_, perm]) => perm.name === permissionName);
+      
+      if (initialPerm) {
+        const [id, data] = initialPerm;
+        return new Permission({
+          id,
+          ...data
+        });
+      }
+      
+      // Se não encontrou em nenhum lugar
+      logger.warn('Permissão não encontrada pelo nome', { 
+        service: 'permissionModel', 
+        function: 'getByName', 
+        permissionName 
+      });
+      throw new Error(`Permissão com nome '${permissionName}' não encontrada`);
+    } catch (error) {
+      logger.error('Erro ao buscar permissão pelo nome', { 
+        service: 'permissionModel', 
+        function: 'getByName', 
+        permissionName, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Verifica se uma permissão com o nome especificado existe
+   * @param {string} permissionName - Nome da permissão
+   * @returns {Promise&lt;boolean>} - Se a permissão existe
+   */
+  static async exists(permissionName) {
+    try {
+      // Buscar no banco
+      const permissionsDb = await dbServicePermission
+        .where('name', '==', permissionName)
+        .limit(1)
+        .get();
+      
+      if (!permissionsDb.empty) {
+        return true;
+      }
+      
+      // Buscar nos dados iniciais
+      const existsInInitial = Object.values(initialPermissions)
+        .some(perm => perm.name === permissionName);
+      
+      return existsInInitial;
+    } catch (error) {
+      logger.error('Erro ao verificar existência de permissão', { 
+        service: 'permissionModel', 
+        function: 'exists', 
+        permissionName, 
+        error: error.message 
+      });
+      return false;
+    }
+  }
+}
+
+module.exports = Permission;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

@@ -62,7 +62,20 @@ const getUserRoles = async (req, res) => {
 const assignRoleToUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { roleId, context, options } = req.body;
+    
+    // Usar dados validados se disponíveis, senão usar req.body
+    const validatedData = req.validatedBody || req.body;
+    const { roleId, context, options } = validatedData;
+    
+    logger.info('Iniciando atribuição de role', {
+      controller: 'userRoleController',
+      method: 'assignRoleToUser',
+      userId,
+      roleId,
+      context,
+      options,
+      hasValidatedBody: !!req.validatedBody
+    });
     
     // Verificações básicas
     if (!roleId) {

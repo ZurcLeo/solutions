@@ -445,8 +445,12 @@ static async hasPermission(userId, permissionName, contextType = 'global', resou
     const userData = userDoc.data();
     const userRoles = userData.roles || {};
     
-    // Obter mapeamentos de inicialização
-    const { rolePermissions } = require('../config/data/initialData');
+    // Obter mapeamentos do Firestore
+    const rolePermissionsSnapshot = await db.collection('role_permissions').get();
+    const rolePermissions = {};
+    rolePermissionsSnapshot.forEach(doc => {
+      rolePermissions[doc.id] = doc.data();
+    });
     
     // Para cada role do usuário
     for (const roleId in userRoles) {
@@ -476,10 +480,7 @@ static async hasPermission(userId, permissionName, contextType = 'global', resou
         .map(rp => rp.permissionId);
       
       // Verificar se a permissão está incluída
-      const hasPermission = rolePerms.some(permId => {
-        const { permissions } = require('../config/data/initialData');
-        return permissions[permId]?.name === permissionName;
-      });
+      const hasPermission = rolePerms.includes(permissionName);
       
       if (hasPermission) {
         return true;

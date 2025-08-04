@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/authController.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/authController.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @fileoverview Controller de autenticação - gerencia login, registro e sessões de usuários
+ * @module controllers/authController
+ * @requires firebaseAdmin
+ * @requires jsonwebtoken
+ * @requires ../services/authService
+ * @requires ../services/inviteService
+ * @requires ../services/userService
+ * @requires ../logger
+ * @requires ../models/User
+ */
+
+// controllers/authController.js
+const { getAuth } = require('../firebaseAdmin');
+const jwt = require('jsonwebtoken');
+const authService = require('../services/authService');
+const inviteService = require('../services/inviteService')
+const userService = require('../services/userService');
+const { generateToken, generateRefreshToken } = require('../services/authService');
+const { logger } = require('../logger');
+const User = require('../models/User');
+
+/**
+ * Verifica o estado atual da sessão do usuário
+ * @async
+ * @function checkSession
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Status da autenticação e dados do usuário
+ * @description Verifica tokens de acesso em cookies ou headers, valida na blacklist e retorna estado da sessão
+ */
+exports.checkSession = async (req, res) => {
+  // Extrair token de acesso dos cookies ou headers
+  let accessToken;
+  const authHeader = req.headers['authorization'];
+  
+  if (authHeader &amp;&amp; authHeader.startsWith('Bearer ')) {
+    accessToken = authHeader.substring(7);
+  } else if (req.cookies &amp;&amp; req.cookies.authorization) {
+    const cookieToken = req.cookies.authorization;
+    if (cookieToken.startsWith('Bearer ')) {
+      accessToken = cookieToken.substring(7);
+    } else {
+      accessToken = cookieToken;
+    }
+  }
+
+  // Se não houver token, retornar não autenticado
+  if (!accessToken) {
+    return res.status(200).json({
+      isAuthenticated: false,
+      message: 'Sessão não encontrada'
+    });
+  }
+
+  try {
+    // Verificar se o token está na blacklist
+    const isBlacklisted = await isTokenBlacklisted(accessToken);
+    if (isBlacklisted) {
+      return res.status(200).json({
+        isAuthenticated: false,
+        message: 'Sessão inválida'
+      });
+    }
+    
+    // Verificar e decodificar o token
+    const decoded = jwt.verify(accessToken, process.env.JWT_SECRET);
+    const userId = decoded.uid;
+    
+    // Buscar usuário no banco
+    const user = await User.getById(userId);
+    
+    // Verificar se o usuário foi encontrado
+    if (!user) {
+      return res.status(200).json({
+        isAuthenticated: false,
+        message: 'Usuário não encontrado'
+      });
+    }
+    
+    // Verificar se o registro está completo
+    const isFirstAccess = !user.registrationStage || user.registrationStage === 'initial';
+    
+    // Verificar se o token está próximo de expirar
+    const tokenExpiresAt = decoded.exp * 1000; // Converter para milissegundos
+    const currentTime = Date.now();
+    const timeToExpiry = tokenExpiresAt - currentTime;
+    const shouldRefresh = timeToExpiry &lt; 300000; // 5 minutos
+    
+    // Se o token estiver próximo de expirar, gerar novos tokens
+    let tokens = null;
+    if (shouldRefresh) {
+      tokens = authService.generateToken({
+        uid: userId,
+        email: user.email
+      });
+      
+      // Atualizar cookies com novos tokens
+      res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+      });
+      
+      res.cookie('refreshToken', tokens.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+      });
+    }
+    
+    return res.status(200).json({
+      isAuthenticated: true,
+      isFirstAccess: isFirstAccess,
+      user: user,
+      sessionRefreshed: !!tokens,
+      tokens: tokens
+    });
+  } catch (error) {
+    // Se o erro for de token expirado, tentar usar refresh token
+    if (error.name === 'TokenExpiredError' &amp;&amp; req.cookies &amp;&amp; req.cookies.refreshToken) {
+      try {
+        // Verificar refresh token
+        const refreshToken = req.cookies.refreshToken;
+        const newTokens = await authService.verifyAndGenerateNewToken(refreshToken);
+        
+        // Buscar usuário com o ID do token renovado
+        const decoded = jwt.verify(newTokens.accessToken, process.env.JWT_SECRET);
+        const userId = decoded.uid;
+        const user = await User.getById(userId);
+        
+        // Atualizar cookies
+        res.cookie('authorization', `Bearer ${newTokens.accessToken}`, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict'
+        });
+        
+        res.cookie('refreshToken', newTokens.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict'
+        });
+        
+        return res.status(200).json({
+          isAuthenticated: true,
+          isFirstAccess: !user.registrationStage || user.registrationStage === 'initial',
+          user: user,
+          sessionRefreshed: true,
+          tokens: newTokens
+        });
+      } catch (refreshError) {
+        // Se falhar a renovação, retornar não autenticado
+        return res.status(200).json({
+          isAuthenticated: false,
+          message: 'Sessão expirada',
+          requireRelogin: true
+        });
+      }
+    }
+    
+    // Para qualquer outro erro, retornar não autenticado
+    logger.error('Erro ao verificar sessão', {
+      error: error.message
+    });
+    
+    return res.status(200).json({
+      isAuthenticated: false,
+      message: 'Sessão inválida',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Gera token JWT a partir de token Firebase
+ * @async
+ * @function getToken
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.firebaseToken - Token do Firebase para validação
+ * @param {boolean} [req.isFirstAccess] - Flag indicando primeiro acesso (definida por middleware)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Token JWT e dados do usuário
+ * @description Verifica token Firebase e retorna JWT customizado para autenticação na API
+ */
+exports.getToken = async (req, res) => {
+  try {
+    const { firebaseToken } = req.body;
+    
+    if (!firebaseToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token do Firebase não fornecido'
+      });
+    }
+    
+    // Verificar o token do Firebase
+    const auth = getAuth();
+    const decodedToken = await auth.verifyIdToken(firebaseToken);
+    const userId = decodedToken.uid;
+    
+    // Verificar se é o primeiro acesso (usando flag definida pelo middleware)
+    const isFirstAccess = req.isFirstAccess || false;
+    
+    // Buscar dados do usuário (ou usar dados básicos se for primeiro acesso)
+    let user;
+    if (isFirstAccess) {
+      // Se for primeiro acesso, usar dados básicos do token
+      user = {
+        uid: userId,
+        email: decodedToken.email,
+        nome: decodedToken.name || decodedToken.email.split('@')[0],
+        emailVerified: decodedToken.email_verified || false,
+      };
+    } else {
+      // Buscar usuário completo do banco
+      user = await User.getById(userId);
+    }
+    
+    // Gerar tokens JWT
+    const tokens = authService.generateToken({
+      uid: userId,
+      email: decodedToken.email
+    });
+    
+    // Salvar tokens (usando AuthTokenService se disponível)
+    // const authTokenService = serviceLocator.get('authToken');
+    // if (authTokenService &amp;&amp; authTokenService.isInitialized) {
+    //   authTokenService.setTokens(
+    //     tokens.accessToken,
+    //     tokens.refreshToken,
+    //     tokens.expiresIn || 3600
+    //   );
+    // }
+    
+    // Configurar cookies
+    res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict'
+    });
+    
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict'
+    });
+    
+    return res.status(200).json({
+      success: true,
+      isAuthenticated: true,
+      isFirstAccess: isFirstAccess,
+      user: user,
+      tokens: tokens
+    });
+  } catch (error) {
+    logger.error('Erro ao gerar token', {
+      error: error.message
+    });
+    
+    return res.status(401).json({
+      success: false,
+      message: 'Falha na autenticação',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Registra novo usuário no sistema
+ * @async
+ * @function register
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.firebaseToken - Token do Firebase
+ * @param {string} [req.body.inviteId] - ID do convite (opcional)
+ * @param {Object} req.body.profileData - Dados do perfil do usuário
+ * @param {string} [req.ja3Hash] - Hash JA3 da requisição (definido por middleware)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Dados do usuário registrado e tokens
+ * @description Cria conta de usuário usando Firebase e armazena dados no banco
+ */
+exports.register = async (req, res) => {
+  const auth = getAuth();
+  const ja3Hash = req.ja3Hash;
+  const { firebaseToken, inviteId, profileData } = req.body;
+  
+  try {
+    // 1. Verificar o token do Firebase
+    const decodedToken = await auth.verifyIdToken(firebaseToken);
+    const userId = decodedToken.uid;
+    // const ja3hash = calculateJA3Hash(req.)
+
+    // 3. Criar ou atualizar perfil do usuário
+    const userData = {
+      uid: userId,
+      email: decodedToken.email,
+      emailVerified: decodedToken.email_verified,
+      ja3Hash,
+      ...profileData,
+      dataCriacao: Date.now()
+    };
+    
+    const user = await userService.addUser(userData);
+    
+    // 2. Verificar e invalidar o convite (se fornecido)
+    if (inviteId) {
+      await inviteService.invalidateInvite(inviteId, userId);
+    }
+
+    // 4. Gerar token JWT da aplicação
+    const tokens = authService.generateToken({
+      uid: userId,
+      email: decodedToken.email
+    });
+    
+    // 5. Definir cookies de autenticação
+    res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict'
+    });
+    
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict'
+    });
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Registro concluído com sucesso',
+      isAuthenticated: true,
+      isFirstAccess: true,
+      user,
+      tokens
+    });
+  } catch (error) {
+    logger.error('Erro no registro', {
+      error: error.message,
+      inviteId,
+      profileData
+    });
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao processar registro',
+      error: error.message
+    });
+  }
+};
+
+// exports.registerWithEmail = async (req, res) => {
+//     const { uid, email, nome, inviteId } = req.body;
+
+//     if (!uid || !email || !nome || !inviteId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Dados incompletos para registro com convite'
+//       });
+//     }
+
+//     const validationResult = await inviteService.checkInvite(inviteId, email);
+    
+//     if (!validationResult.valid) {
+//       return res.status(400).json({
+//         success: false,
+//         message: validationResult.message || 'Convite inválido'
+//       });
+//     }
+
+//     await inviteService.invalidateInvite(inviteId, uid);
+
+
+//   try {
+//     const response = await authService.registerWithEmail(email, password, inviteId);
+//     res.status(200).json(response);
+//   } catch (error) {
+//     logger.error('Erro ao criar conta', { service: 'authController', function: 'registerWithEmail', error: error.message });
+//     res.status(500).json({ message: 'Erro ao criar conta', error: error.message });
+//   }
+// };
+
+/**
+ * Efetua logout do usuário
+ * @async
+ * @function logout
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.headers - Headers da requisição
+ * @param {string} [req.headers.authorization] - Token Bearer no header
+ * @param {Object} [req.cookies] - Cookies da requisição
+ * @param {string} [req.cookies.authorization] - Token de autorização no cookie
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Confirmação do logout
+ * @description Adiciona token à blacklist e limpa cookies de autenticação
+ */
+exports.logout = async (req, res) => {
+  // Captura do token do cabeçalho Authorization ou dos cookies
+  let idToken = null;
+
+  // Verifica se o token está no header 'authorization'
+  const authHeader = req.headers['authorization'] || req.cookies['authorization'];
+  
+  if (authHeader &amp;&amp; authHeader.startsWith('Bearer ')) {
+    idToken = authHeader.split(' ')[1];  // Extrai o token do header
+  } else if (req.cookies['authorization']) {
+    idToken = req.cookies['authorization'];  // Extrai o token dos cookies, se presente
+  }
+
+  // Log de informação sobre o processo de logout
+  logger.info('Requisição de logout recebida', {
+    service: 'authController',
+    function: 'logout',
+    idToken // Pode ser útil para depuração, mas certifique-se de não expor o token sensível em logs de produção
+  });
+
+  // Se o token não foi encontrado, retorna erro
+  if (!idToken) {
+    logger.warn('Token não encontrado na requisição', {
+      service: 'authController',
+      function: 'logout'
+    });
+    return res.status(400).json({ message: 'Token not found in request' });
+  }
+
+  try {
+    // Chama o serviço de logout, passando o token
+    await authService.logout(idToken);
+    logger.info('Logout realizado com sucesso e token blacklisted', {
+      service: 'authController',
+      function: 'logout',
+      idToken
+    });
+    res.status(200).json({ message: 'Logout successful and token blacklisted' });
+  } catch (error) {
+    logger.error('Falha ao tentar blacklist o token', {
+      service: 'authController',
+      function: 'logout',
+      error: error.message,
+      idToken
+    });
+    res.status(500).json({ message: 'Failed to blacklist token', error: error.message });
+  }
+};
+
+
+// exports.registerWithProvider = async (req, res) => {
+//   const { provider, inviteId, registrationToken } = req.body;
+
+//   try {
+//     const response = await authService.registerWithProvider(provider, inviteId);
+//     res.status(200).json(response);
+//   } catch (error) {
+//     logger.error('Erro no registro com provedor', { service: 'authController', function: 'registerWithProvider', error: error.message });
+//     res.status(500).json({ message: 'Erro no registro com provedor', error: error.message });
+//   }
+// };
+/**
+ * Reenvia email de verificação para o usuário
+ * @async
+ * @function resendVerificationEmail
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Resultado do reenvio do email
+ * @description Solicita novo envio de email de verificação através do authService
+ */
+exports.resendVerificationEmail = async (req, res) => {
+  try {
+    const response = await authService.resendVerificationEmail();
+    res.status(200).json(response);
+  } catch (error) {
+    logger.error(`Erro ao reenviar email de verificação: ${error.message}`);
+    res.status(500).json({ message: 'Erro ao reenviar email de verificação', error: error.message });
+  }
+};
+
+/**
+ * Obtém dados do usuário autenticado atual
+ * @async
+ * @function getCurrentUser
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.user - Dados do usuário autenticado (definido por middleware)
+ * @param {string} req.user.uid - ID único do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Dados completos do usuário autenticado
+ * @description Retorna informações do usuário baseado no token JWT decodificado
+ */
+exports.getCurrentUser = async (req, res) => {
+  try {
+    // O userId já deve vir do token decodificado, não precisa ser da rota
+    if (!req.user || !req.user.uid) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    const userId = req.user.uid; // Obtendo diretamente do token, sem usar params
+
+    // O código abaixo verifica se a rota é '/me', mas isso não é necessário, pois já sabemos que é o usuário autenticado
+    logger.info('Requisição para obter usuário autenticado', { service: 'userController', function: 'getCurrentUser', userId });
+    const user = await authService.getUserById(userId); // Ou diretamente usar UserModel.getById
+    if (user) {
+      return res.status(200).json(user);
+    } else {
+      logger.warn('Usuário não encontrado', { service: 'userController', function: 'getCurrentUser', userId });
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+  } catch (error) {
+    logger.error('Erro ao obter usuário por ID', { service: 'userController', function: 'getCurrentUser', error: error.message });
+    return res.status(500).json({ message: 'Erro ao obter usuário' });
+  }
+};
+
+/**
+ * Renova token de acesso usando refresh token
+ * @async
+ * @function refreshToken
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} [req.body] - Corpo da requisição
+ * @param {string} [req.body.refreshToken] - Token de refresh no corpo
+ * @param {Object} [req.cookies] - Cookies da requisição
+ * @param {string} [req.cookies.refreshToken] - Token de refresh no cookie
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Novos tokens de acesso e refresh
+ * @description Valida refresh token e gera novos tokens de acesso
+ */
+exports.refreshToken = async (req, res) => {
+  try {
+    const { refreshToken } = req.body || req.cookies;
+
+    if (!refreshToken) {
+      return res.status(400).json({ message: 'Refresh token é obrigatório' });
+    }
+
+    // Verificar se o refresh token é válido e gerar novos tokens
+    const newTokens = await authService.verifyAndGenerateNewToken(refreshToken);
+
+    if (!newTokens) {
+      return res.status(403).json({ message: 'Token inválido ou expirado' });
+    }
+
+    res.status(200).json({
+      accessToken: newTokens.accessToken,
+      refreshToken: newTokens.refreshToken,
+      message: 'Token renovado com sucesso',
+    });
+
+  } catch (error) {
+    logger.error('Erro ao renovar token', { service: 'authController', function: 'refreshToken', error: error.message });
+    res.status(500).json({ message: 'Erro ao renovar token', error: error.message });
+  }
+};
+
+/**
+ * Inicia processo de autenticação com provedores externos
+ * @async
+ * @function initiateAuth
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.provider - Provedor de autenticação (google, apple, etc.)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Dados para iniciar autenticação (authUrl, state)
+ * @description Prepara URL e estado para autenticação OAuth com provedor externo
+ */
+exports.initiateAuth = async (req, res) => {
+  const { provider } = req.body;
+
+  try {
+    if (!provider) {
+      return res.status(400).json({ message: 'Provider é obrigatório' });
+    }
+
+    const authData = await authService.initiateAuth(provider);
+    res.status(200).json(authData); // { authUrl, state }
+  } catch (error) {
+    logger.error('Erro ao iniciar autenticação', { service: 'authController', function: 'initiateAuth', error: error.message });
+    res.status(500).json({ message: 'Erro ao iniciar autenticação', error: error.message });
+  }
+};
+
+/**
+ * Inicia processo de registro com provedores externos
+ * @async
+ * @function initiateRegistration
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.provider - Provedor de autenticação
+ * @param {string} req.body.inviteId - ID do convite obrigatório
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Dados para iniciar registro (authUrl, state)
+ * @description Prepara URL e estado para registro OAuth com validação de convite
+ */
+exports.initiateRegistration = async (req, res) => {
+  const { provider, inviteId } = req.body;
+
+  try {
+    if (!provider || !inviteId) {
+      return res.status(400).json({ message: 'Provider e inviteId são obrigatórios' });
+    }
+
+    const registrationData = await authService.initiateRegistration(provider, inviteId);
+    res.status(200).json(registrationData); // { authUrl, state }
+  } catch (error) {
+    logger.error('Erro ao iniciar registro', { service: 'authController', function: 'initiateRegistration', error: error.message });
+    res.status(500).json({ message: 'Erro ao iniciar registro', error: error.message });
+  }
+};
+
+/**
+ * Processa retorno da autenticação OAuth
+ * @async
+ * @function handleAuthCallback
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.idToken - Token ID retornado pelo provedor
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object|Redirect>} Tokens e dados do usuário ou redirecionamento
+ * @description Processa callback OAuth, valida tokens e autentica usuário
+ */
+exports.handleAuthCallback = async (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  try {
+    // Get the ID token from the request
+    const { idToken } = req.body;
+    
+    if (!idToken) {
+      throw new Error('No ID token provided');
+    }
+
+    const result = await authService.handleAuthCallback(idToken);
+
+    if (isProduction) {
+      // Set secure cookie for production
+      res.cookie('accessToken', result.tokens.accessToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+        domain: process.env.DOMAIN,
+        maxAge: 3600000 // 1 hour
+      });
+
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
+    }
+
+    // Return tokens directly in development
+    return res.status(200).json({
+      success: true,
+      tokens: result.tokens,
+      user: result.user
+    });
+
+  } catch (error) {
+    logger.error('Auth callback error:', {
+      service: 'authController',
+      function: 'handleAuthCallback',
+      error: error.message
+    });
+
+    const errorUrl = isProduction
+      ? `${process.env.FRONTEND_URL}/auth/error?message=${encodeURIComponent(error.message)}`
+      : null;
+
+    if (isProduction) {
+      return res.redirect(errorUrl);
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Verificar validade da sessão
+exports.checkSession = async (req, res) => {
+  const userId = req.user?.uid;
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ valid: false, message: 'No token provided' });
+  }
+
+  try {
+    if (!userId) {
+      return res.status(400).json({ message: 'ID do usuário não fornecido 1' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (!decoded || decoded.uid !== userId) {
+      return res.status(401).json({ message: 'Sessão inválida ou expirada' });
+    }
+
+    res.status(200).json({ message: 'Sessão válida' });
+  } catch (error) {
+    logger.error('Erro ao verificar sessão', { service: 'authController', function: 'checkSession', error: error.message });
+    res.status(500).json({ message: 'Erro ao verificar sessão', error: error.message });
+  }
+};
+
+/**
+ * Verifica token de redefinição de senha
+ * @async
+ * @function verifyResetToken
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.params - Parâmetros da URL
+ * @param {string} req.params.token - Token de redefinição de senha
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Validação do token de reset
+ * @description Verifica se token de redefinição de senha é válido e não expirou
+ */
+exports.verifyResetToken = async (req, res) => {
+  const { token } = req.params;
+
+  try {
+    if (!token) {
+      return res.status(400).json({ message: 'Token de redefinição de senha é obrigatório' });
+    }
+
+    const isValid = await authService.verifyResetToken(token);
+
+    if (!isValid) {
+      return res.status(400).json({ message: 'Token inválido ou expirado' });
+    }
+
+    res.status(200).json({ message: 'Token válido' });
+  } catch (error) {
+    logger.error('Erro ao verificar token de redefinição de senha', { service: 'authController', function: 'verifyResetToken', error: error.message });
+    res.status(500).json({ message: 'Erro ao verificar token', error: error.message });
+  }
+};</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

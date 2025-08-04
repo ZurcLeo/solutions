@@ -120,6 +120,12 @@ const permissionUpdate = Joi.object({
 
 // Schema para atribuição de role a usuário
 const userRoleAssign = Joi.object({
+  userId: Joi.string()
+    .optional()
+    .messages({
+      'string.empty': 'ID do usuário é obrigatório'
+    }),
+    
   roleId: Joi.string()
     .required()
     .messages({
@@ -134,15 +140,17 @@ const userRoleAssign = Joi.object({
         'any.only': 'Tipo de contexto deve ser global, caixinha ou marketplace'
       }),
     
-    resourceId: Joi.string()
-      .when('type', {
-        is: Joi.string().valid('caixinha', 'marketplace'),
-        then: Joi.required(),
-        otherwise: Joi.allow(null)
-      })
-      .messages({
-        'string.empty': 'ID do recurso é obrigatório para contextos não-globais'
-      })
+    resourceId: Joi.when('type', {
+      is: Joi.string().valid('caixinha', 'marketplace'),
+      then: Joi.string().required().min(1).messages({
+        'string.empty': 'ID do recurso é obrigatório para contextos não-globais',
+        'string.min': 'ID do recurso é obrigatório para contextos não-globais'
+      }),
+      otherwise: Joi.alternatives().try(
+        Joi.string().allow(''),
+        Joi.valid(null)
+      )
+    })
   }).default({ type: 'global', resourceId: null }),
   
   options: Joi.object({

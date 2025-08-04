@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: services/messageService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: services/messageService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>// services/MessageServiceV2.js
+const Message = require('../models/Message');
+const { logger } = require('../logger');
+
+class MessageService {
+  /**
+   * Obtém todas as conversas de um usuário
+   * @param {string} userId - ID do usuário
+   * @returns {Promise&lt;Array>} - Lista de conversas
+   */
+  static async getUserConversations(userId) {
+    try {
+      logger.info(`Buscando conversas para usuário: ${userId}`);
+      const conversations = await Message.getUserConversations(userId);
+      logger.debug(`Encontradas ${conversations.length} conversas para o usuário ${userId}`);
+      return conversations;
+    } catch (error) {
+      logger.error(`Erro ao buscar conversas para usuário ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtém mensagens de uma conversa entre dois usuários
+   * @param {string} userId1 - ID do primeiro usuário
+   * @param {string} userId2 - ID do segundo usuário
+   * @param {number} limit - Limite de mensagens
+   * @param {Date} before - Timestamp para paginação
+   * @returns {Promise&lt;Array>} - Lista de mensagens
+   */
+  static async getConversationMessages(userId1, userId2, limit = 50, before = null) {
+    try {
+      // Ordenar IDs para garantir consistência
+      const sortedIds = [userId1, userId2].sort();
+      const conversationId = sortedIds.join('_');
+      
+      logger.info(`Buscando mensagens para conversa: ${conversationId}`);
+      const messages = await Message.getConversationMessages(conversationId, limit, before);
+      logger.debug(`Encontradas ${messages.length} mensagens na conversa ${conversationId}`);
+      return messages;
+    } catch (error) {
+      logger.error(`Erro ao buscar mensagens entre usuários ${userId1} e ${userId2}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtém mensagens por ID de conversa
+   * @param {string} conversationId - ID da conversa
+   * @param {number} limit - Limite de mensagens
+   * @param {Date} before - Timestamp para paginação
+   * @returns {Promise&lt;Array>} - Lista de mensagens
+   */
+  static async getMessagesByConversationId(conversationId, limit = 50, before = null) {
+    try {
+      logger.info(`Buscando mensagens para conversationId: ${conversationId}`);
+      const messages = await Message.getConversationMessages(conversationId, limit, before);
+      logger.debug(`Encontradas ${messages.length} mensagens na conversa ${conversationId}`);
+      return messages;
+    } catch (error) {
+      logger.error(`Erro ao buscar mensagens para conversationId ${conversationId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verifica se um usuário é participante de uma conversa
+   * @param {string} conversationId - ID da conversa
+   * @param {string} userId - ID do usuário
+   * @returns {Promise&lt;boolean>} - true se o usuário é participante
+   */
+  static async isUserParticipantOfConversation(conversationId, userId) {
+    try {
+      logger.info(`Verificando se usuário ${userId} é participante da conversa ${conversationId}`);
+      const isParticipant = await Message.isUserParticipantOfConversation(conversationId, userId);
+      logger.debug(`Usuário ${userId} ${isParticipant ? 'é' : 'não é'} participante da conversa ${conversationId}`);
+      return isParticipant;
+    } catch (error) {
+      logger.error(`Erro ao verificar participação do usuário ${userId} na conversa ${conversationId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cria uma nova mensagem
+   * @param {Object} messageData - Dados da mensagem
+   * @returns {Promise&lt;Object>} - Mensagem criada
+   */
+  static async createMessage(messageData) {
+    try {
+      logger.info(`Criando mensagem de ${messageData.sender} para ${messageData.recipient}`);
+      const newMessage = await Message.createMessage(messageData);
+      logger.debug(`Mensagem criada com ID: ${newMessage.id}`);
+      return newMessage;
+    } catch (error) {
+      logger.error(`Erro ao criar mensagem:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Marca mensagens como lidas
+   * @param {string} conversationId - ID da conversa
+   * @param {string} userId - ID do usuário que está lendo as mensagens
+   * @returns {Promise&lt;Object>} - Resultado da operação
+   */
+  static async markMessagesAsRead(conversationId, userId) {
+    try {
+      logger.info(`Marcando mensagens como lidas para usuário ${userId} na conversa ${conversationId}`);
+      const result = await Message.markMessagesAsRead(conversationId, userId);
+      logger.debug(`Marcadas ${result.count} mensagens como lidas`);
+      return result;
+    } catch (error) {
+      logger.error(`Erro ao marcar mensagens como lidas para usuário ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Atualiza o status de uma mensagem
+   * @param {string} conversationId - ID da conversa
+   * @param {string} messageId - ID da mensagem
+   * @param {Object} statusUpdate - Dados de atualização
+   * @returns {Promise&lt;Object>} - Resultado da operação
+   */
+  static async updateMessageStatus(conversationId, messageId, statusUpdate) {
+    try {
+      logger.info(`Atualizando status da mensagem ${messageId} na conversa ${conversationId}`);
+      const result = await Message.updateMessageStatus(conversationId, messageId, statusUpdate);
+      logger.debug(`Status da mensagem atualizado: ${JSON.stringify(result.status)}`);
+      return result;
+    } catch (error) {
+      logger.error(`Erro ao atualizar status da mensagem ${messageId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Exclui uma mensagem
+   * @param {string} conversationId - ID da conversa
+   * @param {string} messageId - ID da mensagem
+   * @param {string} userId - ID do usuário solicitando a exclusão
+   * @returns {Promise&lt;Object>} - Resultado da operação
+   */
+  static async deleteMessage(conversationId, messageId, userId) {
+    try {
+      logger.info(`Excluindo mensagem ${messageId} pelo usuário ${userId}`);
+      const result = await Message.deleteMessage(conversationId, messageId, userId);
+      logger.debug(`Mensagem ${messageId} excluída com sucesso`);
+      return result;
+    } catch (error) {
+      logger.error(`Erro ao excluir mensagem ${messageId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtém estatísticas de mensagens do usuário
+   * @param {string} userId - ID do usuário
+   * @returns {Promise&lt;Object>} - Estatísticas
+   */
+  static async getUserMessageStats(userId) {
+    try {
+      logger.info(`Obtendo estatísticas de mensagens para usuário ${userId}`);
+      const stats = await Message.getUserMessageStats(userId);
+      logger.debug(`Estatísticas obtidas: ${JSON.stringify(stats)}`);
+      return stats;
+    } catch (error) {
+      logger.error(`Erro ao obter estatísticas de mensagens para usuário ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Migra dados do modelo antigo para o novo
+   * @param {string} userId - ID do usuário para migrar
+   * @returns {Promise&lt;Object>} - Resultado da migração
+   */
+  static async migrateUserMessages(userId) {
+    try {
+      logger.info(`Iniciando migração de mensagens para usuário ${userId}`);
+      
+      // Implementar código de migração aqui
+      // Este é um stub para representar a lógica de migração
+      
+      return {
+        success: true,
+        migratedConversations: 0,
+        migratedMessages: 0
+      };
+    } catch (error) {
+      logger.error(`Erro ao migrar mensagens para usuário ${userId}:`, error);
+      throw error;
+    }
+  }
+}
+
+module.exports = MessageService;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

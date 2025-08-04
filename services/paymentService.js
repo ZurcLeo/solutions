@@ -16,6 +16,10 @@ class PaymentService {
 
   async createPixPayment(amount, description, payer, additionalData = {}) {
     try {
+      // Validações obrigatórias para melhorar score de aprovação
+      this._validatePayerData(payer);
+      this._validateItemsData(additionalData.items, amount, description);
+      
       logger.info('Creating PIX payment', {
         service: 'PaymentService',
         method: 'createPixPayment',
@@ -47,17 +51,8 @@ class PaymentService {
           }),
           ...(payer.address && { address: payer.address })
         },
-        // Incluir items apenas se fornecidos (PIX aceita sem items)
-        ...(additionalData.items && additionalData.items.length > 0 && { 
-          items: additionalData.items.map(item => ({
-            id: item.id || 'item-default',
-            title: item.title || description,
-            description: item.description || description,
-            category_id: item.category_id || 'others',
-            quantity: item.quantity || 1,
-            unit_price: item.unit_price || amount
-          }))
-        }),
+        // Items OBRIGATÓRIOS para melhorar score (CRÍTICO para 70+ pontos)
+        items: this._formatItems(additionalData.items, amount, description),
         date_of_expiration: this._get24HourExpiration(),
         ...(additionalData.notificationUrl && { notification_url: additionalData.notificationUrl }),
         external_reference: additionalData.externalReference,
@@ -302,25 +297,43 @@ class PaymentService {
 
   validatePaymentData(paymentData) {
     const errors = [];
+    const warnings = [];
     
-    // Validações obrigatórias para pontuação alta
+    // Validações obrigatórias para pontuação alta (CRÍTICAS)
     if (!paymentData.token) errors.push('Token is required');
     if (!paymentData.device_id) errors.push('Device ID is required (SDK V2)');
     if (!paymentData.amount || paymentData.amount <= 0) errors.push('Amount must be greater than 0');
-    if (!paymentData.payer?.email) errors.push('Payer email is required');
-    if (!paymentData.payer?.first_name) errors.push('Payer first name is required');
-    if (!paymentData.payer?.last_name) errors.push('Payer last name is required');
-    if (!paymentData.payer?.identification?.type) errors.push('Payer identification type is required');
-    if (!paymentData.payer?.identification?.number) errors.push('Payer identification number is required');
+    
+    // Validações do payer (CRÍTICAS para score 70+)
+    if (!paymentData.payer) {
+      errors.push('Payer data is required');
+    } else {
+      if (!paymentData.payer.email) errors.push('Payer email is required');
+      if (!paymentData.payer.first_name) errors.push('Payer first name is required');
+      if (!paymentData.payer.last_name) errors.push('Payer last name is required');
+      if (!paymentData.payer.identification?.type) errors.push('Payer identification type is required');
+      if (!paymentData.payer.identification?.number) errors.push('Payer identification number is required');
+      
+      // Campos recomendados para melhor score
+      if (!paymentData.payer.phone) warnings.push('Payer phone is recommended for better approval rates');
+      if (!paymentData.payer.address) warnings.push('Payer address is recommended for better approval rates');
+    }
+    
+    // Validações de items (CRÍTICAS para score)
+    if (!paymentData.items || !Array.isArray(paymentData.items) || paymentData.items.length === 0) {
+      warnings.push('Items array is recommended for better approval rates - will use default item');
+    }
     
     // Validações para melhorar score
-    if (!paymentData.description) errors.push('Description is recommended for better approval rates');
-    if (!paymentData.external_reference) errors.push('External reference is recommended');
+    if (!paymentData.description) warnings.push('Description is recommended for better approval rates');
+    if (!paymentData.external_reference) warnings.push('External reference is recommended');
+    if (!paymentData.ip_address) warnings.push('IP address is recommended for fraud prevention');
+    if (!paymentData.user_agent) warnings.push('User agent is recommended for fraud prevention');
     
     return {
       isValid: errors.length === 0,
       errors,
-      warnings: errors.filter(e => e.includes('recommended'))
+      warnings
     };
   }
 
@@ -328,6 +341,94 @@ class PaymentService {
     const date = new Date();
     date.setHours(date.getHours() + 24);
     return date.toISOString();
+  }
+
+  // Validações obrigatórias para dados do comprador (CRÍTICO)
+  _validatePayerData(payer) {
+    const errors = [];
+    
+    if (!payer) {
+      throw new Error('Dados do comprador são obrigatórios');
+    }
+    
+    // Campos obrigatórios básicos
+    if (!payer.email) errors.push('Email do comprador é obrigatório');
+    if (!payer.identificationNumber) errors.push('Número de identificação é obrigatório');
+    
+    // Campos recomendados para melhor score
+    if (!payer.first_name && !payer.firstName) {
+      logger.warn('Nome do comprador não fornecido - pode afetar score de aprovação');
+    }
+    if (!payer.last_name && !payer.lastName) {
+      logger.warn('Sobrenome do comprador não fornecido - pode afetar score de aprovação');
+    }
+    if (!payer.phone) {
+      logger.warn('Telefone do comprador não fornecido - pode afetar score de aprovação');
+    }
+    
+    if (errors.length > 0) {
+      throw new Error(`Dados do comprador inválidos: ${errors.join(', ')}`);
+    }
+  }
+
+  // Validações obrigatórias para itens (CRÍTICO)
+  _validateItemsData(items, amount, description) {
+    // Items são críticos para score de aprovação
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      logger.warn('Items não fornecidos - será criado item padrão', {
+        service: 'PaymentService',
+        method: '_validateItemsData',
+        itemsProvided: !!items
+      });
+      return; // Será criado item padrão no _formatItems
+    }
+    
+    // Validar cada item fornecido
+    items.forEach((item, index) => {
+      if (!item.title && !item.description) {
+        logger.warn(`Item ${index} sem título ou descrição`, {
+          service: 'PaymentService',
+          method: '_validateItemsData',
+          itemIndex: index
+        });
+      }
+      if (!item.unit_price && item.unit_price !== 0) {
+        logger.warn(`Item ${index} sem preço unitário`, {
+          service: 'PaymentService',
+          method: '_validateItemsData',
+          itemIndex: index
+        });
+      }
+    });
+  }
+
+  // Formatar items para garantir qualidade dos dados (CRÍTICO)
+  _formatItems(items, amount, description) {
+    // Se não há items, criar um padrão (CRÍTICO para score)
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return [{
+        id: 'default-item-001',
+        title: description || 'Pagamento ElosCloud',
+        description: description || 'Serviço de pagamento ElosCloud',
+        category_id: 'digital_services',
+        quantity: 1,
+        unit_price: Number(amount),
+        picture_url: null,
+        warranty: false
+      }];
+    }
+    
+    // Formatar items fornecidos
+    return items.map((item, index) => ({
+      id: item.id || `item-${index + 1}`,
+      title: item.title || description || 'Item de Pagamento',
+      description: item.description || item.title || description || 'Item de pagamento ElosCloud',
+      category_id: item.category_id || 'digital_services',
+      quantity: item.quantity || 1,
+      unit_price: Number(item.unit_price) || Number(amount),
+      picture_url: item.picture_url || null,
+      warranty: item.warranty || false
+    }));
   }
 }
 

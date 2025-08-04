@@ -1,11 +1,18 @@
-// controllers/inviteController.js
+/**
+ * @fileoverview Controller de convites - gerencia sistema de convites entre usuários
+ * @module controllers/inviteController
+ */
+
 const { logger } = require('../logger');
 const inviteService = require('../services/inviteService');
 const { HttpError } = require('../utils/errors');
 
 /**
  * Verifica a existência e validade de um convite sem validá-lo
+ * @async
+ * @function checkInvite
  * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.inviteId - ID do convite
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com informações básicas do convite
  */
@@ -46,8 +53,14 @@ exports.checkInvite = async (req, res) => {
 };
 
 /**
- * Valida um convite com email e nome
+ * Valida um convite com email e nome do usuário
+ * @async
+ * @function validateInvite
  * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.inviteId - ID do convite
+ * @param {Object} req.body - Dados de validação
+ * @param {string} req.body.email - Email do usuário
+ * @param {string} req.body.nome - Nome do usuário
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com resultado da validação e token de registro
  */
@@ -95,7 +108,13 @@ exports.validateInvite = async (req, res) => {
 
 /**
  * Invalida um convite existente após uso
+ * @async
+ * @function invalidateInvite
  * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da invalidação
+ * @param {string} req.body.inviteId - ID do convite
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com resultado da invalidação
  */
@@ -144,7 +163,12 @@ exports.invalidateInvite = async (req, res) => {
 
 /**
  * Reenvia um convite existente
+ * @async
+ * @function resendInvite
  * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.inviteId - ID do convite
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com resultado do reenvio
  */
@@ -194,7 +218,14 @@ exports.resendInvite = async (req, res) => {
 
 /**
  * Gera e envia um novo convite
+ * @async
+ * @function sendInvite
  * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.validatedBody - Dados validados
+ * @param {string} req.validatedBody.email - Email do destinatário
+ * @param {string} req.validatedBody.friendName - Nome do amigo
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com resultado da geração do convite
  */
@@ -247,8 +278,12 @@ exports.sendInvite = async (req, res) => {
 };
 
 /**
- * Obtém todos os convites enviados por um usuário
+ * Busca todos os convites enviados por um usuário
+ * @async
+ * @function getSentInvites
  * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com lista de convites enviados
  */
@@ -294,8 +329,11 @@ exports.getSentInvites = async (req, res) => {
 };
 
 /**
- * Obtém detalhes de um convite específico por ID
+ * Busca detalhes de um convite específico por ID
+ * @async
+ * @function getInviteById
  * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.inviteId - ID do convite
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com detalhes do convite
  */
@@ -341,7 +379,12 @@ exports.getInviteById = async (req, res) => {
 
 /**
  * Cancela um convite que ainda não foi utilizado
+ * @async
+ * @function cancelInvite
  * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.inviteId - ID do convite
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com resultado do cancelamento
  */

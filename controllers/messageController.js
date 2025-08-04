@@ -46,6 +46,11 @@ class MessageController {
       const { conversationId } = req.params;
       const { limit = 50, before = null } = req.query;
 
+      console.log(`[CONTROLLER DEBUG] getConversationMessages iniciado`);
+      console.log(`[CONTROLLER DEBUG] userId: ${userId}`);
+      console.log(`[CONTROLLER DEBUG] conversationId: ${conversationId}`);
+      console.log(`[CONTROLLER DEBUG] limit: ${limit}, before: ${before}`);
+
       if (!userId) {
         return res.status(401).json({ 
           success: false, 
@@ -61,25 +66,53 @@ class MessageController {
       }
 
       // Verificar se o usuário é participante da conversa
+      // Primeiro, tentar verificar se o conversationId está no formato userId1_userId2
       const participants = conversationId.split('_');
-      if (!participants.includes(userId)) {
+      console.log(`[CONTROLLER DEBUG] Participantes extraídos do ID: ${JSON.stringify(participants)}`);
+      
+      if (participants.length === 2 && participants.includes(userId)) {
+        console.log(`[CONTROLLER DEBUG] Formato padrão userId1_userId2 detectado e usuário é participante`);
+        // Formato padrão userId1_userId2 e usuário é participante
+        const messages = await MessageService.getMessagesByConversationId(
+          conversationId,
+          parseInt(limit),
+          before ? new Date(before) : null
+        );
+
+        console.log(`[CONTROLLER DEBUG] Mensagens encontradas: ${messages.length}`);
+        return res.status(200).json({
+          success: true,
+          data: messages
+        });
+      }
+
+      console.log(`[CONTROLLER DEBUG] Formato não padrão detectado, verificando no Firestore...`);
+      // Se não estiver no formato padrão, verificar no Firestore se o usuário é participante
+      const isParticipant = await MessageService.isUserParticipantOfConversation(conversationId, userId);
+      console.log(`[CONTROLLER DEBUG] isParticipant resultado: ${isParticipant}`);
+      
+      if (!isParticipant) {
+        console.log(`[CONTROLLER DEBUG] Usuário não é participante, retornando 403`);
         return res.status(403).json({
           success: false,
           message: '[getConversationMessages] Você não tem permissão para acessar esta conversa'
         });
       }
 
+      console.log(`[CONTROLLER DEBUG] Usuário é participante, buscando mensagens...`);
       const messages = await MessageService.getMessagesByConversationId(
         conversationId,
         parseInt(limit),
         before ? new Date(before) : null
       );
 
+      console.log(`[CONTROLLER DEBUG] Mensagens encontradas: ${messages.length}`);
       return res.status(200).json({
         success: true,
         data: messages
       });
     } catch (error) {
+      console.log(`[CONTROLLER ERROR] Erro no getConversationMessages:`, error);
       logger.error('Erro ao buscar mensagens:', error);
       return res.status(500).json({
         success: false,
@@ -209,11 +242,15 @@ class MessageController {
       // Verificar se o usuário é participante da conversa
       const participants = conversationId.split('_');
       
-      if (!participants.includes(userId)) {
-        return res.status(403).json({
-          success: false,
-          message: '[markMessagesAsRead] Você não tem permissão para acessar esta conversa'
-        });
+      // Se não estiver no formato padrão userId1_userId2, verificar no Firestore
+      if (participants.length !== 2 || !participants.includes(userId)) {
+        const isParticipant = await MessageService.isUserParticipantOfConversation(conversationId, userId);
+        if (!isParticipant) {
+          return res.status(403).json({
+            success: false,
+            message: '[markMessagesAsRead] Você não tem permissão para acessar esta conversa'
+          });
+        }
       }
 
       const result = await MessageService.markMessagesAsRead(conversationId, userId);
@@ -259,11 +296,16 @@ class MessageController {
 
       // Verificar se o usuário é participante da conversa
       const participants = conversationId.split('_');
-      if (!participants.includes(userId)) {
-        return res.status(403).json({
-          success: false,
-          message: '[updateMessageStatus] Você não tem permissão para acessar esta conversa'
-        });
+      
+      // Se não estiver no formato padrão userId1_userId2, verificar no Firestore
+      if (participants.length !== 2 || !participants.includes(userId)) {
+        const isParticipant = await MessageService.isUserParticipantOfConversation(conversationId, userId);
+        if (!isParticipant) {
+          return res.status(403).json({
+            success: false,
+            message: '[updateMessageStatus] Você não tem permissão para acessar esta conversa'
+          });
+        }
       }
 
       const result = await MessageService.updateMessageStatus(

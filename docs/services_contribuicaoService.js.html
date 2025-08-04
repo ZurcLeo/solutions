@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: services/contribuicaoService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: services/contribuicaoService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @fileoverview Serviço para gerenciar contribuições e relatórios financeiros de caixinhas.
+ * @module services/contribuicaoService
+ * @requires firebaseAdmin
+ * @requires ../logger
+ */
+const { getFirestore } = require('../firebaseAdmin');
+const { logger } = require('../logger');
+
+/**
+ * Registra uma nova contribuição para uma caixinha em uma transação.
+ * @async
+ * @function registrarContribuicao
+ * @param {string} caixinhaId - O ID da caixinha à qual a contribuição pertence.
+ * @param {Object} data - Os dados da contribuição.
+ * @param {number} data.valor - O valor da contribuição.
+ * @param {string} data.membroId - O ID do membro que realizou a contribuição.
+ * @returns {Promise&lt;Object>} Um objeto contendo o ID e os dados da contribuição registrada.
+ * @throws {Error} Se o valor da contribuição for inválido ou ocorrer um erro durante o registro.
+ * @description Realiza uma transação atômica para registrar uma contribuição, criar um registro de transação e atualizar o saldo da caixinha.
+ */
+exports.registrarContribuicao = async (caixinhaId, data) => {
+  logger.info('Iniciando registro de contribuição', {
+    service: 'contribuicaoService',
+    method: 'registrarContribuicao',
+    caixinhaId
+  });
+
+  const session = db.batch();
+
+  try {
+    validarContribuicao(data);
+
+    const { contribuicaoRef, contribuicao } = await criarRegistroContribuicao(
+      session,
+      caixinhaId, 
+      data
+    );
+
+    await criarTransacaoContribuicao(
+      session,
+      caixinhaId,
+      data,
+      contribuicaoRef.id
+    );
+
+    await atualizarSaldoCaixinha(
+      session,
+      caixinhaId,
+      data.valor
+    );
+
+    await session.commit();
+
+    logger.info('Contribuição registrada com sucesso', {
+      service: 'contribuicaoService',
+      method: 'registrarContribuicao',
+      contribuicaoId: contribuicaoRef.id
+    });
+
+    return {
+      id: contribuicaoRef.id,
+      ...contribuicao
+    };
+
+  } catch (error) {
+    logger.error('Erro ao registrar contribuição', {
+      service: 'contribuicaoService',
+      method: 'registrarContribuicao',
+      error: error.message
+    });
+    throw error;
+  }
+};
+
+/**
+ * Busca contribuições para uma caixinha específica, com base em filtros.
+ * @async
+ * @function getContribuicoesByCaixinha
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {Object} [filtros={}] - Objeto contendo os critérios de filtro (ex: `dataInicio`, `dataFim`, `membroId`).
+ * @returns {Promise&lt;Array&lt;Object>>} Uma lista de objetos de contribuição.
+ * @throws {Error} Se ocorrer um erro ao buscar as contribuições.
+ * @description Constrói e executa uma query no banco de dados para recuperar contribuições de uma caixinha.
+ */
+exports.getContribuicoesByCaixinha = async (caixinhaId, filtros = {}) => {
+  logger.info('Buscando contribuições', {
+    service: 'contribuicaoService',
+    method: 'getContribuicoesByCaixinha',
+    caixinhaId
+  });
+
+  try {
+    const query = construirQueryContribuicoes(caixinhaId, filtros);
+    const snapshot = await query.get();
+
+    const contribuicoes = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    logger.info('Contribuições recuperadas', {
+      service: 'contribuicaoService',
+      method: 'getContribuicoesByCaixinha',
+      quantidade: contribuicoes.length
+    });
+
+    return contribuicoes;
+  } catch (error) {
+    logger.error('Erro ao buscar contribuições', {
+      service: 'contribuicaoService',
+      method: 'getContribuicoesByCaixinha',
+      error: error.message
+    });
+    throw error;
+  }
+};
+
+/**
+ * Gera um relatório detalhado das contribuições de uma caixinha.
+ * @async
+ * @function gerarRelatorioContribuicoes
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {Object} [periodo={}] - Objeto com `dataInicio` e `dataFim` para filtrar o período do relatório.
+ * @returns {Promise&lt;Object>} Um objeto de relatório contendo resumo, estatísticas, detalhamento por usuário, tendências e recomendações.
+ * @throws {Error} Se ocorrer um erro ao gerar o relatório.
+ * @description Coleta todas as contribuições de uma caixinha em um dado período e as processa para fornecer insights financeiros.
+ */
+exports.gerarRelatorioContribuicoes = async (caixinhaId, periodo = {}) => {
+  logger.info('Gerando relatório', {
+    service: 'contribuicaoService',
+    method: 'gerarRelatorioContribuicoes',
+    caixinhaId
+  });
+
+  try {
+    const contribuicoes = await exports.getContribuicoesByCaixinha(caixinhaId, periodo);
+    const estatisticas = calcularEstatisticas(contribuicoes);
+    const porUsuario = agruparPorUsuario(contribuicoes);
+    const tendencias = analisarTendencias(contribuicoes);
+    const atingimentoMeta = await calcularAtingimentoMeta(caixinhaId, estatisticas.totalGeral);
+
+    const relatorio = {
+      resumo: {
+        totalContribuicoes: contribuicoes.length,
+        valorTotalArrecadado: estatisticas.totalGeral,
+        mediaContribuicaoPorUsuario: estatisticas.mediaContribuicao,
+        percentualAtingimentoMeta: atingimentoMeta
+      },
+      estatisticas,
+      contribuintesPorFaixa: agruparPorFaixaValor(contribuicoes),
+      detalhamentoPorUsuario: porUsuario,
+      tendencias,
+      recomendacoes: gerarRecomendacoes(tendencias, estatisticas),
+      dataGeracao: new Date()
+    };
+
+    logger.info('Relatório gerado com sucesso', {
+      service: 'contribuicaoService',
+      method: 'gerarRelatorioContribuicoes',
+      totalContribuicoes: contribuicoes.length
+    });
+
+    return relatorio;
+  } catch (error) {
+    logger.error('Erro ao gerar relatório', {
+      service: 'contribuicaoService',
+      method: 'gerarRelatorioContribuicoes',
+      error: error.message
+    });
+    throw error;
+  }
+};
+
+/**
+ * Valida os dados de uma contribuição.
+ * @private
+ * @function validarContribuicao
+ * @param {Object} data - Os dados da contribuição.
+ * @param {number} data.valor - O valor da contribuição.
+ * @throws {Error} Se o valor da contribuição for inválido.
+ * @description Garante que o valor da contribuição seja positivo.
+ */
+const validarContribuicao = (data) => {
+  if (!data.valor || data.valor &lt;= 0) {
+    throw new Error('Valor da contribuição deve ser maior que zero');
+  }
+};
+
+/**
+ * Cria o registro de uma nova contribuição no Firestore.
+ * @private
+ * @async
+ * @function criarRegistroContribuicao
+ * @param {Object} session - A sessão de batch do Firestore.
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {Object} data - Os dados da contribuição.
+ * @returns {Promise&lt;{contribuicaoRef: Object, contribuicao: Object}>} Um objeto contendo a referência do documento e os dados da contribuição.
+ * @description Adiciona um novo documento na subcoleção 'contribuicoes' da caixinha.
+ */
+const criarRegistroContribuicao = async (session, caixinhaId, data) => {
+  const contribuicaoRef = db
+    .collection('caixinhas')
+    .doc(caixinhaId)
+    .collection('contribuicoes')
+    .doc();
+
+  const contribuicao = {
+    ...data,
+    dataContribuicao: new Date(),
+    status: 'confirmada'
+  };
+
+  session.set(contribuicaoRef, contribuicao);
+
+  return { contribuicaoRef, contribuicao };
+};
+
+/**
+ * Cria um registro de transação para a contribuição.
+ * @private
+ * @async
+ * @function criarTransacaoContribuicao
+ * @param {Object} session - A sessão de batch do Firestore.
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {Object} data - Os dados da contribuição.
+ * @param {string} contribuicaoId - O ID da contribuição associada.
+ * @returns {Promise&lt;void>}
+ * @description Adiciona um novo documento na subcoleção 'transacoes' da caixinha, registrando a contribuição como uma transação.
+ */
+const criarTransacaoContribuicao = async (session, caixinhaId, data, contribuicaoId) => {
+  const transacaoRef = db
+    .collection('caixinhas')
+    .doc(caixinhaId)
+    .collection('transacoes')
+    .doc();
+
+  const transacao = {
+    tipo: 'contribuicao',
+    valor: data.valor,
+    membroId: data.membroId,
+    data: new Date(),
+    contribuicaoId
+  };
+
+  session.set(transacaoRef, transacao);
+};
+
+/**
+ * Atualiza o saldo total da caixinha e a data da última contribuição.
+ * @private
+ * @async
+ * @function atualizarSaldoCaixinha
+ * @param {Object} session - A sessão de batch do Firestore.
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {number} valor - O valor da contribuição a ser adicionado ao saldo.
+ * @returns {Promise&lt;void>}
+ * @description Incrementa o `saldoTotal` e atualiza `dataUltimaContribuicao` no documento principal da caixinha.
+ */
+const atualizarSaldoCaixinha = async (session, caixinhaId, valor) => {
+  const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+  const caixinhaDoc = await caixinhaRef.get();
+  const saldoAtual = caixinhaDoc.data().saldoTotal || 0;
+
+  session.update(caixinhaRef, {
+    saldoTotal: saldoAtual + valor,
+    dataUltimaContribuicao: new Date()
+  });
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

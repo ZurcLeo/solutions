@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: config/socket/handlers/presenceHandlers.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: config/socket/handlers/presenceHandlers.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * presenceHandlers.js
+ * Manipuladores de eventos relacionados ao status de presença dos usuários no sistema.
+ * Estes handlers gerenciam informações sobre quais usuários estão online/offline,
+ * atualizações de status, e disseminação dessas informações para outros usuários.
+ */
+
+const { logger } = require('../../../logger');
+const socketManager = require('../socketManager');
+const { PRESENCE_EVENTS } = require('../socketEvents');
+const userService = require('../../../services/userService'); // Adapte ao caminho real
+
+// Armazenar informações de status para cada usuário
+const userStatusMap = new Map();
+
+/**
+ * Estrutura de status do usuário
+ * @typedef {Object} UserStatus
+ * @property {boolean} online - Se o usuário está online
+ * @property {string} status - Status personalizado (disponível, ausente, etc)
+ * @property {number} lastActivity - Timestamp da última atividade
+ * @property {string} lastSeen - Timestamp ISO da última vez online
+ * @property {Object} device - Informações do dispositivo
+ */
+
+/**
+ * Registra todos os handlers de presença para um socket
+ * @param {SocketIO.Socket} socket - Socket do cliente
+ * @param {string} userId - ID do usuário autenticado
+ * @param {Object} connectionInfo - Informações adicionais da conexão
+ */
+function registerPresenceHandlers(socket, userId, connectionInfo = {}) {
+  if (!socket || !userId) {
+    logger.error('Tentativa de registrar handlers de presença sem socket ou userId válidos', {
+      service: 'socket',
+      function: 'registerPresenceHandlers',
+      socketId: socket?.id,
+      userId
+    });
+    return;
+  }
+
+  // Definir status inicial do usuário
+  const initialStatus = {
+    online: true,
+    status: 'online',
+    lastActivity: Date.now(),
+    lastSeen: new Date().toISOString(),
+    device: {
+      type: connectionInfo.deviceType || 'unknown',
+      browser: connectionInfo.browser || 'unknown',
+      ip: connectionInfo.ip || 'unknown'
+    }
+  };
+  
+  // Atualizar status do usuário
+  updateUserStatus(userId, initialStatus);
+  
+  // Broadcast status online (exceto para o próprio usuário)
+  broadcastUserStatus(userId, true);
+
+  // Handler para quando o usuário atualiza seu status (disponível, ausente, ocupado, etc)
+  socket.on(PRESENCE_EVENTS.USER_STATUS_CHANGE, (statusData) => {
+    try {
+      if (!statusData || !statusData.status) {
+        return;
+      }
+
+      // Validar status permitidos
+      const allowedStatuses = ['online', 'away', 'busy', 'invisible', 'offline'];
+      const newStatus = allowedStatuses.includes(statusData.status) 
+        ? statusData.status 
+        : 'online';
+      
+      logger.info('Usuário atualizou status', {
+        service: 'socket',
+        function: 'updateUserStatus',
+        userId,
+        newStatus,
+        previousStatus: userStatusMap.get(userId)?.status || 'unknown'
+      });
+
+      // Atualizar o status armazenado
+      const currentStatus = userStatusMap.get(userId) || initialStatus;
+      updateUserStatus(userId, {
+        ...currentStatus,
+        status: newStatus,
+        lastActivity: Date.now()
+      });
+
+      // Transmitir para amigos/conexões (exceto status "invisível")
+      if (newStatus !== 'invisible') {
+        broadcastUserStatus(userId, newStatus !== 'offline');
+      }
+      
+      // Confirmar mudança para o usuário em todos seus dispositivos
+      socketManager.emitToUser(userId, PRESENCE_EVENTS.USER_STATUS_CHANGE, {
+        status: newStatus,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      logger.error('Erro ao processar user_status_change', {
+        service: 'socket',
+        function: 'updateUserStatus',
+        userId,
+        error: error.message
+      });
+    }
+  });
+
+  // Handler para solicitar lista de usuários online
+  socket.on(PRESENCE_EVENTS.GET_ONLINE_USERS, async (requestData) => {
+    try {
+      // Obter IDs de amigos/conexões relevantes para o usuário
+      let relevantUserIds;
+      
+      if (requestData &amp;&amp; Array.isArray(requestData.userIds)) {
+        // Se o cliente especificou IDs específicos
+        relevantUserIds = requestData.userIds;
+      } else {
+        // Caso contrário, obter conexões do usuário via serviço
+        try {
+          const connections = await userService.getUserConnections(userId);
+          relevantUserIds = connections.map(conn => conn.userId);
+        } catch (error) {
+          logger.error('Erro ao obter conexões do usuário', {
+            service: 'socket',
+            function: 'getOnlineUsers',
+            userId,
+            error: error.message
+          });
+          relevantUserIds = [];
+        }
+      }
+      
+      // Filtrar para obter apenas usuários online
+      const onlineUsers = relevantUserIds.filter(id => {
+        const status = userStatusMap.get(id);
+        return status &amp;&amp; status.online &amp;&amp; status.status !== 'invisible';
+      });
+      
+      // Preparar dados de status para cada usuário online
+      const onlineUsersData = onlineUsers.map(id => {
+        const status = userStatusMap.get(id);
+        return {
+          userId: id,
+          status: status.status,
+          lastActivity: status.lastActivity
+        };
+      });
+      
+      // Responder com a lista
+      socket.emit(PRESENCE_EVENTS.ONLINE_USERS_LIST, {
+        users: onlineUsersData,
+        timestamp: Date.now()
+      });
+      
+      logger.info('Lista de usuários online enviada', {
+        service: 'socket',
+        function: 'getOnlineUsers',
+        userId,
+        count: onlineUsersData.length
+      });
+    } catch (error) {
+      logger.error('Erro ao processar get_online_users', {
+        service: 'socket',
+        function: 'getOnlineUsers',
+        userId,
+        error: error.message
+      });
+    }
+  });
+
+  // Manter conexão ativa e atualizar timestamp de atividade
+  const activityInterval = setInterval(() => {
+    try {
+      if (!socket.connected) {
+        clearInterval(activityInterval);
+        return;
+      }
+      
+      // Atualizar timestamp de última atividade
+      const status = userStatusMap.get(userId);
+      if (status) {
+        status.lastActivity = Date.now();
+        userStatusMap.set(userId, status);
+      }
+    } catch (error) {
+      logger.error('Erro no intervalo de atividade', {
+        service: 'socket',
+        function: 'activityInterval',
+        userId,
+        error: error.message
+      });
+    }
+  }, 60000); // Atualizar a cada minuto
+
+  // Limpar intervalo e atualizar status quando o socket desconectar
+  socket.on('disconnect', () => {
+    clearInterval(activityInterval);
+    
+    // Verificar se o usuário tem outros sockets conectados
+    if (socketManager.getUserSockets(userId).length === 0) {
+      // Se não tiver mais sockets, marcar como offline
+      const status = userStatusMap.get(userId);
+      if (status) {
+        status.online = false;
+        status.lastSeen = new Date().toISOString();
+        userStatusMap.set(userId, status);
+        
+        // Persistir último status (opcional)
+        try {
+          userService.updateLastSeen(userId, status.lastSeen)
+            .catch(error => {
+              logger.error('Erro ao atualizar lastSeen do usuário', {
+                service: 'socket',
+                function: 'disconnect',
+                userId,
+                error: error.message
+              });
+            });
+        } catch (error) {
+          // Ignorar erros na persistência de último acesso
+        }
+        
+        // Notificar outros usuários
+        broadcastUserStatus(userId, false);
+      }
+    }
+  });
+}
+
+/**
+ * Atualiza o status de um usuário no mapa de status
+ * @param {string} userId - ID do usuário
+ * @param {UserStatus} status - Objeto de status do usuário
+ */
+function updateUserStatus(userId, status) {
+  if (!userId || !status) return;
+  
+  userStatusMap.set(userId, {
+    ...(userStatusMap.get(userId) || {}),
+    ...status,
+    lastUpdated: Date.now()
+  });
+}
+
+/**
+ * Transmite o status de um usuário para suas conexões
+ * @param {string} userId - ID do usuário que teve status alterado
+ * @param {boolean} isOnline - Se o usuário está online ou offline
+ */
+async function broadcastUserStatus(userId, isOnline) {
+  try {
+    // Obter conexões do usuário (amigos, seguidores, etc.)
+    let connections = [];
+    try {
+      connections = await userService.getUserConnections(userId);
+    } catch (error) {
+      logger.error('Erro ao obter conexões para broadcast de status', {
+        service: 'socket',
+        function: 'broadcastUserStatus',
+        userId,
+        error: error.message
+      });
+      return;
+    }
+    
+    // Extrair IDs de usuários conectados
+    const connectionIds = connections.map(conn => conn.userId);
+    
+    // Obter status atual
+    const status = userStatusMap.get(userId) || { status: isOnline ? 'online' : 'offline' };
+    
+    // Preparar payload
+    const statusPayload = {
+      userId,
+      online: isOnline,
+      status: status.status,
+      lastActivity: status.lastActivity,
+      timestamp: Date.now()
+    };
+    
+    // Enviar para cada conexão
+    for (const targetId of connectionIds) {
+      socketManager.emitToUser(
+        targetId,
+        isOnline ? PRESENCE_EVENTS.USER_ONLINE : PRESENCE_EVENTS.USER_OFFLINE,
+        statusPayload
+      );
+    }
+    
+    logger.info(`Status de usuário (${isOnline ? 'online' : 'offline'}) transmitido`, {
+      service: 'socket',
+      function: 'broadcastUserStatus',
+      userId,
+      connectionCount: connectionIds.length
+    });
+  } catch (error) {
+    logger.error('Erro ao transmitir status de usuário', {
+      service: 'socket',
+      function: 'broadcastUserStatus',
+      userId,
+      isOnline,
+      error: error.message
+    });
+  }
+}
+
+/**
+ * Verifica se um usuário está online
+ * @param {string} userId - ID do usuário
+ * @returns {boolean} True se o usuário estiver online
+ */
+function isUserOnline(userId) {
+  const status = userStatusMap.get(userId);
+  return status?.online === true;
+}
+
+/**
+ * Obtém o status atual de um usuário
+ * @param {string} userId - ID do usuário
+ * @returns {UserStatus|null} Objeto de status ou null se não encontrado
+ */
+function getUserStatus(userId) {
+  return userStatusMap.get(userId) || null;
+}
+
+// Exportar handlers e funções utilitárias
+module.exports = {
+  registerPresenceHandlers,
+  isUserOnline,
+  getUserStatus,
+  broadcastUserStatus
+};</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

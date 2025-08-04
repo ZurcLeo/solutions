@@ -1,4 +1,12 @@
-// services/emailService.js
+/**
+ * @fileoverview Serviço para envio e gerenciamento de e-mails, utilizando Nodemailer e templates.
+ * @module services/emailService
+ * @requires nodemailer
+ * @requires ../logger
+ * @requires ../models/Email
+ * @requires ../templates/emails
+ * @requires dotenv
+ */
 const nodemailer = require('nodemailer');
 const { logger } = require('../logger');
 const Email = require('../models/Email');
@@ -7,38 +15,51 @@ require('dotenv').config();
 
 // SMTP configuration
 const smtpConfig = {
-  host: process.env.SMTP_HOST || 'smtp.hostinger.com',
-  port: process.env.SMTP_PORT || 465,
-  secure: true,
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: process.env.SMTP_PORT || 587,
+  secure: process.env.SMTP_PORT == 465,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   },
   tls: {
-    rejectUnauthorized: true
-  }
+    rejectUnauthorized: false
+  },
+  debug: process.env.NODE_ENV !== 'production',
+  logger: process.env.NODE_ENV !== 'production'
 };
 
-// Create reusable transporter
+/**
+ * Cria e retorna um transportador Nodemailer reutilizável.
+ * @private
+ * @function createTransporter
+ * @returns {Object} Um objeto transportador Nodemailer.
+ * @description Configura e inicializa o transportador SMTP para envio de e-mails.
+ */
 const createTransporter = () => {
   return nodemailer.createTransport(smtpConfig);
 };
 
 /**
- * Email service to handle all email operations
+ * Serviço de e-mail para lidar com todas as operações relacionadas a e-mail.
+ * @namespace emailService
  */
 const emailService = {
   /**
-   * Send an email using a template
-   * @param {Object} params - Email parameters
-   * @param {string} params.to - Recipient email
-   * @param {string} params.subject - Email subject
-   * @param {string} params.templateType - Template to use (e.g., 'convite', 'welcome')
-   * @param {Object} params.data - Data to pass to the template
-   * @param {string} [params.userId] - ID of the user sending the email
-   * @param {string} [params.reference] - ID of related entity (e.g., inviteId)
-   * @param {string} [params.referenceType] - Type of reference (e.g., 'invite')
-   * @returns {Promise<Object>} Result with success status and email ID
+   * Envia um e-mail utilizando um template predefinido.
+   * @async
+   * @function sendEmail
+   * @param {Object} params - Parâmetros para o envio do e-mail.
+   * @param {string} params.to - O endereço de e-mail do destinatário.
+   * @param {string} params.subject - O assunto do e-mail.
+   * @param {string} params.templateType - O tipo de template a ser utilizado (ex: 'convite', 'welcome'). Deve corresponder a uma chave em `emailTemplates`.
+   * @param {Object} params.data - Os dados a serem injetados no template do e-mail.
+   * @param {string} [params.userId] - O ID do usuário associado ao envio (opcional).
+   * @param {string} [params.reference] - O ID de uma entidade relacionada (ex: inviteId) (opcional).
+   * @param {string} [params.referenceType] - O tipo da entidade referenciada (ex: 'invite') (opcional).
+   * @returns {Promise<Object>} Um objeto com o status de sucesso (`success`), o ID do registro de e-mail no Firestore (`emailId`) e o ID da mensagem SMTP (`messageId`). Em caso de erro, contém `success: false` e uma mensagem de `error`.
+   * @throws {Error} Se o template não for encontrado ou ocorrer um erro no envio.
+   * @description Registra o e-mail no Firestore, renderiza o conteúdo HTML e de texto simples a partir de um template, e envia o e-mail via SMTP, atualizando o status do registro no banco.
    */
   sendEmail: async (params) => {
     const { 
@@ -147,9 +168,13 @@ const emailService = {
   },
   
   /**
-   * Resend an existing email
-   * @param {string} emailId - ID of the email to resend
-   * @returns {Promise<Object>} Result with success status and new email ID
+   * Reenvia um e-mail existente, criando um novo registro no Firestore.
+   * @async
+   * @function resendEmail
+   * @param {string} emailId - O ID do registro de e-mail original a ser reenviado.
+   * @returns {Promise<Object>} O mesmo formato de retorno de `sendEmail`.
+   * @throws {Error} Se o e-mail original não for encontrado ou ocorrer um erro no reenvio.
+   * @description Recupera os detalhes de um e-mail enviado anteriormente e tenta reenviá-lo, criando um novo registro e atualizando o status do e-mail original.
    */
   resendEmail: async (emailId) => {
     logger.info('Attempting to resend email', {
@@ -206,8 +231,18 @@ const emailService = {
   },
   
   /**
-   * Backwards compatibility method for the old interface
-   * @deprecated Use the new sendEmail method instead
+   * Método de compatibilidade reversa para a antiga interface de envio de e-mails.
+   * @async
+   * @function sendEmail_legacy
+   * @param {string} to - O endereço de e-mail do destinatário.
+   * @param {string} subject - O assunto do e-mail.
+   * @param {string} content - O conteúdo do e-mail (usado como `data.content` no novo método).
+   * @param {string} userId - O ID do usuário associado.
+   * @param {string} inviteId - O ID do convite relacionado (usado como `reference`).
+   * @param {string} type - O tipo do e-mail (usado como `templateType`).
+   * @returns {Promise<Object>} O mesmo formato de retorno de `sendEmail`.
+   * @deprecated Use o método `sendEmail` para novas implementações.
+   * @description Adapta os parâmetros da interface antiga para o novo método `sendEmail`.
    */
   sendEmail_legacy: async (to, subject, content, userId, inviteId, type) => {
     logger.warn('Using deprecated email interface', {

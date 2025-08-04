@@ -1,4 +1,14 @@
-// services/CaixinhaInviteService.js
+/**
+ * @fileoverview Serviço para gerenciar convites de caixinhas.
+ * @module services/CaixinhaInviteService
+ * @requires firebaseAdmin
+ * @requires ../models/CaixinhaInvite
+ * @requires ../models/Caixinhas
+ * @requires ../models/User
+ * @requires ../services/notificationService
+ * @requires ../logger
+ * @requires ./emailService
+ */
 const {getFirestore} = require('../firebaseAdmin')
 const db = getFirestore();
 const CaixinhaInvite = require('../models/CaixinhaInvite');
@@ -11,10 +21,15 @@ const emailService = require('./emailService');
 
 class CaixinhaInviteService {
   /**
-   * Obtém convites recebidos por um usuário
-   * @param {string} userId - ID do usuário
-   * @param {Object} options - Opções de filtro
-   * @returns {Promise<Array>} Lista de convites recebidos
+   * Obtém convites recebidos por um usuário.
+   * @async
+   * @function getReceivedInvites
+   * @param {string} userId - O ID do usuário para o qual os convites recebidos serão buscados.
+   * @param {Object} [options={}] - Opções de filtro para a busca de convites.
+   * @param {('pending'|'accepted'|'rejected'|'expired')} [options.status='pending'] - O status dos convites a serem filtrados.
+   * @param {string} [options.type=null] - O tipo de convite a ser filtrado (ex: 'caixinha_invite', 'caixinha_email_invite').
+   * @returns {Promise<Array<Object>>} Uma lista de objetos de convite recebidos.
+   * @description Busca e retorna todos os convites de caixinha recebidos por um usuário, com base em filtros opcionais de status e tipo.
    */
   async getReceivedInvites(userId, options = {}) {
     try {
@@ -40,10 +55,15 @@ class CaixinhaInviteService {
   }
   
   /**
-   * Obtém convites enviados por um usuário
-   * @param {string} userId - ID do usuário
-   * @param {Object} options - Opções de filtro
-   * @returns {Promise<Array>} Lista de convites enviados
+   * Obtém convites enviados por um usuário.
+   * @async
+   * @function getSentInvites
+   * @param {string} userId - O ID do usuário que enviou os convites.
+   * @param {Object} [options={}] - Opções de filtro para a busca de convites.
+   * @param {('pending'|'accepted'|'rejected'|'expired')} [options.status='pending'] - O status dos convites a serem filtrados.
+   * @param {string} [options.type=null] - O tipo de convite a ser filtrado (ex: 'caixinha_invite', 'caixinha_email_invite').
+   * @returns {Promise<Array<Object>>} Uma lista de objetos de convite enviados.
+   * @description Busca e retorna todos os convites de caixinha enviados por um usuário, com base em filtros opcionais de status e tipo.
    */
   async getSentInvites(userId, options = {}) {
     try {
@@ -69,10 +89,17 @@ class CaixinhaInviteService {
   }
   
   /**
-   * Método legado para compatibilidade - Redirecionando para os métodos específicos
-   * @param {string} userId - ID do usuário
-   * @param {Object} options - Opções de filtro
-   * @returns {Promise<Array>} Lista de convites
+   * Método legado para compatibilidade - Redireciona para os métodos específicos `getReceivedInvites` ou `getSentInvites`.
+   * @async
+   * @function getInvitesByUser
+   * @param {string} userId - O ID do usuário.
+   * @param {Object} [options={}] - Opções de filtro.
+   * @param {('received'|'sent')} [options.direction='received'] - A direção do convite ('received' para recebidos, 'sent' para enviados).
+   * @param {('pending'|'accepted'|'rejected'|'expired')} [options.status='pending'] - O status dos convites a serem filtrados.
+   * @param {string} [options.type=null] - O tipo de convite a ser filtrado.
+   * @returns {Promise<Array<Object>>} Uma lista de objetos de convite.
+   * @deprecated Este método é legado; use `getReceivedInvites` ou `getSentInvites` diretamente.
+   * @description Fornece compatibilidade reversa para a busca de convites por usuário, direcionando a chamada para os métodos mais específicos.
    */
   async getInvitesByUser(userId, options = {}) {
     try {
@@ -91,9 +118,18 @@ class CaixinhaInviteService {
   }
 
   /**
-   * Cria um convite para um usuário existente
-   * @param {Object} data - Dados do convite
-   * @returns {Promise<Object>} Resultado da operação
+   * Cria um convite para um usuário já existente no sistema.
+   * @async
+   * @function inviteExistingMember
+   * @param {Object} data - Os dados do convite.
+   * @param {string} data.caixinhaId - O ID da caixinha para a qual o convite está sendo enviado.
+   * @param {string} data.senderId - O ID do usuário que está enviando o convite.
+   * @param {string} data.targetId - O ID do usuário que está sendo convidado.
+   * @param {string} [data.targetName] - O nome do usuário que está sendo convidado (opcional, será inferido se não fornecido).
+   * @param {string} [data.message] - Uma mensagem opcional para o convite.
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano), `caxinhaInviteId` (ID do convite criado) e uma mensagem.
+   * @throws {Error} Se a caixinha não for encontrada, o remetente não tiver permissão, o destinatário já for membro ou já houver um convite pendente.
+   * @description Verifica permissões e existência, cria um novo convite de caixinha para um usuário existente e envia uma notificação.
    */
   async inviteExistingMember(data) {
     try {
@@ -165,9 +201,17 @@ class CaixinhaInviteService {
   }
 
   /**
-   * Cria um convite por email para uma pessoa que ainda não está no sistema
-   * @param {Object} data - Dados do convite
-   * @returns {Promise<Object>} Resultado da operação
+   * Cria um convite por e-mail para uma pessoa que ainda não está registrada no sistema.
+   * @async
+   * @function inviteByEmail
+   * @param {Object} data - Os dados do convite por e-mail.
+   * @param {string} data.caixinhaId - O ID da caixinha para a qual o convite está sendo enviado.
+   * @param {string} data.senderId - O ID do usuário que está enviando o convite.
+   * @param {string} data.email - O endereço de e-mail da pessoa a ser convidada.
+   * @param {string} [data.message] - Uma mensagem opcional para o convite.
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano), `caxinhaInviteId` (ID do convite criado) e uma mensagem.
+   * @throws {Error} Se a caixinha não for encontrada, o remetente não tiver permissão ou já houver um convite pendente para o e-mail.
+   * @description Verifica permissões e existência, cria um novo convite de caixinha por e-mail e envia o e-mail correspondente.
    */
   async inviteByEmail(data) {
     try {
@@ -231,12 +275,16 @@ class CaixinhaInviteService {
     }
   }
 
-/**
- * Aceita um convite de caixinha
- * @param {string} caxinhaInviteId - ID do convite
- * @param {string} userId - ID do usuário que está aceitando
- * @returns {Promise<Object>} Resultado da operação
- */
+  /**
+   * Aceita um convite de caixinha.
+   * @async
+   * @function acceptInvite
+   * @param {string} caxinhaInviteId - O ID do convite a ser aceito.
+   * @param {string} userId - O ID do usuário que está aceitando o convite.
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano), `caixinhaId` (ID da caixinha associada) e uma mensagem.
+   * @throws {Error} Se o convite não for encontrado, já tiver sido processado, for para outro usuário, estiver expirado, o usuário não for encontrado ou já for membro (com tratamento específico).
+   * @description Atualiza o status do convite para aceito, adiciona o usuário como membro da caixinha e envia uma notificação ao remetente.
+   */
 async acceptInvite(caxinhaInviteId, userId) {
   try {
     // Procurar o convite em todas as caixinhas
@@ -455,11 +503,15 @@ async acceptInvite(caxinhaInviteId, userId) {
 }
 
   /**
-   * Rejeita um convite de caixinha
-   * @param {string} caxinhaInviteId - ID do convite
-   * @param {string} userId - ID do usuário que está rejeitando
-   * @param {string} reason - Motivo da rejeição (opcional)
-   * @returns {Promise<Object>} Resultado da operação
+   * Rejeita um convite de caixinha.
+   * @async
+   * @function rejectInvite
+   * @param {string} caxinhaInviteId - O ID do convite a ser rejeitado.
+   * @param {string} userId - O ID do usuário que está rejeitando o convite.
+   * @param {string} [reason=''] - O motivo opcional da rejeição.
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano) e uma mensagem.
+   * @throws {Error} Se o convite não for encontrado, já tiver sido processado ou for para outro usuário.
+   * @description Atualiza o status do convite para rejeitado e envia uma notificação ao remetente.
    */
   async rejectInvite(caxinhaInviteId, userId, reason = '') {
     try {
@@ -543,10 +595,14 @@ async acceptInvite(caxinhaInviteId, userId) {
   }
 
   /**
-   * Cancela um convite enviado
-   * @param {string} caxinhaInviteId - ID do convite
-   * @param {string} userId - ID do usuário que está cancelando (deve ser o remetente)
-   * @returns {Promise<Object>} Resultado da operação
+   * Cancela um convite enviado.
+   * @async
+   * @function cancelInvite
+   * @param {string} caxinhaInviteId - O ID do convite a ser cancelado.
+   * @param {string} userId - O ID do usuário que está cancelando (deve ser o remetente do convite).
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano) e uma mensagem.
+   * @throws {Error} Se o convite não for encontrado, o usuário não for o remetente ou o convite já tiver sido processado.
+   * @description Remove um convite pendente da caixinha, mas apenas se o usuário for o remetente original.
    */
   async cancelInvite(caxinhaInviteId, userId) {
     try {
@@ -617,11 +673,16 @@ async acceptInvite(caxinhaInviteId, userId) {
   }
 
   /**
-   * Reenvio de convite expirado ou pendente
-   * @param {string} caxinhaInviteId - ID do convite
-   * @param {string} userId - ID do usuário que está reenviando
-   * @param {Object} data - Dados adicionais para o reenvio
-   * @returns {Promise<Object>} Resultado da operação
+   * Reenvia um convite expirado ou pendente.
+   * @async
+   * @function resendInvite
+   * @param {string} caxinhaInviteId - O ID do convite a ser reenviado.
+   * @param {string} userId - O ID do usuário que está reenviando (deve ser o remetente).
+   * @param {Object} [data={}] - Dados adicionais para o reenvio, como uma nova mensagem.
+   * @param {string} [data.message] - Uma nova mensagem opcional para o convite reenviado.
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano), uma mensagem e a nova data de expiração.
+   * @throws {Error} Se o convite não for encontrado, o usuário não for o remetente ou o convite não estiver em um status elegível para reenvio.
+   * @description Atualiza a validade de um convite e, se for um convite por e-mail, reenvia o e-mail correspondente.
    */
   async resendInvite(caxinhaInviteId, userId, data = {}) {
     try {
@@ -709,10 +770,13 @@ async acceptInvite(caxinhaInviteId, userId) {
   }
 
   /**
-   * Busca convites por caixinha
-   * @param {string} caixinhaId - ID da caixinha
-   * @param {Object} options - Opções de filtro
-   * @returns {Promise<Array>} Lista de convites
+   * Busca convites de uma caixinha específica.
+   * @async
+   * @function getCaixinhaInvites
+   * @param {string} caixinhaId - O ID da caixinha.
+   * @param {Object} [options={}] - Opções de filtro para a busca de convites (passadas para o modelo `CaixinhaInvite`).
+   * @returns {Promise<Array<Object>>} Uma lista de objetos de convite.
+   * @description Retorna todos os convites associados a uma caixinha específica, com base em filtros opcionais.
    */
   async getCaixinhaInvites(caixinhaId, options = {}) {
     try {
@@ -724,9 +788,13 @@ async acceptInvite(caxinhaInviteId, userId) {
   }
 
   /**
-   * Detalhes de um convite específico
-   * @param {string} caxinhaInviteId - ID do convite
-   * @returns {Promise<Object>} Detalhes do convite
+   * Obtém os detalhes de um convite específico.
+   * @async
+   * @function getInviteDetails
+   * @param {string} caxinhaInviteId - O ID do convite a ser detalhado.
+   * @returns {Promise<Object>} Um objeto contendo os detalhes do convite, incluindo o nome da caixinha.
+   * @throws {Error} Se o convite não for encontrado.
+   * @description Busca um convite em todas as caixinhas e retorna seus detalhes completos, incluindo o nome da caixinha associada.
    */
   async getInviteDetails(caxinhaInviteId) {
     try {
@@ -759,10 +827,14 @@ async acceptInvite(caxinhaInviteId, userId) {
   }
 
   /**
-   * Verifica se um usuário é membro de uma caixinha
-   * @param {string} caixinhaId - ID da caixinha
-   * @param {string} userId - ID do usuário
-   * @returns {Promise<boolean>} true se for membro, false caso contrário
+   * Verifica se um usuário é membro de uma caixinha (incluindo admin).
+   * @private
+   * @async
+   * @function _checkUserIsMember
+   * @param {string} caixinhaId - O ID da caixinha.
+   * @param {string} userId - O ID do usuário a ser verificado.
+   * @returns {Promise<boolean>} `true` se o usuário for membro ativo ou admin da caixinha, `false` caso contrário.
+   * @description Método auxiliar para determinar se um usuário tem uma associação de membro ativa ou é o administrador de uma caixinha.
    */
   async _checkUserIsMember(caixinhaId, userId) {
     try {
@@ -809,9 +881,19 @@ async acceptInvite(caxinhaInviteId, userId) {
   }
 
   /**
-   * Envia email de convite
-   * @param {Object} data - Dados do email
-   * @returns {Promise<void>}
+   * Envia um e-mail de convite para uma caixinha.
+   * @private
+   * @async
+   * @function _sendInviteEmail
+   * @param {Object} data - Dados necessários para o envio do e-mail.
+   * @param {Object} data.caixinha - Objeto da caixinha com detalhes como `nome`, `descricao`, `contribuicaoMensal`.
+   * @param {Object} data.sender - Objeto do remetente com `nome` ou `displayName`, `fotoPerfil`.
+   * @param {string} data.email - O endereço de e-mail do destinatário.
+   * @param {string} [data.message] - Uma mensagem personalizada para o convite.
+   * @param {string} data.caxinhaInviteId - O ID do convite associado.
+   * @param {boolean} [data.isResend=false] - Indica se é um reenvio do convite.
+   * @returns {Promise<boolean>} `true` se o e-mail foi enviado com sucesso, `false` caso contrário (erros são logados, mas não propagados).
+   * @description Prepara os dados do template e utiliza o serviço de e-mail para enviar um convite de caixinha.
    */
   async _sendInviteEmail(data) {
     try {
@@ -855,10 +937,14 @@ async acceptInvite(caxinhaInviteId, userId) {
   }
   
   /**
-   * Reenvia email de convite
-   * @param {string} caxinhaInviteId - ID do convite
-   * @param {string} caixinhaId - ID da caixinha
-   * @returns {Promise<Object>} Resultado da operação
+   * Reenvia um e-mail de convite de caixinha.
+   * @async
+   * @function resendInviteEmail
+   * @param {string} caxinhaInviteId - O ID do convite.
+   * @param {string} caixinhaId - O ID da caixinha à qual o convite pertence.
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano) e uma mensagem.
+   * @throws {Error} Se o convite não for encontrado ou não for um convite por e-mail.
+   * @description Busca os detalhes do convite e reenvia o e-mail de convite correspondente.
    */
   async resendInviteEmail(caxinhaInviteId, caixinhaId) {
     try {
@@ -900,11 +986,20 @@ async acceptInvite(caxinhaInviteId, userId) {
     }
   }
   
-/**
- * Envia notificação para o usuário sobre o resultado do convite
- * @param {Object} data - Dados da notificação
- * @returns {Promise<void>}
- */
+  /**
+   * Envia uma notificação ao usuário sobre o status ou recebimento de um convite.
+   * @private
+   * @async
+   * @function _sendInviteNotification
+   * @param {Object} data - Dados da notificação.
+   * @param {string} data.caixinhaId - O ID da caixinha.
+   * @param {('new_invite'|'response')} data.type - O tipo de notificação (novo convite ou resposta a um convite).
+   * @param {string} data.userId - O ID do usuário remetente (para respostas) ou receptor (para novos convites).
+   * @param {string} data.targetId - O ID do usuário alvo (para novos convites) ou remetente original (para respostas).
+   * @param {('pending'|'accepted'|'rejected')} data.status - O status do convite ou da resposta.
+   * @returns {Promise<void>}
+   * @description Cria e envia uma notificação interna para o usuário relevante, informando sobre um novo convite, ou a aceitação/rejeição de um convite enviado.
+   */
 async _sendInviteNotification(data) {
   try {
     const { caixinhaId, type, userId, targetId, status } = data;
@@ -982,8 +1077,11 @@ async _sendInviteNotification(data) {
 }
 
   /**
-   * Busca e marca convites expirados
-   * @returns {Promise<Object>} Estatísticas da operação
+   * Busca e marca convites expirados no banco de dados.
+   * @async
+   * @function checkExpiredInvites
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano), `updatedCount` (número de convites atualizados) e uma mensagem.
+   * @description Delega ao modelo `CaixinhaInvite` a tarefa de identificar e atualizar o status de convites expirados.
    */
   async checkExpiredInvites() {
     try {
@@ -1001,8 +1099,11 @@ async _sendInviteNotification(data) {
   }
 
   /**
-   * Migra convites existentes para a nova estrutura
-   * @returns {Promise<Object>} Estatísticas da migração
+   * Migra convites existentes para uma nova estrutura de dados (se aplicável).
+   * @async
+   * @function migrateInvitesToNewStructure
+   * @returns {Promise<Object>} Um objeto contendo `success` (booleano), `stats` (estatísticas da migração) e uma mensagem.
+   * @description Delega ao modelo `CaixinhaInvite` a tarefa de migrar dados de convites para um formato atualizado.
    */
   async migrateInvitesToNewStructure() {
     try {

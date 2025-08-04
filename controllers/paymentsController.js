@@ -166,8 +166,15 @@ exports.createPixPayment = async (req, res) => {
         identificationType,
         identificationNumber: identificationNumber, // Usar o número limpo
       }, {
-        // Para PIX, não enviar deviceId nem items por enquanto
-        // items: items, // Comentado temporariamente até corrigir format
+        // Items OBRIGATÓRIOS para melhorar score de aprovação (CRÍTICO)
+        items: items || [{
+          id: 'pix-payment-001',
+          title: description || 'Pagamento PIX ElosCloud',
+          description: description || 'Pagamento via PIX',
+          category_id: 'digital_services',
+          quantity: 1,
+          unit_price: Number(amount)
+        }],
         notificationUrl: process.env.NODE_ENV === 'production' && process.env.BASE_URL ? 
           `${process.env.BASE_URL}/api/webhooks/mercadopago` : 
           'https://eloscloud.com/api/webhooks/mercadopago',

@@ -1,3 +1,15 @@
+/**
+ * @fileoverview Controller de autenticação - gerencia login, registro e sessões de usuários
+ * @module controllers/authController
+ * @requires firebaseAdmin
+ * @requires jsonwebtoken
+ * @requires ../services/authService
+ * @requires ../services/inviteService
+ * @requires ../services/userService
+ * @requires ../logger
+ * @requires ../models/User
+ */
+
 // controllers/authController.js
 const { getAuth } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
@@ -8,7 +20,15 @@ const { generateToken, generateRefreshToken } = require('../services/authService
 const { logger } = require('../logger');
 const User = require('../models/User');
 
-// authController.js - checkSession modificado
+/**
+ * Verifica o estado atual da sessão do usuário
+ * @async
+ * @function checkSession
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Status da autenticação e dados do usuário
+ * @description Verifica tokens de acesso em cookies ou headers, valida na blacklist e retorna estado da sessão
+ */
 exports.checkSession = async (req, res) => {
   // Extrair token de acesso dos cookies ou headers
   let accessToken;
@@ -152,6 +172,18 @@ exports.checkSession = async (req, res) => {
   }
 };
 
+/**
+ * Gera token JWT a partir de token Firebase
+ * @async
+ * @function getToken
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.firebaseToken - Token do Firebase para validação
+ * @param {boolean} [req.isFirstAccess] - Flag indicando primeiro acesso (definida por middleware)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Token JWT e dados do usuário
+ * @description Verifica token Firebase e retorna JWT customizado para autenticação na API
+ */
 exports.getToken = async (req, res) => {
   try {
     const { firebaseToken } = req.body;
@@ -235,6 +267,20 @@ exports.getToken = async (req, res) => {
   }
 };
 
+/**
+ * Registra novo usuário no sistema
+ * @async
+ * @function register
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.firebaseToken - Token do Firebase
+ * @param {string} [req.body.inviteId] - ID do convite (opcional)
+ * @param {Object} req.body.profileData - Dados do perfil do usuário
+ * @param {string} [req.ja3Hash] - Hash JA3 da requisição (definido por middleware)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados do usuário registrado e tokens
+ * @description Cria conta de usuário usando Firebase e armazena dados no banco
+ */
 exports.register = async (req, res) => {
   const auth = getAuth();
   const ja3Hash = req.ja3Hash;
@@ -336,6 +382,19 @@ exports.register = async (req, res) => {
 //   }
 // };
 
+/**
+ * Efetua logout do usuário
+ * @async
+ * @function logout
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.headers - Headers da requisição
+ * @param {string} [req.headers.authorization] - Token Bearer no header
+ * @param {Object} [req.cookies] - Cookies da requisição
+ * @param {string} [req.cookies.authorization] - Token de autorização no cookie
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação do logout
+ * @description Adiciona token à blacklist e limpa cookies de autenticação
+ */
 exports.logout = async (req, res) => {
   // Captura do token do cabeçalho Authorization ou dos cookies
   let idToken = null;
@@ -397,7 +456,15 @@ exports.logout = async (req, res) => {
 //     res.status(500).json({ message: 'Erro no registro com provedor', error: error.message });
 //   }
 // };
-
+/**
+ * Reenvia email de verificação para o usuário
+ * @async
+ * @function resendVerificationEmail
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Resultado do reenvio do email
+ * @description Solicita novo envio de email de verificação através do authService
+ */
 exports.resendVerificationEmail = async (req, res) => {
   try {
     const response = await authService.resendVerificationEmail();
@@ -408,6 +475,17 @@ exports.resendVerificationEmail = async (req, res) => {
   }
 };
 
+/**
+ * Obtém dados do usuário autenticado atual
+ * @async
+ * @function getCurrentUser
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.user - Dados do usuário autenticado (definido por middleware)
+ * @param {string} req.user.uid - ID único do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados completos do usuário autenticado
+ * @description Retorna informações do usuário baseado no token JWT decodificado
+ */
 exports.getCurrentUser = async (req, res) => {
   try {
     // O userId já deve vir do token decodificado, não precisa ser da rota
@@ -432,7 +510,19 @@ exports.getCurrentUser = async (req, res) => {
   }
 };
 
-
+/**
+ * Renova token de acesso usando refresh token
+ * @async
+ * @function refreshToken
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} [req.body] - Corpo da requisição
+ * @param {string} [req.body.refreshToken] - Token de refresh no corpo
+ * @param {Object} [req.cookies] - Cookies da requisição
+ * @param {string} [req.cookies.refreshToken] - Token de refresh no cookie
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Novos tokens de acesso e refresh
+ * @description Valida refresh token e gera novos tokens de acesso
+ */
 exports.refreshToken = async (req, res) => {
   try {
     const { refreshToken } = req.body || req.cookies;
@@ -460,7 +550,17 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
-// Iniciar processo de autenticação com provedores externos
+/**
+ * Inicia processo de autenticação com provedores externos
+ * @async
+ * @function initiateAuth
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.provider - Provedor de autenticação (google, apple, etc.)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados para iniciar autenticação (authUrl, state)
+ * @description Prepara URL e estado para autenticação OAuth com provedor externo
+ */
 exports.initiateAuth = async (req, res) => {
   const { provider } = req.body;
 
@@ -477,7 +577,18 @@ exports.initiateAuth = async (req, res) => {
   }
 };
 
-// Iniciar processo de registro com provedores externos
+/**
+ * Inicia processo de registro com provedores externos
+ * @async
+ * @function initiateRegistration
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.provider - Provedor de autenticação
+ * @param {string} req.body.inviteId - ID do convite obrigatório
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados para iniciar registro (authUrl, state)
+ * @description Prepara URL e estado para registro OAuth com validação de convite
+ */
 exports.initiateRegistration = async (req, res) => {
   const { provider, inviteId } = req.body;
 
@@ -494,7 +605,17 @@ exports.initiateRegistration = async (req, res) => {
   }
 };
 
-// Tratar retorno da autenticação
+/**
+ * Processa retorno da autenticação OAuth
+ * @async
+ * @function handleAuthCallback
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Corpo da requisição
+ * @param {string} req.body.idToken - Token ID retornado pelo provedor
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object|Redirect>} Tokens e dados do usuário ou redirecionamento
+ * @description Processa callback OAuth, valida tokens e autentica usuário
+ */
 exports.handleAuthCallback = async (req, res) => {
   const isProduction = process.env.NODE_ENV === 'production';
   
@@ -577,7 +698,17 @@ exports.checkSession = async (req, res) => {
   }
 };
 
-// Verificar token de redefinição de senha
+/**
+ * Verifica token de redefinição de senha
+ * @async
+ * @function verifyResetToken
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.params - Parâmetros da URL
+ * @param {string} req.params.token - Token de redefinição de senha
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Validação do token de reset
+ * @description Verifica se token de redefinição de senha é válido e não expirou
+ */
 exports.verifyResetToken = async (req, res) => {
   const { token } = req.params;
 

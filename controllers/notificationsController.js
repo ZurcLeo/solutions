@@ -1,7 +1,20 @@
-// src/controllers/notificationsController.js
+/**
+ * @fileoverview Controller de notificações - gerencia notificações em tempo real dos usuários
+ * @module controllers/notificationsController
+ */
+
 const notificationService = require('../services/notificationService');
 const { logger } = require('../logger');
 
+/**
+ * Busca todas as notificações de um usuário
+ * @async
+ * @function getUserNotifications
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de notificações do usuário
+ */
 const getUserNotifications = async (req, res) => {
   const userId = req.uid;
   logger.info('Requisicao para obter notificacoes do usuario', {
@@ -39,6 +52,17 @@ const getUserNotifications = async (req, res) => {
   }
 };
 
+/**
+ * Marca uma notificação como lida
+ * @async
+ * @function markNotificationAsRead
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.userId - ID do usuário
+ * @param {string} req.params.notificationId - ID da notificação
+ * @param {Object} req.socketManager - Gerenciador de socket (opcional)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da atualização
+ */
 const markNotificationAsRead = async (req, res) => {
   const { userId, notificationId } = req.params;
 
@@ -91,6 +115,17 @@ const markNotificationAsRead = async (req, res) => {
   }
 };
 
+/**
+ * Cria uma nova notificação para um usuário
+ * @async
+ * @function createNotification
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.userId - ID do usuário destinatário
+ * @param {Object} req.body - Dados da notificação
+ * @param {Object} req.socketManager - Gerenciador de socket (opcional)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da criação
+ */
 const createNotification = async (req, res) => {
   const userId = req.params.userId;
   const notificationData = req.body;

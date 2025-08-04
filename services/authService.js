@@ -1,3 +1,17 @@
+/**
+ * @fileoverview Serviço de autenticação - gerencia tokens JWT e validações
+ * @module services/authService
+ * @requires firebaseAdmin
+ * @requires jsonwebtoken
+ * @requires ../models/User
+ * @requires ../models/Invite
+ * @requires ../logger
+ * @requires ./blacklistService
+ * @requires ./inviteService
+ * @requires uuid
+ * @requires dotenv
+ */
+
 //eloscloudapp/services/authService.js
 const { getAuth, getFirestore } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
@@ -11,6 +25,15 @@ require('dotenv').config();
 
 const db = getFirestore();
 
+/**
+ * Gera tokens JWT de acesso e refresh
+ * @function generateToken
+ * @param {Object} payload - Dados do usuário para incluir no token
+ * @param {string} payload.uid - ID do usuário
+ * @param {string} payload.email - Email do usuário
+ * @returns {Object} Objeto contendo accessToken e refreshToken
+ * @description Cria tokens JWT com tempos de expiração diferentes (15min access, 7d refresh)
+ */
 const generateToken = (payload) => {
   try {
     logger.info('Payload para gerar token:', payload);
@@ -24,6 +47,15 @@ const generateToken = (payload) => {
   }
 };
 
+/**
+ * Gera token de refresh para o usuário
+ * @function generateRefreshToken
+ * @param {Object} user - Objeto do usuário
+ * @param {string} user.uid - ID do usuário
+ * @param {string} user.email - Email do usuário
+ * @returns {string} Token de refresh JWT
+ * @description Cria token de refresh com validade de 7 dias
+ */
 const generateRefreshToken = (user) => {
   return jwt.sign(
     { 

@@ -39,6 +39,36 @@ class Contribuicao {
     const contribuicaoRef = db.collection('caixinhas').doc(caixinhaId).collection('contribuicoes').doc(id);
     await contribuicaoRef.delete();
   }
+
+  static async getByUserId(userId, limit = 10) {
+    try {
+      const db = getFirestore();
+      // Query across all caixinhas for user contributions
+      const caixinhasSnapshot = await db.collection('caixinhas').get();
+      const contributions = [];
+      
+      for (const caixinhaDoc of caixinhasSnapshot.docs) {
+        const contribuicoesSnapshot = await db.collection('caixinhas')
+          .doc(caixinhaDoc.id)
+          .collection('contribuicoes')
+          .where('userId', '==', userId)
+          .orderBy('dataContribuicao', 'desc')
+          .limit(limit)
+          .get();
+        
+        contribuicoesSnapshot.forEach(doc => {
+          contributions.push(new Contribuicao({ id: doc.id, ...doc.data() }));
+        });
+      }
+      
+      return contributions
+        .sort((a, b) => b.dataContribuicao - a.dataContribuicao)
+        .slice(0, limit);
+    } catch (error) {
+      console.warn('Failed to get contributions by user ID:', error.message);
+      return [];
+    }
+  }
 }
 
 module.exports = Contribuicao;

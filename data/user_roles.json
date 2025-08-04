@@ -1,0 +1,19 @@
+{
+  "sS855lp9DwhZodxMqG7bf5cYeQ92_support_1750083928990": {
+    "userId": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+    "roleId": "support",
+    "roleName": "Support",
+    "context": {
+      "type": "global",
+      "resourceId": null
+    },
+    "validationStatus": "validated",
+    "validatedAt": "2025-06-16T14:25:28.990Z",
+    "validationData": {},
+    "expiresAt": null,
+    "createdAt": "2025-06-16T14:25:28.990Z",
+    "updatedAt": "2025-06-16T14:25:28.990Z",
+    "createdBy": "sS855lp9DwhZodxMqG7bf5cYeQ92",
+    "metadata": {}
+  }
+}

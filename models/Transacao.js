@@ -38,6 +38,35 @@ class Transacao {
     const transacaoRef = db.collection('caixinhas').doc(caixinhaId).collection('transacoes').doc(id);
     await transacaoRef.delete();
   }
+
+  static async getByUserId(userId, limit = 10) {
+    try {
+      // Query across all caixinhas for user transactions
+      const caixinhasSnapshot = await db.collection('caixinhas').get();
+      const transactions = [];
+      
+      for (const caixinhaDoc of caixinhasSnapshot.docs) {
+        const transacoesSnapshot = await db.collection('caixinhas')
+          .doc(caixinhaDoc.id)
+          .collection('transacoes')
+          .where('userId', '==', userId)
+          .orderBy('date', 'desc')
+          .limit(limit)
+          .get();
+        
+        transacoesSnapshot.forEach(doc => {
+          transactions.push(new Transacao({ id: doc.id, ...doc.data() }));
+        });
+      }
+      
+      return transactions
+        .sort((a, b) => b.date - a.date)
+        .slice(0, limit);
+    } catch (error) {
+      console.warn('Failed to get transactions by user ID:', error.message);
+      return [];
+    }
+  }
 }
 
 module.exports = Transacao;

@@ -1,8 +1,23 @@
-// controllers/userController.js
+/**
+ * @fileoverview Controller de usuários - gerencia operações CRUD de usuários e perfis
+ * @module controllers/userController
+ */
+
 const userService = require('../services/userService');
 const { logger } = require('../logger');
 
-// userController.js
+/**
+ * Cria perfil de usuário com dados do Firebase Auth e processa convites
+ * @async
+ * @function createProfile
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.userId - ID do usuário
+ * @param {Object} req.user - Dados do usuário
+ * @param {boolean} req.isProfileComplete - Status do perfil
+ * @param {Object} req.inviteData - Dados do convite (opcional)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Perfil criado e status da operação
+ */
 const createProfile = async (req, res) => {
   const { userId, user, isProfileComplete, inviteData } = req;
   
@@ -60,6 +75,17 @@ const createProfile = async (req, res) => {
   }
 };
 
+/**
+ * Adiciona novo usuário ao sistema com validação de autenticação
+ * @async
+ * @function addUser
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} req.validatedBody - Dados validados do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados do usuário criado
+ */
 const addUser = async (req, res) => {
   logger.info('DADOS usuário com NOCONTROLADOR', req)
 
@@ -113,6 +139,14 @@ const addUser = async (req, res) => {
   }
 };
 
+/**
+ * Busca lista de todos os usuários do sistema
+ * @async
+ * @function getUsers
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de usuários
+ */
 const getUsers = async (req, res) => {
   try {
     const users = await userService.getUsers();
@@ -122,6 +156,16 @@ const getUsers = async (req, res) => {
   }
 };
 
+/**
+ * Busca usuário específico por ID com monitoramento de performance
+ * @async
+ * @function getUserById
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.userId - ID do usuário
+ * @param {Function} req.markCheckpoint - Função de monitoramento (opcional)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados do usuário encontrado
+ */
 const getUserById = async (req, res) => {
   const { userId } = req.params;
   // Marcar início do processamento no controlador
@@ -146,6 +190,16 @@ const getUserById = async (req, res) => {
   }
 };
 
+/**
+ * Atualiza dados de um usuário existente
+ * @async
+ * @function updateUser
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.userId - ID do usuário
+ * @param {Object} req.body - Dados para atualização
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados do usuário atualizado
+ */
 const updateUser = async (req, res) => {
   const { userId } = req.params;
   const updateData = req.body;
@@ -162,6 +216,17 @@ const updateUser = async (req, res) => {
   }
 };
 
+/**
+ * Faz upload da foto de perfil do usuário
+ * @async
+ * @function uploadProfilePicture
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} req.file - Arquivo da imagem enviado
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} URL pública da imagem
+ */
 const uploadProfilePicture = async (req, res) => {
   const userId = req.user.uid;
   const file = req.file;
@@ -178,6 +243,15 @@ const uploadProfilePicture = async (req, res) => {
   }
 };
 
+/**
+ * Remove usuário do sistema
+ * @async
+ * @function deleteUser
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.userId - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<void>} Confirmação da remoção
+ */
 const deleteUser = async (req, res) => {
   const { userId } = req.params;
   try {
@@ -188,7 +262,18 @@ const deleteUser = async (req, res) => {
   }
 };
 
-// Atualizar ou adicionar este método no userController.js
+/**
+ * Busca usuários por termo de pesquisa com exclusão opcional
+ * @async
+ * @function searchUsers
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.query.q - Termo de busca
+ * @param {string} req.query.excludeUserId - ID do usuário a excluir (opcional)
+ * @param {Object} req.user - Usuário autenticado
+ * @param {Function} req.markCheckpoint - Função de monitoramento (opcional)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de usuários encontrados
+ */
 const searchUsers = async (req, res) => {
   const { q: searchQuery } = req.query;
   const excludeUserId = req.query.excludeUserId || req.user.uid;

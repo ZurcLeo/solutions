@@ -1,13 +1,21 @@
-// controllers/roleController.js
+/**
+ * @fileoverview Controller de roles - gerencia sistema de papéis e permissões RBAC
+ * @module controllers/roleController
+ */
+
 const { logger } = require('../logger');
 const roleService = require('../services/roleService');
 const permissionService = require('../services/permissionService');
 const RolePermission = require('../models/RolePermission');
 
 /**
- * Obtém todas as roles
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Busca todas as roles do sistema com filtros opcionais
+ * @async
+ * @function getAllRoles
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.query - Filtros opcionais
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de roles
  */
 const getAllRoles = async (req, res) => {
   try {
@@ -34,9 +42,13 @@ const getAllRoles = async (req, res) => {
 };
 
 /**
- * Obtém uma role pelo ID
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Busca uma role específica pelo ID
+ * @async
+ * @function getRoleById
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados da role
  */
 const getRoleById = async (req, res) => {
   try {
@@ -71,9 +83,13 @@ const getRoleById = async (req, res) => {
 };
 
 /**
- * Cria uma nova role
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Cria uma nova role no sistema
+ * @async
+ * @function createRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Role criada
  */
 const createRole = async (req, res) => {
   try {
@@ -109,9 +125,14 @@ const createRole = async (req, res) => {
 };
 
 /**
- * Atualiza uma role existente
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Atualiza dados de uma role existente
+ * @async
+ * @function updateRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} req.body - Dados atualizados
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Role atualizada
  */
 const updateRole = async (req, res) => {
   try {
@@ -156,9 +177,13 @@ const updateRole = async (req, res) => {
 };
 
 /**
- * Remove uma role
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Remove uma role do sistema
+ * @async
+ * @function deleteRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da remoção
  */
 const deleteRole = async (req, res) => {
   try {
@@ -200,9 +225,13 @@ const deleteRole = async (req, res) => {
 };
 
 /**
- * Obtém as permissões de uma role
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Busca todas as permissões associadas a uma role
+ * @async
+ * @function getRolePermissions
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de permissões da role
  */
 const getRolePermissions = async (req, res) => {
   try {
@@ -237,9 +266,14 @@ const getRolePermissions = async (req, res) => {
 };
 
 /**
- * Atribui uma permissão a uma role
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Atribui uma permissão específica a uma role
+ * @async
+ * @function assignPermissionToRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.roleId - ID da role
+ * @param {string} req.params.permissionId - ID da permissão
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Resultado da atribuição
  */
 const assignPermissionToRole = async (req, res) => {
   try {
@@ -276,9 +310,14 @@ const assignPermissionToRole = async (req, res) => {
 };
 
 /**
- * Remove uma permissão de uma role
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Remove uma permissão específica de uma role
+ * @async
+ * @function removePermissionFromRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.roleId - ID da role
+ * @param {string} req.params.permissionId - ID da permissão
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da remoção
  */
 const removePermissionFromRole = async (req, res) => {
   try {
@@ -314,9 +353,12 @@ const removePermissionFromRole = async (req, res) => {
 };
 
 /**
- * Inicializa as roles e permissões padrão do sistema
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Inicializa sistema RBAC com roles e permissões padrão
+ * @async
+ * @function initializeSystem
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da inicialização
  */
 const initializeSystem = async (req, res) => {
   try {
@@ -349,8 +391,10 @@ const initializeSystem = async (req, res) => {
 };
 
 /**
- * Configura as permissões padrão para cada role
- * @returns {Promise<void>}
+ * Configura associações padrão entre roles e permissões
+ * @async
+ * @function setupDefaultRolePermissions
+ * @returns {Promise<void>} Configurações aplicadas
  */
 const setupDefaultRolePermissions = async () => {
   try {

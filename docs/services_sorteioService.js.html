@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: services/sorteioService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: services/sorteioService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>// src/services/sorteioService.js
+const axios = require('axios');
+const crypto = require('crypto');
+const { logger } = require('../logger');
+const Rifa = require('../models/Rifa');
+
+/**
+ * Serviço para gerenciamento de sorteios
+ */
+
+/**
+ * Obtém o resultado de um concurso da loteria
+ * @param {string} concursoId - ID do concurso
+ * @returns {Promise&lt;number>} - Número sorteado
+ */
+const obterResultadoLoteria = async (concursoId) => {
+  try {
+    logger.info('Obtendo resultado da loteria', {
+      service: 'sorteioService',
+      method: 'obterResultadoLoteria',
+      concursoId
+    });
+
+    // Usar a API oficial da loteria (exemplo)
+    const response = await axios.get(`https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil/${concursoId}`);
+    
+    if (!response.data || !response.data.dezenas || response.data.dezenas.length === 0) {
+      throw new Error('Não foi possível obter o resultado da loteria');
+    }
+    
+    // Pegar o primeiro número como resultado (poderia ser qualquer um ou uma combinação)
+    const numeroSorteado = parseInt(response.data.dezenas[0]);
+    
+    logger.info('Resultado da loteria obtido com sucesso', {
+      service: 'sorteioService',
+      method: 'obterResultadoLoteria',
+      concursoId,
+      numeroSorteado
+    });
+    
+    return numeroSorteado;
+  } catch (error) {
+    logger.error('Erro ao obter resultado da loteria', {
+      service: 'sorteioService',
+      method: 'obterResultadoLoteria',
+      concursoId,
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
+};
+
+/**
+ * Obtém um número aleatório do Random.org
+ * @param {number} min - Valor mínimo
+ * @param {number} max - Valor máximo
+ * @param {number} quantidade - Quantidade de números
+ * @returns {Promise&lt;number>} - Número sorteado
+ */
+const obterNumeroAleatorioRandomOrg = async (min, max, quantidade = 1) => {
+  try {
+    logger.info('Obtendo número aleatório do Random.org', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      min,
+      max,
+      quantidade
+    });
+
+    // Usar a API do Random.org
+    const response = await axios.get(`https://www.random.org/integers/?num=${quantidade}&amp;min=${min}&amp;max=${max}&amp;col=1&amp;base=10&amp;format=plain&amp;rnd=new`);
+    
+    if (!response.data &amp;&amp; response.data !== 0) {
+      throw new Error('Não foi possível obter número aleatório do Random.org');
+    }
+    
+    // Log do tipo e valor recebido para debugging
+    logger.debug('Resposta do Random.org', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      dataType: typeof response.data,
+      dataValue: response.data,
+      dataLength: response.data?.length
+    });
+    
+    let numeroSorteado;
+    
+    // Verificar o tipo de dado retornado e tratar adequadamente
+    if (typeof response.data === 'number') {
+      // Se já é número, usar diretamente
+      numeroSorteado = response.data;
+    } else if (typeof response.data === 'string') {
+      // Se é string, fazer trim e converter
+      numeroSorteado = parseInt(response.data.trim());
+    } else {
+      // Se é outro tipo, tentar converter para string primeiro
+      numeroSorteado = parseInt(String(response.data).trim());
+    }
+    
+    // Validar se o número é válido
+    if (isNaN(numeroSorteado)) {
+      throw new Error(`Número inválido retornado do Random.org: ${response.data}`);
+    }
+    
+    // Validar se o número está no range esperado
+    if (numeroSorteado &lt; min || numeroSorteado > max) {
+      throw new Error(`Número fora do range esperado: ${numeroSorteado} (esperado: ${min}-${max})`);
+    }
+    
+    logger.info('Número aleatório obtido com sucesso do Random.org', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      numeroSorteado,
+      originalData: response.data,
+      dataType: typeof response.data
+    });
+    
+    return numeroSorteado;
+  } catch (error) {
+    logger.error('Erro ao obter número aleatório do Random.org', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      error: error.message,
+      stack: error.stack,
+      min,
+      max,
+      quantidade
+    });
+    
+    // Fallback para geração local em caso de falha
+    logger.info('Utilizando fallback local para geração de número aleatório', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      fallback: true
+    });
+    
+    const numeroLocal = Math.floor(Math.random() * (max - min + 1)) + min;
+    
+    logger.info('Número aleatório gerado localmente', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioRandomOrg',
+      numeroSorteado: numeroLocal,
+      fallback: true
+    });
+    
+    return numeroLocal;
+  }
+};
+
+/**
+ * Obtém um número aleatório do NIST Beacon
+ * @param {number} max - Valor máximo
+ * @returns {Promise&lt;number>} - Número sorteado
+ */
+const obterNumeroAleatorioNIST = async (max) => {
+  try {
+    logger.info('Obtendo número aleatório do NIST Beacon', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioNIST',
+      max
+    });
+
+    // Usar a API do NIST Beacon
+    const response = await axios.get('https://beacon.nist.gov/beacon/2.0/pulse/last');
+    
+    if (!response.data || !response.data.pulse || !response.data.pulse.outputValue) {
+      throw new Error('Não foi possível obter número aleatório do NIST Beacon');
+    }
+    
+    // Converter o valor hexadecimal para decimal e limitar ao intervalo desejado
+    const hexValue = response.data.pulse.outputValue;
+    const decimalValue = parseInt(hexValue.substring(0, 8), 16);
+    const numeroSorteado = (decimalValue % max) + 1;
+    
+    logger.info('Número aleatório obtido com sucesso do NIST Beacon', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioNIST',
+      numeroSorteado
+    });
+    
+    return numeroSorteado;
+  } catch (error) {
+    logger.error('Erro ao obter número aleatório do NIST Beacon', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioNIST',
+      error: error.message,
+      stack: error.stack
+    });
+    
+    // Fallback para geração local em caso de falha
+    logger.info('Utilizando fallback local para geração de número aleatório', {
+      service: 'sorteioService',
+      method: 'obterNumeroAleatorioNIST'
+    });
+    
+    return Math.floor(Math.random() * max) + 1;
+  }
+};
+
+/**
+ * Verifica a integridade de um sorteio
+ * @param {string} rifaId - ID da rifa
+ * @param {Object} resultado - Resultado do sorteio
+ * @returns {Promise&lt;Object>} - Resultado da verificação
+ */
+const verificarIntegridade = async (rifaId, resultado) => {
+  try {
+    logger.info('Verificando integridade do sorteio', {
+      service: 'sorteioService',
+      method: 'verificarIntegridade',
+      rifaId
+    });
+
+    // Obter a rifa
+    const rifa = await Rifa.getById(rifaId);
+    if (!rifa) {
+      throw new Error('Rifa não encontrada');
+    }
+
+    // Verificar se o hash corresponde
+    const dadosVerificacao = {
+      rifaId,
+      numeroSorteado: resultado.numeroSorteado,
+      metodo: rifa.sorteioMetodo,
+      referencia: rifa.sorteioReferencia,
+      timestamp: resultado.dataSorteio
+    };
+
+    const hashCalculado = gerarHashVerificacao(dadosVerificacao);
+    const hashArmazenado = resultado.verificacaoHash;
+    
+    const integridadeOk = hashCalculado === hashArmazenado;
+    
+    // Verificar a fonte externa, se aplicável
+    let fonteExternaOk = false;
+    
+    if (rifa.sorteioMetodo === 'LOTERIA' &amp;&amp; rifa.sorteioReferencia) {
+      try {
+        const numeroLoteria = await obterResultadoLoteria(rifa.sorteioReferencia);
+        fonteExternaOk = numeroLoteria === resultado.numeroSorteado;
+      } catch (err) {
+        logger.warn('Não foi possível verificar o resultado da loteria', {
+          service: 'sorteioService',
+          method: 'verificarIntegridade',
+          error: err.message
+        });
+        fonteExternaOk = 'Indisponível';
+      }
+    } else {
+      fonteExternaOk = 'Não aplicável';
+    }
+    
+    const verificacaoResultado = {
+      rifaId,
+      dataVerificacao: new Date().toISOString(),
+      integridadeOk,
+      fonteExternaOk,
+      metodoSorteio: rifa.sorteioMetodo,
+      hashArmazenado,
+      hashCalculado
+    };
+    
+    logger.info('Integridade do sorteio verificada', {
+      service: 'sorteioService',
+      method: 'verificarIntegridade',
+      rifaId,
+      resultado: verificacaoResultado
+    });
+    
+    return verificacaoResultado;
+  } catch (error) {
+    logger.error('Erro ao verificar integridade do sorteio', {
+      service: 'sorteioService',
+      method: 'verificarIntegridade',
+      rifaId,
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
+};
+
+/**
+ * Gera um hash para verificação
+ * @param {Object} dados - Dados para gerar o hash
+ * @returns {string} - Hash gerado
+ */
+const gerarHashVerificacao = (dados) => {
+  const dadosString = JSON.stringify(dados);
+  return crypto.createHash('sha256').update(dadosString).digest('hex');
+};
+
+/**
+ * Gera um comprovante do sorteio
+ * @param {string} rifaId - ID da rifa
+ * @param {Object} resultado - Resultado do sorteio
+ * @returns {Promise&lt;string>} - URL do comprovante
+ */
+const gerarComprovante = async (rifaId, resultado) => {
+  try {
+    logger.info('Gerando comprovante do sorteio', {
+      service: 'sorteioService',
+      method: 'gerarComprovante',
+      rifaId
+    });
+
+    // Obter a rifa
+    const rifa = await Rifa.getById(rifaId);
+    if (!rifa) {
+      throw new Error('Rifa não encontrada');
+    }
+
+    // Na versão final, aqui seria gerado um PDF ou outro formato de comprovante
+    // Para simplificar neste exemplo, vamos apenas gerar um URL simulado
+    
+    const comprovanteData = {
+      rifaId,
+      nome: rifa.nome,
+      numeroSorteado: resultado.numeroSorteado,
+      bilheteVencedor: resultado.bilheteVencedor,
+      dataSorteio: resultado.dataSorteio,
+      metodo: rifa.sorteioMetodo,
+      referencia: rifa.sorteioReferencia,
+      hash: resultado.verificacaoHash,
+      timestampComprovante: new Date().toISOString()
+    };
+    
+    // Gerar um ID único para o comprovante
+    const comprovanteId = crypto.randomBytes(16).toString('hex');
+    
+    // Em uma implementação real, aqui o comprovante seria armazenado em um bucket S3 ou similar
+    // e retornaria a URL para acesso
+    const comprovanteUrl = `/api/comprovantes/${comprovanteId}`;
+    
+    logger.info('Comprovante do sorteio gerado com sucesso', {
+      service: 'sorteioService',
+      method: 'gerarComprovante',
+      rifaId,
+      comprovanteId,
+      comprovanteUrl
+    });
+    
+    return comprovanteUrl;
+  } catch (error) {
+    logger.error('Erro ao gerar comprovante do sorteio', {
+      service: 'sorteioService',
+      method: 'gerarComprovante',
+      rifaId,
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
+};
+
+module.exports = {
+  obterResultadoLoteria,
+  obterNumeroAleatorioRandomOrg,
+  obterNumeroAleatorioNIST,
+  verificarIntegridade,
+  gerarComprovante,
+  gerarHashVerificacao
+};</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

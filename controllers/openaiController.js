@@ -1,4 +1,8 @@
-// controllers/openaiController.js
+/**
+ * @fileoverview Controller de OpenAI - integração com API da OpenAI para validação de texto
+ * @module controllers/openaiController
+ */
+
 const { OpenAI } = require('openai');
 const { logger } = require('../logger');
 
@@ -7,6 +11,16 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+/**
+ * Valida texto usando OpenAI para detectar linguagem inapropriada, erros gramaticais ou sentimentos negativos
+ * @async
+ * @function validateText
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da validação
+ * @param {string} req.body.text - Texto a ser validado
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Análise do texto pela OpenAI
+ */
 const validateText = async (req, res) => {
   const { text } = req.body;
 

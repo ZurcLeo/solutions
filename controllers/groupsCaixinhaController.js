@@ -1,6 +1,18 @@
+/**
+ * @fileoverview Controller de grupos de caixinha - gerencia grupos para organização de caixinhas coletivas
+ * @module controllers/groupsCaixinhaController
+ */
+
 const admin = require('firebase-admin');
 
-// Função para obter todos os grupos de caixinha
+/**
+ * Busca todos os grupos de caixinha cadastrados
+ * @async
+ * @function getGroups
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de grupos de caixinha
+ */
 exports.getGroups = async (req, res) => {
   try {
     const snapshot = await admin.firestore().collection('groupsCaixinha').get();
@@ -11,7 +23,15 @@ exports.getGroups = async (req, res) => {
   }
 };
 
-// Função para obter um grupo de caixinha por ID
+/**
+ * Busca um grupo de caixinha específico pelo ID
+ * @async
+ * @function getGroupById
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID do grupo
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados do grupo de caixinha
+ */
 exports.getGroupById = async (req, res) => {
   const { id } = req.params;
   try {
@@ -25,7 +45,18 @@ exports.getGroupById = async (req, res) => {
   }
 };
 
-// Função para criar um novo grupo de caixinha
+/**
+ * Cria um novo grupo de caixinha
+ * @async
+ * @function createGroup
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados do grupo
+ * @param {string} req.body.name - Nome do grupo
+ * @param {string} req.body.description - Descrição do grupo
+ * @param {Array} req.body.members - Lista de membros
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Grupo criado com ID
+ */
 exports.createGroup = async (req, res) => {
   const { name, description, members } = req.body;
   try {
@@ -41,7 +72,16 @@ exports.createGroup = async (req, res) => {
   }
 };
 
-// Função para atualizar um grupo de caixinha
+/**
+ * Atualiza dados de um grupo de caixinha existente
+ * @async
+ * @function updateGroup
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID do grupo
+ * @param {Object} req.body - Dados atualizados do grupo
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da atualização
+ */
 exports.updateGroup = async (req, res) => {
   const { id } = req.params;
   const data = req.body;
@@ -58,7 +98,15 @@ exports.updateGroup = async (req, res) => {
   }
 };
 
-// Função para deletar um grupo de caixinha
+/**
+ * Remove um grupo de caixinha do sistema
+ * @async
+ * @function deleteGroup
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID do grupo a ser removido
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da remoção
+ */
 exports.deleteGroup = async (req, res) => {
   const { id } = req.params;
   try {

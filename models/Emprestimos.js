@@ -214,6 +214,41 @@ class Emprestimos {
     }
   }
 
+  // Método para listar todos os empréstimos de um usuário (alias para compatibilidade)
+  static async getByUserId(userId, limit = 10) {
+    try {
+      logger.info('Buscando empréstimos por userId', {
+        service: 'emprestimosModel',
+        method: 'getByUserId',
+        userId,
+        limit
+      });
+
+      const emprestimos = await this.getAllByUsuario(userId);
+      
+      // Aplicar limite se fornecido
+      const resultado = limit ? emprestimos.slice(0, limit) : emprestimos;
+      
+      logger.info('Empréstimos por userId recuperados com sucesso', {
+        service: 'emprestimosModel',
+        method: 'getByUserId',
+        userId,
+        quantidade: resultado.length
+      });
+      
+      return resultado;
+    } catch (error) {
+      logger.error('Erro ao buscar empréstimos por userId', {
+        service: 'emprestimosModel',
+        method: 'getByUserId',
+        userId,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
   // Método para criar um novo empréstimo
   static async create(caixinhaId, data) {
     try {

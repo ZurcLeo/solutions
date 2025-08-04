@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: services/emailService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: services/emailService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @fileoverview Serviço para envio e gerenciamento de e-mails, utilizando Nodemailer e templates.
+ * @module services/emailService
+ * @requires nodemailer
+ * @requires ../logger
+ * @requires ../models/Email
+ * @requires ../templates/emails
+ * @requires dotenv
+ */
+const nodemailer = require('nodemailer');
+const { logger } = require('../logger');
+const Email = require('../models/Email');
+const emailTemplates = require('../templates/emails');
+require('dotenv').config();
+
+// SMTP configuration
+const smtpConfig = {
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: process.env.SMTP_PORT || 587,
+  secure: process.env.SMTP_PORT == 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  },
+  tls: {
+    rejectUnauthorized: false
+  },
+  debug: process.env.NODE_ENV !== 'production',
+  logger: process.env.NODE_ENV !== 'production'
+};
+
+/**
+ * Cria e retorna um transportador Nodemailer reutilizável.
+ * @private
+ * @function createTransporter
+ * @returns {Object} Um objeto transportador Nodemailer.
+ * @description Configura e inicializa o transportador SMTP para envio de e-mails.
+ */
+const createTransporter = () => {
+  return nodemailer.createTransport(smtpConfig);
+};
+
+/**
+ * Serviço de e-mail para lidar com todas as operações relacionadas a e-mail.
+ * @namespace emailService
+ */
+const emailService = {
+  /**
+   * Envia um e-mail utilizando um template predefinido.
+   * @async
+   * @function sendEmail
+   * @param {Object} params - Parâmetros para o envio do e-mail.
+   * @param {string} params.to - O endereço de e-mail do destinatário.
+   * @param {string} params.subject - O assunto do e-mail.
+   * @param {string} params.templateType - O tipo de template a ser utilizado (ex: 'convite', 'welcome'). Deve corresponder a uma chave em `emailTemplates`.
+   * @param {Object} params.data - Os dados a serem injetados no template do e-mail.
+   * @param {string} [params.userId] - O ID do usuário associado ao envio (opcional).
+   * @param {string} [params.reference] - O ID de uma entidade relacionada (ex: inviteId) (opcional).
+   * @param {string} [params.referenceType] - O tipo da entidade referenciada (ex: 'invite') (opcional).
+   * @returns {Promise&lt;Object>} Um objeto com o status de sucesso (`success`), o ID do registro de e-mail no Firestore (`emailId`) e o ID da mensagem SMTP (`messageId`). Em caso de erro, contém `success: false` e uma mensagem de `error`.
+   * @throws {Error} Se o template não for encontrado ou ocorrer um erro no envio.
+   * @description Registra o e-mail no Firestore, renderiza o conteúdo HTML e de texto simples a partir de um template, e envia o e-mail via SMTP, atualizando o status do registro no banco.
+   */
+  sendEmail: async (params) => {
+    const { 
+      to, 
+      subject, 
+      templateType, 
+      data,
+      userId = null, 
+      reference = null,
+      referenceType = null
+    } = params;
+    
+    logger.info('Preparing to send email', {
+      service: 'emailService',
+      function: 'sendEmail',
+      to,
+      subject,
+      templateType,
+      reference
+    });
+    
+    // 1. Validate template exists
+    if (!emailTemplates[templateType]) {
+      logger.error('Email template not found', {
+        service: 'emailService',
+        function: 'sendEmail',
+        templateType
+      });
+      return { 
+        success: false, 
+        error: `Email template '${templateType}' not found` 
+      };
+    }
+    
+    try {
+      // 2. Create email record in Firestore first
+      const emailRecord = await Email.create({
+        to,
+        subject,
+        templateType,
+        templateData: data,
+        status: 'pending',
+        userId,
+        reference,
+        referenceType
+      });
+      
+      // 3. Render email content from template
+      const htmlContent = emailTemplates[templateType](data);
+      
+      // 4. Create plain text version by stripping HTML
+      const textContent = htmlContent.replace(/&lt;[^>]*>?/gm, '');
+      
+      // 5. Prepare email data
+      const mailOptions = {
+        from: `"${process.env.EMAIL_FROM_NAME || 'ElosCloud'}" &lt;${process.env.EMAIL_FROM_ADDRESS || 'suporte@eloscloud.com.br'}>`,
+        to,
+        subject,
+        html: htmlContent,
+        text: textContent,
+        attachDataUrls: true
+      };
+      
+      // 6. Send email
+      const transporter = createTransporter();
+      const info = await transporter.sendMail(mailOptions);
+      
+      // 7. Update email record with success status
+      await Email.updateStatus(emailRecord.id, 'sent', {
+        messageId: info.messageId
+      });
+      
+      logger.info('Email sent successfully', {
+        service: 'emailService',
+        function: 'sendEmail',
+        emailId: emailRecord.id,
+        to,
+        messageId: info.messageId
+      });
+      
+      return { 
+        success: true, 
+        emailId: emailRecord.id,
+        messageId: info.messageId 
+      };
+    } catch (error) {
+      // If we have an email record, update its status to error
+      if (params.emailId) {
+        await Email.updateStatus(params.emailId, 'error', {
+          error: error.message
+        });
+      }
+      
+      logger.error('Error sending email', {
+        service: 'emailService',
+        function: 'sendEmail',
+        to,
+        error: error.message
+      });
+      
+      return { 
+        success: false, 
+        error: error.message 
+      };
+    }
+  },
+  
+  /**
+   * Reenvia um e-mail existente, criando um novo registro no Firestore.
+   * @async
+   * @function resendEmail
+   * @param {string} emailId - O ID do registro de e-mail original a ser reenviado.
+   * @returns {Promise&lt;Object>} O mesmo formato de retorno de `sendEmail`.
+   * @throws {Error} Se o e-mail original não for encontrado ou ocorrer um erro no reenvio.
+   * @description Recupera os detalhes de um e-mail enviado anteriormente e tenta reenviá-lo, criando um novo registro e atualizando o status do e-mail original.
+   */
+  resendEmail: async (emailId) => {
+    logger.info('Attempting to resend email', {
+      service: 'emailService',
+      function: 'resendEmail',
+      emailId
+    });
+    
+    try {
+      // 1. Get original email
+      const originalEmail = await Email.getById(emailId);
+      
+      // 2. Check if email exists and was not already sent successfully
+      if (originalEmail.status === 'sent') {
+        logger.warn('Attempting to resend already sent email', {
+          service: 'emailService',
+          function: 'resendEmail',
+          emailId
+        });
+      }
+      
+      // 3. Send with same parameters but create a new record
+      const result = await emailService.sendEmail({
+        to: originalEmail.to,
+        subject: originalEmail.subject,
+        templateType: originalEmail.templateType,
+        data: originalEmail.templateData,
+        userId: originalEmail.userId,
+        reference: originalEmail.reference,
+        referenceType: originalEmail.referenceType
+      });
+      
+      // 4. Link original email to the new one if successful
+      if (result.success) {
+        await Email.updateStatus(emailId, 'resent', {
+          resendEmailId: result.emailId
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      logger.error('Error resending email', {
+        service: 'emailService',
+        function: 'resendEmail',
+        emailId,
+        error: error.message
+      });
+      
+      return { 
+        success: false, 
+        error: error.message 
+      };
+    }
+  },
+  
+  /**
+   * Método de compatibilidade reversa para a antiga interface de envio de e-mails.
+   * @async
+   * @function sendEmail_legacy
+   * @param {string} to - O endereço de e-mail do destinatário.
+   * @param {string} subject - O assunto do e-mail.
+   * @param {string} content - O conteúdo do e-mail (usado como `data.content` no novo método).
+   * @param {string} userId - O ID do usuário associado.
+   * @param {string} inviteId - O ID do convite relacionado (usado como `reference`).
+   * @param {string} type - O tipo do e-mail (usado como `templateType`).
+   * @returns {Promise&lt;Object>} O mesmo formato de retorno de `sendEmail`.
+   * @deprecated Use o método `sendEmail` para novas implementações.
+   * @description Adapta os parâmetros da interface antiga para o novo método `sendEmail`.
+   */
+  sendEmail_legacy: async (to, subject, content, userId, inviteId, type) => {
+    logger.warn('Using deprecated email interface', {
+      service: 'emailService',
+      function: 'sendEmail_legacy',
+    });
+    
+    // Map old parameters to the new format
+    return emailService.sendEmail({
+      to,
+      subject,
+      templateType: type || 'padrao',
+      data: { content },
+      userId,
+      reference: inviteId,
+      referenceType: 'invite'
+    });
+  }
+};
+
+module.exports = emailService;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

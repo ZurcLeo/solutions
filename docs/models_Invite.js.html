@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: models/Invite.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: models/Invite.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>// src/models/Invite.js
+const { getFirestore } = require('../firebaseAdmin');
+const { logger } = require('../logger');
+
+/**
+ * Modelo para gerenciamento de convites
+ * Implementa a lógica de acesso ao banco de dados para a coleção de convites
+ */
+class Invite {
+  /**
+   * Construtor do modelo de convite
+   * @param {Object} data - Dados para inicializar o convite
+   */
+  constructor(data) {
+    this.id = data.id || null;
+    this.inviteId = data.inviteId; // ID único do convite (UUID)
+    this.email = data.email; // Email para o qual o convite foi enviado
+    this.friendName = data.friendName; // Nome do amigo convidado
+    this.senderId = data.senderId; // ID do usuário que enviou o convite
+    this.senderName = data.senderName; // Nome do usuário que enviou o convite
+    this.senderPhotoURL = data.senderPhotoURL || ''; // URL da foto do remetente
+    this.status = data.status || 'pending'; // pending, validated, used, canceled
+    this.createdAt = data.createdAt || new Date();
+    this.expiresAt = data.expiresAt || null;
+    this.lastSentAt = data.lastSentAt || null; // Última vez que o convite foi enviado/reenviado
+    this.validatedAt = data.validatedAt || null; // Quando o convite foi validado
+    this.validatedBy = data.validatedBy || null; // ID do usuário que validou
+    this.usedAt = data.usedAt || null; // Quando o convite foi utilizado
+    this.usedBy = data.usedBy || null; // ID do usuário que utilizou
+    this.canceledAt = data.canceledAt || null; // Quando o convite foi cancelado
+    this.canceledBy = data.canceledBy || null; // ID do usuário que cancelou
+    this.resendCount = data.resendCount || 0; // Número de vezes que o convite foi reenviado
+  }
+
+  /**
+   * Converte a instância para um objeto simples
+   * @returns {Object} Objeto representando o convite
+   */
+  toPlainObject() {
+    return {
+      id: this.id,
+      inviteId: this.inviteId,
+      email: this.email,
+      friendName: this.friendName,
+      senderId: this.senderId,
+      senderName: this.senderName,
+      senderPhotoURL: this.senderPhotoURL,
+      status: this.status,
+      createdAt: this.createdAt,
+      expiresAt: this.expiresAt,
+      lastSentAt: this.lastSentAt,
+      validatedAt: this.validatedAt,
+      validatedBy: this.validatedBy,
+      usedAt: this.usedAt,
+      usedBy: this.usedBy,
+      canceledAt: this.canceledAt,
+      canceledBy: this.canceledBy,
+      resendCount: this.resendCount
+    };
+  }
+
+  /**
+   * Busca um convite pelo seu ID único
+   * @param {string} inviteId - ID único do convite
+   * @returns {Promise&lt;Object>} Objeto contendo o convite e sua referência
+   * @throws {Error} Se o convite não for encontrado
+   */
+  static async getById(inviteId) {
+    logger.info(`Buscando convite com ID ${inviteId}`, {
+      service: 'inviteModel',
+      function: 'getById',
+      inviteId,
+      email,
+      nome
+    });
+  
+    try {
+      const db = getFirestore();
+      // Consulta filtrando pelo inviteId (não o id do documento)
+      const snapshot = await db.collection('convites')
+        .where('inviteId', '==', inviteId)
+        .get();
+      
+      if (snapshot.empty) {
+        logger.warn(`Convite com ID ${inviteId} não encontrado`, {
+          service: 'inviteModel',
+          function: 'getById',
+          inviteId
+        });
+        throw new Error('Convite não encontrado.');
+      }
+  
+      // Extração do primeiro documento correspondente
+      const inviteDoc = snapshot.docs[0];
+      const invite = new Invite({ 
+        ...inviteDoc.data(), 
+        id: inviteDoc.id 
+      });
+
+      logger.info(`Convite com ID ${inviteId} encontrado`, {
+        service: 'inviteModel',
+        function: 'getById',
+        inviteId
+      });
+  
+      return { invite, inviteRef: inviteDoc.ref };
+    } catch (error) {
+      logger.error(`Erro ao buscar convite com ID ${inviteId}`, {
+        service: 'inviteModel',
+        function: 'getById',
+        inviteId,
+        email,
+        nome,
+        error: error.message
+      });
+
+      throw error;
+    }
+  }  
+
+  /**
+   * Cria um novo convite no banco de dados
+   * @param {Object} data - Dados do convite a ser criado
+   * @returns {Promise&lt;Invite>} O convite criado
+   */
+  static async create(data) {
+    logger.info('Criando novo convite', {
+      service: 'inviteModel',
+      function: 'create',
+      data: { ...data, email: data.email ? data.email.toLowerCase() : null }
+    });
+
+    try {
+      const db = getFirestore();
+      const invite = new Invite({
+        ...data,
+        email: data.email ? data.email.toLowerCase() : null,
+        createdAt: new Date()
+      });
+
+      const docRef = await db.collection('convites').add(invite.toPlainObject());
+      invite.id = docRef.id;
+
+      logger.info('Convite criado com sucesso', {
+        service: 'inviteModel',
+        function: 'create',
+        inviteId: invite.inviteId,
+        id: invite.id
+      });
+
+      return invite;
+    } catch (error) {
+      logger.error('Erro ao criar convite', {
+        service: 'inviteModel',
+        function: 'create',
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Atualiza um convite existente
+   * @param {string} id - ID do documento do convite
+   * @param {Object} data - Dados a serem atualizados
+   * @returns {Promise&lt;Invite>} O convite atualizado
+   * @throws {Error} Se o convite não for encontrado
+   */
+  static async update(id, data) {
+    logger.info(`Atualizando convite com ID ${id}`, {
+      service: 'inviteModel',
+      function: 'update',
+      id,
+      data
+    });
+
+    try {
+      const db = getFirestore();
+      const inviteRef = db.collection('convites').doc(id);
+      const inviteDoc = await inviteRef.get();
+
+      if (!inviteDoc.exists) {
+        throw new Error('Convite não encontrado.');
+      }
+
+      // Não permitir atualização do inviteId e senderId para manter integridade
+      const { inviteId, senderId, createdAt, ...updateData } = data;
+
+      await inviteRef.update({
+        ...updateData,
+        updatedAt: new Date()
+      });
+
+      const updatedDoc = await inviteRef.get();
+      const updatedInvite = new Invite({ 
+        ...updatedDoc.data(), 
+        id: updatedDoc.id 
+      });
+
+      logger.info(`Convite com ID ${id} atualizado com sucesso`, {
+        service: 'inviteModel',
+        function: 'update',
+        id
+      });
+
+      return updatedInvite;
+    } catch (error) {
+      logger.error(`Erro ao atualizar convite com ID ${id}`, {
+        service: 'inviteModel',
+        function: 'update',
+        id,
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Remove um convite do banco de dados
+   * @param {string} id - ID do documento do convite
+   * @returns {Promise&lt;void>}
+   * @throws {Error} Se ocorrer um erro durante a exclusão
+   */
+  static async delete(id) {
+    logger.info(`Excluindo convite com ID ${id}`, {
+      service: 'inviteModel',
+      function: 'delete',
+      id
+    });
+
+    try {
+      const db = getFirestore();
+      const inviteRef = db.collection('convites').doc(id);
+      await inviteRef.delete();
+
+      logger.info(`Convite com ID ${id} excluído com sucesso`, {
+        service: 'inviteModel',
+        function: 'delete',
+        id
+      });
+    } catch (error) {
+      logger.error(`Erro ao excluir convite com ID ${id}`, {
+        service: 'inviteModel',
+        function: 'delete',
+        id,
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Busca convites enviados por um determinado usuário
+   * @param {string} userId - ID do usuário remetente
+   * @returns {Promise&lt;Array&lt;Invite>>} Lista de convites enviados
+   */
+  static async getBySenderId(userId) {
+    logger.info(`Iniciando a busca por convites do usuário com senderId ${userId}`, {
+      service: 'inviteService',
+      function: 'getBySenderId',
+      userId
+    });
+
+    try {
+      const db = getFirestore();
+      const snapshot = await db.collection('convites')
+        .where('senderId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .get();
+
+      // Retornar array vazio se não houver convites, em vez de lançar erro
+      if (snapshot.empty) {
+        logger.info(`Nenhum convite encontrado para o usuário ${userId}`, {
+          service: 'inviteModel',
+          function: 'getBySenderId',
+          userId
+        });
+        return [];
+      }
+
+      const invites = snapshot.docs.map(doc => 
+        new Invite({ ...doc.data(), id: doc.id })
+      );
+
+      logger.info(`${invites.length} convites encontrados para o usuário ${userId}`, {
+        service: 'inviteModel',
+        function: 'getBySenderId',
+        userId,
+        count: invites.length
+      });
+
+      return invites;
+    } catch (error) {
+      logger.error(`Erro ao buscar convites do usuário ${userId}`, {
+        service: 'inviteModel',
+        function: 'getBySenderId',
+        userId,
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Busca convites pendentes enviados por um usuário
+   * @param {string} userId - ID do usuário remetente
+   * @returns {Promise&lt;Array&lt;Invite>>} Lista de convites pendentes
+   */
+  static async getPendingBySender(userId) {
+    logger.info(`Buscando convites pendentes enviados pelo usuário ${userId}`, {
+      service: 'inviteModel',
+      function: 'getPendingBySender',
+      userId
+    });
+
+    try {
+      const db = getFirestore();
+      const snapshot = await db.collection('convites')
+        .where('senderId', '==', userId)
+        .where('status', '==', 'pending')
+        .get();
+
+      if (snapshot.empty) {
+        return [];
+      }
+
+      const invites = snapshot.docs.map(doc => 
+        new Invite({ ...doc.data(), id: doc.id })
+      );
+
+      logger.info(`${invites.length} convites pendentes encontrados para o usuário ${userId}`, {
+        service: 'inviteModel',
+        function: 'getPendingBySender',
+        userId,
+        count: invites.length
+      });
+
+      return invites;
+    } catch (error) {
+      logger.error(`Erro ao buscar convites pendentes do usuário ${userId}`, {
+        service: 'inviteModel',
+        function: 'getPendingBySender',
+        userId,
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Busca um convite pelo email do destinatário
+   * @param {string} email - Email para o qual o convite foi enviado
+   * @returns {Promise&lt;Invite|null>} O convite encontrado ou null
+   */
+  static async findByEmail(email) {
+    logger.info(`Buscando convite para o email ${email}`, {
+      service: 'inviteModel',
+      function: 'findByEmail',
+      email
+    });
+
+    try {
+      const db = getFirestore();
+      const snapshot = await db.collection('convites')
+        .where('email', '==', email.toLowerCase())
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        logger.info(`Nenhum convite encontrado para o email ${email}`, {
+          service: 'inviteModel',
+          function: 'findByEmail',
+          email
+        });
+        return null;
+      }
+
+      const inviteDoc = snapshot.docs[0];
+      const invite = new Invite({ 
+        ...inviteDoc.data(), 
+        id: inviteDoc.id 
+      });
+
+      logger.info(`Convite encontrado para o email ${email}`, {
+        service: 'inviteModel',
+        function: 'findByEmail',
+        email,
+        inviteId: invite.inviteId
+      });
+
+      return invite;
+    } catch (error) {
+      logger.error(`Erro ao buscar convite para o email ${email}`, {
+        service: 'inviteModel',
+        function: 'findByEmail',
+        email,
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Busca todos os convites com status "pending" que estão expirados
+   * @param {number} expirationDays - Número de dias após o qual um convite é considerado expirado
+   * @returns {Promise&lt;Array&lt;Invite>>} Lista de convites expirados
+   */
+  static async getExpiredInvites(expirationDays = 30) {
+    logger.info(`Buscando convites expirados (${expirationDays} dias)`, {
+      service: 'inviteModel',
+      function: 'getExpiredInvites',
+      expirationDays
+    });
+
+    try {
+      const db = getFirestore();
+      
+      // Calcular data limite para expiração
+      const expirationDate = new Date();
+      expirationDate.setDate(expirationDate.getDate() - expirationDays);
+      
+      const snapshot = await db.collection('convites')
+        .where('status', '==', 'pending')
+        .where('createdAt', '&lt;=', expirationDate)
+        .get();
+
+      const invites = snapshot.docs.map(doc => 
+        new Invite({ ...doc.data(), id: doc.id })
+      );
+
+      logger.info(`${invites.length} convites expirados encontrados`, {
+        service: 'inviteModel',
+        function: 'getExpiredInvites',
+        count: invites.length
+      });
+
+      return invites;
+    } catch (error) {
+      logger.error(`Erro ao buscar convites expirados`, {
+        service: 'inviteModel',
+        function: 'getExpiredInvites',
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Marca convites expirados como "canceled"
+   * @param {number} expirationDays - Número de dias após o qual um convite é considerado expirado
+   * @returns {Promise&lt;number>} Número de convites cancelados
+   */
+  static async cancelExpiredInvites(expirationDays = 30) {
+    logger.info(`Cancelando convites expirados (${expirationDays} dias)`, {
+      service: 'inviteModel',
+      function: 'cancelExpiredInvites',
+      expirationDays
+    });
+
+    try {
+      const expiredInvites = await this.getExpiredInvites(expirationDays);
+      
+      if (expiredInvites.length === 0) {
+        return 0;
+      }
+      
+      const db = getFirestore();
+      const batch = db.batch();
+      
+      // Preparar lote de atualizações
+      expiredInvites.forEach(invite => {
+        const inviteRef = db.collection('convites').doc(invite.id);
+        batch.update(inviteRef, {
+          status: 'canceled',
+          canceledAt: new Date(),
+          canceledBy: 'system',
+          cancellationReason: 'expired'
+        });
+      });
+      
+      // Executar atualizações em lote
+      await batch.commit();
+      
+      logger.info(`${expiredInvites.length} convites expirados cancelados com sucesso`, {
+        service: 'inviteModel',
+        function: 'cancelExpiredInvites',
+        count: expiredInvites.length
+      });
+      
+      return expiredInvites.length;
+    } catch (error) {
+      logger.error(`Erro ao cancelar convites expirados`, {
+        service: 'inviteModel',
+        function: 'cancelExpiredInvites',
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Obtém estatísticas sobre os convites
+   * @returns {Promise&lt;Object>} Estatísticas dos convites
+   */
+  static async getStatistics() {
+    logger.info('Obtendo estatísticas de convites', {
+      service: 'inviteModel',
+      function: 'getStatistics'
+    });
+
+    try {
+      const db = getFirestore();
+      
+      // Obter contadores para cada status
+      const pendingSnapshot = await db.collection('convites')
+        .where('status', '==', 'pending')
+        .count()
+        .get();
+      
+      const usedSnapshot = await db.collection('convites')
+        .where('status', '==', 'used')
+        .count()
+        .get();
+      
+      const canceledSnapshot = await db.collection('convites')
+        .where('status', '==', 'canceled')
+        .count()
+        .get();
+      
+      const validatedSnapshot = await db.collection('convites')
+        .where('status', '==', 'validated')
+        .count()
+        .get();
+      
+      // Calcular taxas de conversão
+      const pendingCount = pendingSnapshot.data().count;
+      const usedCount = usedSnapshot.data().count;
+      const canceledCount = canceledSnapshot.data().count;
+      const validatedCount = validatedSnapshot.data().count;
+      const totalCount = pendingCount + usedCount + canceledCount + validatedCount;
+      
+      const conversionRate = totalCount > 0 
+        ? (usedCount / totalCount * 100).toFixed(2) 
+        : 0;
+      
+      const stats = {
+        total: totalCount,
+        pending: pendingCount,
+        used: usedCount,
+        canceled: canceledCount,
+        validated: validatedCount,
+        conversionRate: `${conversionRate}%`
+      };
+      
+      logger.info('Estatísticas de convites obtidas com sucesso', {
+        service: 'inviteModel',
+        function: 'getStatistics',
+        stats
+      });
+      
+      return stats;
+    } catch (error) {
+      logger.error('Erro ao obter estatísticas de convites', {
+        service: 'inviteModel',
+        function: 'getStatistics',
+        error: error.message
+      });
+
+      throw error;
+    }
+  }
+}
+
+module.exports = Invite;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

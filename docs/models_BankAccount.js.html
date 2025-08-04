@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: models/BankAccount.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: models/BankAccount.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>// BankAccount.js (Updated with encryption)
+const encryptionService = require('../services/encryptionService');
+const { getFirestore } = require('../firebaseAdmin');
+const { FieldValue } = require('firebase-admin/firestore');
+const { logger } = require('../logger');
+
+function cleanData(data) {
+  return Object.fromEntries(Object.entries(data).filter(([_, value]) => value !== undefined));
+}
+
+function cleanFirestoreData(data) {
+  return JSON.parse(JSON.stringify(data, (key, value) => (value === undefined ? null : value)));
+}
+
+class BankAccount {
+  constructor(data) {
+    this.id = data.id || null;
+    this.adminId = data.adminId;
+    this.caixinhaId = data.caixinhaId;
+    
+    // Public fields (not encrypted)
+    this.bankName = data.bankName;
+    this.isActive = data.isActive || false;
+    this.createdAt = data.createdAt ? new Date(data.createdAt.seconds * 1000) : new Date();
+    this.updatedAt = data.updatedAt ? new Date(data.updatedAt.seconds * 1000) : null;
+    
+    // Secure fields - will be encrypted
+    if (data.encrypted) {
+      // Encrypted data already present, store it directly
+      this.encrypted = data.encrypted;
+      
+      // Store last 4 digits for reference (if available)
+      this.lastDigits = data.lastDigits || null;
+    } else {
+      // Data is in plaintext, needs to be encrypted
+      this.accountNumber = data.accountNumber;
+      this.accountHolder = data.accountHolder;
+      this.accountType = data.accountType;
+      this.bankCode = data.bankCode;
+      this.pixKey = data.pixKey || null;
+      this.pixKeyType = data.pixKeyType || null;
+    }
+  }
+
+  /**
+   * Prepares the bank account for storage by encrypting sensitive data
+   * @returns {Promise&lt;Object>} Data ready for storage
+   */
+  async prepareForStorage() {
+    try {
+      // Create the sensitive data object to encrypt
+      const sensitiveData = {
+        accountNumber: this.accountNumber,
+        accountHolder: this.accountHolder,
+        accountType: this.accountType,
+        bankCode: this.bankCode,
+        pixKey: this.pixKey,
+        pixKeyType: this.pixKeyType
+      };
+      
+      // Encrypt the sensitive data
+      this.encrypted = await encryptionService.encrypt(sensitiveData, {
+        dataType: 'bank_account',
+        // Add Additional Authenticated Data for extra protection
+        aad: `bank_account_${this.adminId}_${this.caixinhaId}`
+      });
+      
+      // Store the last 4 digits for reference
+      this.lastDigits = this.accountNumber ? this.accountNumber.slice(-4) : null;
+      
+      // Remove plaintext sensitive fields
+      delete this.accountNumber;
+      delete this.accountHolder;
+      delete this.accountType;
+      delete this.bankCode;
+      delete this.pixKey;
+      delete this.pixKeyType;
+      
+      // Return the object ready for storage
+      return {
+        id: this.id,
+        adminId: this.adminId,
+        caixinhaId: this.caixinhaId,
+        bankName: this.bankName,
+        isActive: this.isActive,
+        encrypted: this.encrypted,
+        lastDigits: this.lastDigits,
+        createdAt: this.createdAt,
+        updatedAt: this.updatedAt
+      };
+    } catch (error) {
+      logger.error('Erro ao criptografar dados bancários', {
+        service: 'BankAccount',
+        method: 'prepareForStorage',
+        adminId: this.adminId,
+        caixinhaId: this.caixinhaId,
+        error: error.message
+      });
+      throw new Error('Falha ao criptografar dados bancários');
+    }
+  }
+
+  /**
+   * Decrypts the sensitive data for this bank account
+   * @returns {Promise&lt;BankAccount>} This instance with decrypted data
+   */
+  async decrypt() {
+    if (!this.encrypted) {
+      return this; // No encrypted data to decrypt
+    }
+    
+    try {
+      // Decrypt the sensitive data
+      const decrypted = await encryptionService.decrypt(this.encrypted, {
+        dataType: 'bank_account',
+        // Same AAD used during encryption for verification
+        aad: `bank_account_${this.adminId}_${this.caixinhaId}`
+      });
+      
+      // Apply decrypted properties to this instance
+      this.accountNumber = decrypted.accountNumber;
+      this.accountHolder = decrypted.accountHolder;
+      this.accountType = decrypted.accountType;
+      this.bankCode = decrypted.bankCode;
+      this.pixKey = decrypted.pixKey;
+      this.pixKeyType = decrypted.pixKeyType;
+      
+      return this;
+    } catch (error) {
+      logger.error('Erro ao descriptografar dados bancários', {
+        service: 'BankAccount',
+        method: 'decrypt',
+        adminId: this.adminId,
+        caixinhaId: this.caixinhaId,
+        error: error.message
+      });
+      throw new Error('Falha ao descriptografar dados bancários');
+    }
+  }
+
+  static async find(adminId, query = {}) {
+    try {
+      const db = getFirestore();
+      logger.info('Iniciando busca de contas bancárias', {
+        service: 'BankAccount',
+        method: 'find',
+        adminId,
+        query,
+      });
+  
+      if (!adminId) {
+        throw new Error('adminId é obrigatório para buscar contas bancárias.');
+      }
+  
+      // Define o caminho para a subcoleção
+      const accountsRef = db
+        .collection('bankAccounts')
+        .doc(adminId)
+        .collection('accounts');
+  
+      let queryRef = accountsRef;
+  
+      // Aplica filtros dinamicamente se forem fornecidos na query
+      if (query.caixinhaId) {
+        queryRef = queryRef.where('caixinhaId', '==', query.caixinhaId);
+      }
+      // Note: We can no longer filter by accountNumber directly as it's encrypted
+      if (query.lastDigits) {
+        queryRef = queryRef.where('lastDigits', '==', query.lastDigits);
+      }
+      if (query.isActive !== undefined) {
+        queryRef = queryRef.where('isActive', '==', query.isActive);
+      }
+  
+      const snapshot = await queryRef.get();
+  
+      if (snapshot.empty) {
+        logger.info('Nenhuma conta bancária encontrada', {
+          service: 'BankAccount',
+          method: 'find',
+          adminId,
+        });
+        return [];
+      }
+  
+      const accounts = [];
+      
+      // Process each account, potentially decrypting if needed
+      for (const doc of snapshot.docs) {
+        const account = new BankAccount({
+          ...doc.data(),
+          id: doc.id
+        });
+        
+        // Decrypt only if explicitly requested
+        if (query.includeDecrypted === true) {
+          await account.decrypt();
+        }
+        
+        accounts.push(account);
+      }
+  
+      logger.info('Contas bancárias encontradas', {
+        service: 'BankAccount',
+        method: 'find',
+        adminId,
+        totalAccounts: accounts.length,
+      });
+  
+      return accounts;
+    } catch (error) {
+      logger.error('Erro ao buscar contas bancárias', {
+        service: 'BankAccount',
+        method: 'find',
+        adminId,
+        query,
+        error: error.message,
+      });
+      throw error;
+    }
+  }  
+
+  static async getById(adminId, id, options = {}) {
+    try {
+      const db = getFirestore();
+      const path = this.getPath(adminId);
+      const doc = await db.collection(path).doc(id).get();
+
+      if (!doc.exists) {
+        logger.warn('Conta bancária não encontrada', {
+          service: 'BankAccount',
+          method: 'getById',
+          adminId,
+          accountId: id
+        });
+        throw new Error('Conta bancária não encontrada.');
+      }
+
+      logger.info('Conta bancária encontrada', {
+        service: 'BankAccount',
+        method: 'getById',
+        adminId,
+        accountId: id
+      });
+
+      const account = new BankAccount({
+        ...doc.data(),
+        id
+      });
+      
+      // Decrypt only if explicitly requested or by default
+      const shouldDecrypt = options.decrypt !== false;
+      if (shouldDecrypt) {
+        await account.decrypt();
+      }
+
+      return account;
+    } catch (error) {
+      logger.error('Erro ao buscar conta bancária', {
+        service: 'BankAccount',
+        method: 'getById',
+        adminId,
+        accountId: id,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  static async getAllByAdmin(adminId, options = {}) {
+    try {
+      const db = getFirestore();
+      const path = this.getPath(adminId);
+      const snapshot = await db.collection(path).get();
+      const accounts = [];
+      
+      // Process each account, potentially decrypting if needed
+      for (const doc of snapshot.docs) {
+        const account = new BankAccount({
+          ...doc.data(),
+          id: doc.id
+        });
+        
+        // Decrypt only if explicitly requested or by default
+        const shouldDecrypt = options.decrypt !== false;
+        if (shouldDecrypt) {
+          await account.decrypt();
+        }
+        
+        accounts.push(account);
+      }
+
+      logger.info('Listagem de contas bancárias por admin', {
+        service: 'BankAccount',
+        method: 'getAllByAdmin',
+        adminId,
+        accountsCount: accounts.length
+      });
+
+      return accounts;
+    } catch (error) {
+      logger.error('Erro ao listar contas bancárias', {
+        service: 'BankAccount',
+        method: 'getAllByAdmin',
+        adminId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  static async create(data) {
+    try {
+      const { adminId, caixinhaId } = data;
+  
+      if (!adminId || !caixinhaId) {
+        logger.error('Tentativa de criar conta sem adminId ou caixinhaId', {
+          service: 'BankAccount',
+          method: 'create',
+          data,
+        });
+        throw new Error('adminId e caixinhaId são obrigatórios para registrar uma conta bancária.');
+      }
+  
+      const db = getFirestore();
+  
+      // Limpa os dados para garantir que não há valores undefined
+      const cleanAccountData = cleanData(data);
+  
+      // Create account instance
+      const account = new BankAccount(cleanAccountData);
+      
+      // Prepare account data with encryption
+      const storageData = await account.prepareForStorage();
+      
+      const path = this.getPath(adminId);
+  
+      // Criar a conta bancária
+      const docRef = db.collection(path).doc();
+      await docRef.set({
+        ...storageData,
+        id: docRef.id,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+  
+      account.id = docRef.id;
+  
+      logger.info('Conta bancária criada com sucesso', {
+        service: 'BankAccount',
+        method: 'create',
+        adminId,
+        caixinhaId,
+        accountId: account.id,
+      });
+  
+      // Atualizar os dados bancários na caixinha
+      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+      const caixinhaDoc = await caixinhaRef.get();
+  
+      if (!caixinhaDoc.exists) {
+        logger.error('Caixinha não encontrada para atualizar dados bancários', {
+          service: 'BankAccount',
+          method: 'create',
+          caixinhaId,
+        });
+        throw new Error('Caixinha não encontrada.');
+      }
+  
+      // Adicionar os dados da conta ao campo `bankAccountData`
+      // Only adding non-sensitive or masked data to the caixinha
+      const bankAccountData = caixinhaDoc.data().bankAccountData || [];
+      bankAccountData.push(cleanFirestoreData({
+          id: account.id,
+          bankName: account.bankName,
+          lastDigits: account.lastDigits,
+          createdAt: account.createdAt,
+      }));
+      
+      await caixinhaRef.update({ bankAccountData });
+    
+      logger.info('Dados bancários adicionados à caixinha com sucesso', {
+        service: 'BankAccount',
+        method: 'create',
+        caixinhaId,
+        accountsCount: bankAccountData.length,
+      });
+  
+      return account;
+    } catch (error) {
+      logger.error('Erro ao criar conta bancária', {
+        service: 'BankAccount',
+        method: 'create',
+        adminId: data.adminId,
+        caixinhaId: data.caixinhaId,
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+  
+  static async update(adminId, id, data) {
+    try {
+      // If sensitive data is being updated, we need to handle encryption
+      const hasSensitiveFields = [
+        'accountNumber', 'accountHolder', 'accountType', 
+        'bankCode', 'pixKey', 'pixKeyType'
+      ].some(field => data[field] !== undefined);
+      
+      if (hasSensitiveFields) {
+        // Get the existing account data
+        const existingAccount = await this.getById(adminId, id, { decrypt: true });
+        
+        // Update with new data
+        Object.assign(existingAccount, data);
+        
+        // Re-encrypt all sensitive data
+        const storageData = await existingAccount.prepareForStorage();
+        
+        // Update in database
+        const db = getFirestore();
+        const path = this.getPath(adminId);
+        await db.collection(path).doc(id).update({
+          ...storageData,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        
+        logger.info('Conta bancária atualizada com dados sensíveis recriptografados', {
+          service: 'BankAccount',
+          method: 'update',
+          adminId,
+          accountId: id,
+          updatedFields: Object.keys(data)
+        });
+        
+        return existingAccount;
+      } else {
+        // Only updating non-sensitive fields
+        const db = getFirestore();
+        const path = this.getPath(adminId);
+        await db.collection(path).doc(id).update({ 
+          ...data, 
+          updatedAt: FieldValue.serverTimestamp() 
+        });
+        
+        // Get the updated account
+        return this.getById(adminId, id);
+      }
+    } catch (error) {
+      logger.error('Erro ao atualizar conta bancária', {
+        service: 'BankAccount',
+        method: 'update',
+        adminId,
+        accountId: id,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  static async delete(adminId, id) {
+    try {
+      const db = getFirestore();
+      const path = this.getPath(adminId);
+      const accountRef = db.collection(path).doc(id);
+      
+      // Get the account data to find associated caixinha
+      const accountDoc = await accountRef.get();
+      if (accountDoc.exists) {
+        const accountData = accountDoc.data();
+        const caixinhaId = accountData.caixinhaId;
+        
+        // Start a batch transaction
+        const batch = db.batch();
+        
+        // Delete the account
+        batch.delete(accountRef);
+        
+        // If we have a caixinha ID, update the caixinha's bankAccountData
+        if (caixinhaId) {
+          const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+          const caixinhaDoc = await caixinhaRef.get();
+          
+          if (caixinhaDoc.exists) {
+            const caixinha = caixinhaDoc.data();
+            const bankAccountData = caixinha.bankAccountData || [];
+            
+            // Remove this account from the array
+            const updatedAccounts = bankAccountData.filter(account => account.id !== id);
+            
+            // Update the caixinha
+            batch.update(caixinhaRef, { bankAccountData: updatedAccounts });
+          }
+        }
+        
+        // Commit all operations
+        await batch.commit();
+      } else {
+        // Account doesn't exist, just log a warning
+        logger.warn('Tentativa de excluir conta bancária inexistente', {
+          service: 'BankAccount',
+          method: 'delete',
+          adminId,
+          accountId: id
+        });
+      }
+
+      logger.info('Conta bancária excluída com sucesso', {
+        service: 'BankAccount',
+        method: 'delete',
+        adminId,
+        accountId: id
+      });
+      
+      return true;
+    } catch (error) {
+      logger.error('Erro ao excluir conta bancária', {
+        service: 'BankAccount',
+        method: 'delete',
+        adminId,
+        accountId: id,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  static async deactivateAll(adminId) {
+    try {
+      const db = getFirestore();
+      const path = this.getPath(adminId);
+      const snapshot = await db.collection(path).where('isActive', '==', true).get();
+
+      const batch = db.batch();
+      snapshot.forEach(doc => {
+        batch.update(doc.ref, { 
+          isActive: false,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      });
+
+      await batch.commit();
+
+      logger.info('Todas as contas bancárias foram desativadas', {
+        service: 'BankAccount',
+        method: 'deactivateAll',
+        adminId,
+        accountsDeactivated: snapshot.size
+      });
+      
+      return true;
+    } catch (error) {
+      logger.error('Erro ao desativar todas as contas', {
+        service: 'BankAccount',
+        method: 'deactivateAll',
+        adminId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  static async activate(adminId, id) {
+    try {
+      await this.deactivateAll(adminId);
+      const result = await this.update(adminId, id, { isActive: true });
+
+      logger.info('Conta bancária ativada com sucesso', {
+        service: 'BankAccount',
+        method: 'activate',
+        adminId,
+        accountId: id
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('Erro ao ativar conta bancária', {
+        service: 'BankAccount',
+        method: 'activate',
+        adminId,
+        accountId: id,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+  
+  /**
+   * Migrates existing plaintext bank data to encrypted format
+   * @param {string} adminId Admin ID to migrate accounts for
+   * @returns {Promise&lt;Object>} Migration statistics
+   */
+  static async migrateToEncrypted(adminId) {
+    try {
+      logger.info('Iniciando migração de contas bancárias para formato criptografado', {
+        service: 'BankAccount',
+        method: 'migrateToEncrypted',
+        adminId
+      });
+      
+      const db = getFirestore();
+      const path = this.getPath(adminId);
+      const snapshot = await db.collection(path).get();
+      
+      if (snapshot.empty) {
+        logger.info('Nenhuma conta bancária para migrar', {
+          service: 'BankAccount',
+          method: 'migrateToEncrypted',
+          adminId
+        });
+        return { migrated: 0, skipped: 0, failed: 0 };
+      }
+      
+      let migrated = 0;
+      let skipped = 0;
+      let failed = 0;
+      
+      // Process accounts in batches for better performance
+      const batchSize = 20;
+      const batches = [];
+      let currentBatch = [];
+      
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        
+        // Skip already encrypted accounts
+        if (data.encrypted) {
+          skipped++;
+          return;
+        }
+        
+        // Add to current batch
+        currentBatch.push({ doc, data });
+        
+        // If batch full, add to batches and start new batch
+        if (currentBatch.length >= batchSize) {
+          batches.push([...currentBatch]);
+          currentBatch = [];
+        }
+      });
+      
+      // Add any remaining accounts in the last batch
+      if (currentBatch.length > 0) {
+        batches.push([...currentBatch]);
+      }
+      
+      // Process each batch
+      for (const batch of batches) {
+        const dbBatch = db.batch();
+        
+        for (const { doc, data } of batch) {
+          try {
+            // Create account instance with existing data
+            const account = new BankAccount({ ...data, id: doc.id });
+            
+            // Prepare encrypted data
+            const storageData = await account.prepareForStorage();
+            
+            // Set up batch update
+            dbBatch.update(doc.ref, {
+              ...storageData,
+              updatedAt: FieldValue.serverTimestamp()
+            });
+            
+            migrated++;
+          } catch (error) {
+            logger.error('Erro ao migrar conta bancária para formato criptografado', {
+              service: 'BankAccount',
+              method: 'migrateToEncrypted',
+              adminId,
+              accountId: doc.id,
+              error: error.message
+            });
+            failed++;
+          }
+        }
+        
+        // Commit batch
+        await dbBatch.commit();
+      }
+      
+      logger.info('Migração de contas bancárias concluída', {
+        service: 'BankAccount',
+        method: 'migrateToEncrypted',
+        adminId,
+        migrated,
+        skipped,
+        failed
+      });
+      
+      return { migrated, skipped, failed };
+    } catch (error) {
+      logger.error('Erro durante migração de contas bancárias', {
+        service: 'BankAccount',
+        method: 'migrateToEncrypted',
+        adminId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  static getPath(adminId) {
+    if (!adminId) throw new Error('adminId é obrigatório');
+    return `bankAccounts/${adminId}/accounts`;
+  }
+}
+
+module.exports = BankAccount;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

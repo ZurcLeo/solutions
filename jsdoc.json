@@ -1,0 +1,35 @@
+{
+  "source": {
+    "include": [
+      "./controllers/",
+      "./services/", 
+      "./models/",
+      "./middlewares/",
+      "./routes/",
+      "./utils/",
+      "./config/",
+      "./schemas/"
+    ],
+    "includePattern": "\\.(js|jsx)$",
+    "exclude": [
+      "node_modules/",
+      "tests/",
+      "*.test.js",
+      "*.spec.js"
+    ]
+  },
+  "opts": {
+    "destination": "./docs/",
+    "recurse": true,
+    "readme": "./README.md"
+  },
+  "plugins": ["plugins/markdown"],
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  },
+  "metadata": {
+    "title": "Elos Cloud Backend API Documentation",
+    "description": "Documentação completa do backend da aplicação Elos Cloud"
+  }
+}

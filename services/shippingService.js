@@ -1,5 +1,5 @@
 const shippingService = {
-    async calculateShipping(origin, destination, package) {
+    async calculateShipping(origin, destination, packageData) {
       // Integração com API dos Correios
       // Retorna opções de frete e valores
     },

@@ -1,9 +1,24 @@
-// src/services/disputeService.js
+/**
+ * @fileoverview Serviço para gerenciar disputas e votações em caixinhas.
+ * @module services/disputeService
+ * @requires ../logger
+ * @requires ../models/Dispute
+ * @requires ../models/Caixinhas
+ */
 const { logger } = require('../logger');
 const Dispute = require('../models/Dispute');
 const Caixinha = require('../models/Caixinhas');
 
-// Processa o resultado de uma disputa baseada nos votos atuais
+/**
+ * Processa o resultado de uma disputa com base nos votos atuais e no modelo de governança da caixinha.
+ * @async
+ * @function processDisputeResult
+ * @param {string} caixinhaId - O ID da caixinha à qual a disputa pertence.
+ * @param {string} disputeId - O ID da disputa a ser processada.
+ * @returns {Promise<Object>} O objeto da disputa atualizada com o status de resolução.
+ * @throws {Error} Se ocorrer um erro durante o processamento do resultado.
+ * @description Verifica o quórum, calcula os votos (incluindo desempate do admin, se configurado) e atualiza o status da disputa. Se aprovada, aplica as mudanças propostas.
+ */
 const processDisputeResult = async (caixinhaId, disputeId) => {
   try {
     const dispute = await Dispute.getById(caixinhaId, disputeId);
@@ -88,7 +103,19 @@ const processDisputeResult = async (caixinhaId, disputeId) => {
   }
 };
 
-// Aplica as mudanças aprovadas na disputa
+/**
+ * Aplica as mudanças aprovadas de uma disputa na caixinha correspondente.
+ * @private
+ * @async
+ * @function applyApprovedChanges
+ * @param {Object} dispute - O objeto da disputa com status 'APPROVED'.
+ * @param {string} dispute.type - O tipo da disputa (ex: 'RULE_CHANGE', 'LOAN_APPROVAL').
+ * @param {string} dispute.caixinhaId - O ID da caixinha afetada.
+ * @param {Object} dispute.proposedChanges - As mudanças propostas e aprovadas.
+ * @returns {Promise<void>}
+ * @throws {Error} Se ocorrer um erro ao aplicar as mudanças.
+ * @description Executa ações específicas baseadas no tipo de disputa aprovada, como atualização de regras, aprovação de empréstimos ou remoção de membros.
+ */
 const applyApprovedChanges = async (dispute) => {
   try {
     switch (dispute.type) {
@@ -133,7 +160,17 @@ const applyApprovedChanges = async (dispute) => {
   }
 };
 
-// Verifica se uma ação requer disputa com base no modelo de governança
+/**
+ * Verifica se uma determinada ação (mudança) requer uma disputa com base no modelo de governança da caixinha.
+ * @async
+ * @function checkDisputeRequirement
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {string} changeType - O tipo de mudança sendo proposta (ex: 'RULE_CHANGE', 'LOAN_APPROVAL', 'MEMBER_REMOVAL', 'INITIAL_CONFIG').
+ * @param {string} userId - O ID do usuário que está propondo a mudança.
+ * @returns {Promise<{requiresDispute: boolean, reason: string, governanceModel: Object}>} Um objeto indicando se uma disputa é necessária e o motivo.
+ * @throws {Error} Se ocorrer um erro durante a verificação do requisito.
+ * @description Avalia o modelo de governança da caixinha e as condições da ação proposta para determinar se uma votação formal é obrigatória.
+ */
 const checkDisputeRequirement = async (caixinhaId, changeType, userId) => {
   try {
     const caixinha = await Caixinha.getById(caixinhaId);
@@ -180,7 +217,16 @@ const checkDisputeRequirement = async (caixinhaId, changeType, userId) => {
   }
 };
 
-// Busca todas as disputas para uma caixinha
+/**
+ * Busca todas as disputas para uma caixinha, opcionalmente filtradas por status.
+ * @async
+ * @function getDisputes
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {('OPEN'|'APPROVED'|'REJECTED'|'CANCELLED'|'EXPIRED')} [status] - O status das disputas a serem filtradas.
+ * @returns {Promise<Array<Object>>} Uma lista de objetos de disputa.
+ * @throws {Error} Se ocorrer um erro ao buscar as disputas.
+ * @description Retorna todas as disputas associadas a uma caixinha, permitindo filtro por seu estado atual.
+ */
 const getDisputes = async (caixinhaId, status) => {
   try {
     return await Dispute.getByCaixinhaId(caixinhaId, status);
@@ -197,7 +243,16 @@ const getDisputes = async (caixinhaId, status) => {
   }
 };
 
-// Busca uma disputa específica
+/**
+ * Busca uma disputa específica pelo seu ID.
+ * @async
+ * @function getDisputeById
+ * @param {string} caixinhaId - O ID da caixinha à qual a disputa pertence.
+ * @param {string} disputeId - O ID da disputa a ser buscada.
+ * @returns {Promise<Object>} O objeto da disputa encontrada.
+ * @throws {Error} Se a disputa não for encontrada ou ocorrer um erro na busca.
+ * @description Recupera os detalhes de uma disputa específica usando seus identificadores.
+ */
 const getDisputeById = async (caixinhaId, disputeId) => {
   try {
     return await Dispute.getById(caixinhaId, disputeId);
@@ -213,7 +268,21 @@ const getDisputeById = async (caixinhaId, disputeId) => {
   }
 };
 
-// Cria uma nova disputa
+/**
+ * Cria uma nova disputa para uma caixinha.
+ * @async
+ * @function createDispute
+ * @param {string} caixinhaId - O ID da caixinha onde a disputa será criada.
+ * @param {Object} disputeData - Os dados da nova disputa.
+ * @param {string} disputeData.title - O título da disputa.
+ * @param {string} disputeData.description - A descrição da disputa.
+ * @param {string} disputeData.type - O tipo da disputa (ex: 'RULE_CHANGE', 'LOAN_APPROVAL').
+ * @param {string} disputeData.proposedBy - O ID do usuário que propôs a disputa.
+ * @param {Array<Object>} [disputeData.proposedChanges] - As mudanças propostas, se aplicável.
+ * @returns {Promise<Object>} O objeto da disputa recém-criada.
+ * @throws {Error} Se ocorrer um erro ao criar a disputa.
+ * @description Persiste uma nova disputa no banco de dados para iniciar um processo de votação ou decisão.
+ */
 const createDispute = async (caixinhaId, disputeData) => {
   try {
     // Adicionar caixinhaId ao objeto
@@ -244,7 +313,20 @@ const createDispute = async (caixinhaId, disputeData) => {
   }
 };
 
-// Processa o voto em uma disputa
+/**
+ * Registra o voto de um usuário em uma disputa e, se o quórum for atingido, processa o resultado.
+ * @async
+ * @function voteOnDispute
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {string} disputeId - O ID da disputa.
+ * @param {Object} voteData - Os dados do voto.
+ * @param {string} voteData.userId - O ID do usuário que está votando.
+ * @param {boolean} voteData.vote - O voto (true para aprovar, false para rejeitar).
+ * @param {string} [voteData.comment] - Um comentário opcional sobre o voto.
+ * @returns {Promise<Object>} O objeto da disputa atualizado após o registro do voto e possível processamento.
+ * @throws {Error} Se o usuário não for membro da caixinha ou ocorrer um erro ao registrar o voto.
+ * @description Adiciona o voto de um membro a uma disputa e, em seguida, invoca `processDisputeResult` para verificar e atualizar o estado da disputa.
+ */
 const voteOnDispute = async (caixinhaId, disputeId, voteData) => {
   try {
     // Verificar se o usuário é membro da caixinha
@@ -283,7 +365,18 @@ const voteOnDispute = async (caixinhaId, disputeId, voteData) => {
   }
 };
 
-// Cancela uma disputa
+/**
+ * Cancela uma disputa aberta.
+ * @async
+ * @function cancelDispute
+ * @param {string} caixinhaId - O ID da caixinha à qual a disputa pertence.
+ * @param {string} disputeId - O ID da disputa a ser cancelada.
+ * @param {string} userId - O ID do usuário que está solicitando o cancelamento (deve ser o proponente ou um admin).
+ * @param {string} [reason] - Um motivo opcional para o cancelamento.
+ * @returns {Promise<Object>} O objeto da disputa com o status 'CANCELLED'.
+ * @throws {Error} Se o usuário não tiver permissão para cancelar ou ocorrer um erro.
+ * @description Permite que o proponente ou um administrador encerre uma disputa antes de sua resolução por votação.
+ */
 const cancelDispute = async (caixinhaId, disputeId, userId, reason) => {
   try {
     const dispute = await Dispute.getById(caixinhaId, disputeId);
@@ -328,7 +421,20 @@ const cancelDispute = async (caixinhaId, disputeId, userId, reason) => {
   }
 };
 
-// Criar disputa de alteração de regras
+/**
+ * Cria uma disputa específica para alteração de regras da caixinha.
+ * @async
+ * @function createRuleChangeDispute
+ * @param {string} caixinhaId - O ID da caixinha.
+ * @param {string} userId - O ID do usuário que propõe a mudança.
+ * @param {Object} currentRules - As regras atuais da caixinha.
+ * @param {Object} proposedRules - As regras propostas para a caixinha.
+ * @param {string} [title] - Título personalizado para a disputa.
+ * @param {string} [description] - Descrição personalizada para a disputa.
+ * @returns {Promise<Object>} O objeto da disputa de alteração de regras recém-criada.
+ * @throws {Error} Se não houver alterações detectadas ou ocorrer um erro na criação.
+ * @description Compara as regras atuais e propostas, formata as diferenças e cria uma disputa do tipo 'RULE_CHANGE'.
+ */
 const createRuleChangeDispute = async (caixinhaId, userId, currentRules, proposedRules, title, description) => {
   try {
     // Gerar objeto de alterações
@@ -377,7 +483,17 @@ const createRuleChangeDispute = async (caixinhaId, userId, currentRules, propose
   }
 };
 
-// Obter informações de votação de uma disputa específica
+/**
+ * Obtém informações detalhadas sobre a votação de uma disputa para um usuário específico.
+ * @async
+ * @function getDisputeVoteInfo
+ * @param {string} caixinhaId - O ID da caixinha à qual a disputa pertence.
+ * @param {string} disputeId - O ID da disputa.
+ * @param {string} userId - O ID do usuário para o qual as informações de votação serão recuperadas.
+ * @returns {Promise<Object>} Um objeto contendo o status da disputa, se o usuário votou, o voto do usuário (se houver), estatísticas de votação e se o usuário pode votar.
+ * @throws {Error} Se a disputa não for encontrada ou ocorrer um erro.
+ * @description Fornece um resumo do progresso da votação em uma disputa, incluindo a participação do usuário.
+ */
 const getDisputeVoteInfo = async (caixinhaId, disputeId, userId) => {
   try {
     const dispute = await Dispute.getById(caixinhaId, disputeId);

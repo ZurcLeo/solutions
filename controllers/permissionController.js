@@ -1,11 +1,19 @@
-// controllers/permissionController.js
+/**
+ * @fileoverview Controller de permissões - gerencia permissões do sistema RBAC
+ * @module controllers/permissionController
+ */
+
 const { logger } = require('../logger');
 const permissionService = require('../services/permissionService');
 
 /**
- * Obtém todas as permissões
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Busca todas as permissões do sistema
+ * @async
+ * @function getAllPermissions
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.query - Filtros opcionais
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de permissões
  */
 const getAllPermissions = async (req, res) => {
   try {
@@ -32,9 +40,13 @@ const getAllPermissions = async (req, res) => {
 };
 
 /**
- * Obtém uma permissão pelo ID
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Busca uma permissão específica pelo ID
+ * @async
+ * @function getPermissionById
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da permissão
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados da permissão
  */
 const getPermissionById = async (req, res) => {
   try {
@@ -69,9 +81,13 @@ const getPermissionById = async (req, res) => {
 };
 
 /**
- * Cria uma nova permissão
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Cria uma nova permissão no sistema
+ * @async
+ * @function createPermission
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da permissão
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Permissão criada
  */
 const createPermission = async (req, res) => {
   try {
@@ -108,8 +124,13 @@ const createPermission = async (req, res) => {
 
 /**
  * Atualiza uma permissão existente
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * @async
+ * @function updatePermission
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da permissão
+ * @param {Object} req.body - Dados atualizados
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Permissão atualizada
  */
 const updatePermission = async (req, res) => {
   try {
@@ -154,9 +175,13 @@ const updatePermission = async (req, res) => {
 };
 
 /**
- * Remove uma permissão
- * @param {Object} req - Objeto de requisição
- * @param {Object} res - Objeto de resposta
+ * Remove uma permissão do sistema
+ * @async
+ * @function deletePermission
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da permissão
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da remoção
  */
 const deletePermission = async (req, res) => {
   try {

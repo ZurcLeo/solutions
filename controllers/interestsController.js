@@ -1,4 +1,8 @@
-// src/controllers/interestsController.js
+/**
+ * @fileoverview Controller de interesses - gerencia interesses de usuários e categorias
+ * @module controllers/interestsController
+ */
+
 const { logger } = require('../logger');
 const Interest = require('../models/Interest');
 const InterestsCategory = require('../models/InterestsCategory');
@@ -8,7 +12,12 @@ const InterestsCategory = require('../models/InterestsCategory');
  */
 const interestsController = {
   /**
-   * Obter todas as categorias de interesses disponíveis
+   * Busca todas as categorias de interesses disponíveis com seus respectivos interesses
+   * @async
+   * @function getAvailableInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Lista de categorias com interesses
    */
   async getAvailableInterests(req, res) {
     try {
@@ -36,7 +45,15 @@ const interestsController = {
   },
 
   /**
-   * Obter interesses do usuário
+   * Busca interesses de um usuário específico
+   * @async
+   * @function getUserInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.userId - ID do usuário
+   * @param {boolean} req.isFirstAccess - Indica se é primeiro acesso
+   * @param {Object} req.user - Usuário autenticado
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Interesses do usuário
    */
   async getUserInterests(req, res) {
     try {
@@ -94,7 +111,16 @@ const interestsController = {
   },
 
   /**
-   * Atualizar interesses do usuário
+   * Atualiza os interesses de um usuário
+   * @async
+   * @function updateUserInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.userId - ID do usuário
+   * @param {Object} req.body - Dados da atualização
+   * @param {Array<string>} req.body.interestIds - IDs dos interesses selecionados
+   * @param {Object} req.user - Usuário autenticado
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Resultado da atualização
    */
   async updateUserInterests(req, res) {
     try {
@@ -154,7 +180,18 @@ const interestsController = {
   },
 
   /**
-   * [ADMIN] Criar uma nova categoria
+   * [ADMIN] Cria uma nova categoria de interesses
+   * @async
+   * @function createCategory
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.body - Dados da categoria
+   * @param {string} req.body.name - Nome da categoria
+   * @param {string} req.body.description - Descrição da categoria
+   * @param {string} req.body.icon - Ícone da categoria
+   * @param {number} req.body.order - Ordem de exibição
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Categoria criada
    */
   async createCategory(req, res) {
     try {
@@ -214,7 +251,15 @@ const interestsController = {
   },
 
   /**
-   * [ADMIN] Atualizar uma categoria existente
+   * [ADMIN] Atualiza uma categoria existente
+   * @async
+   * @function updateCategory
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.categoryId - ID da categoria
+   * @param {Object} req.body - Dados da atualização
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Categoria atualizada
    */
   async updateCategory(req, res) {
     try {
@@ -282,7 +327,18 @@ const interestsController = {
   },
 
   /**
-   * [ADMIN] Criar um novo interesse
+   * [ADMIN] Cria um novo interesse dentro de uma categoria
+   * @async
+   * @function createInterest
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.body - Dados do interesse
+   * @param {string} req.body.label - Rótulo do interesse
+   * @param {string} req.body.categoryId - ID da categoria
+   * @param {string} req.body.description - Descrição do interesse
+   * @param {number} req.body.order - Ordem de exibição
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Interesse criado
    */
   async createInterest(req, res) {
     try {
@@ -342,7 +398,15 @@ const interestsController = {
   },
 
   /**
-   * [ADMIN] Atualizar um interesse existente
+   * [ADMIN] Atualiza um interesse existente
+   * @async
+   * @function updateInterest
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.interestId - ID do interesse
+   * @param {Object} req.body - Dados da atualização
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Interesse atualizado
    */
   async updateInterest(req, res) {
     try {
@@ -402,7 +466,13 @@ const interestsController = {
   },
 
   /**
-   * [ADMIN] Obter estatísticas de uso de interesses
+   * [ADMIN] Busca estatísticas de uso dos interesses
+   * @async
+   * @function getInterestStats
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Estatísticas de interesses
    */
   async getInterestStats(req, res) {
     try {
@@ -435,7 +505,15 @@ const interestsController = {
   },
   
   /**
-   * [ADMIN] Migrar interesses do formato estático para o Firestore
+   * [ADMIN] Migra interesses do formato estático para o Firestore
+   * @async
+   * @function migrateStaticInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.body - Dados da migração
+   * @param {Object} req.body.staticInterests - Interesses estáticos a migrar
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Resultado da migração
    */
   async migrateStaticInterests(req, res) {
     try {
@@ -478,7 +556,13 @@ const interestsController = {
   },
 
   /**
-   * [ADMIN] Migrar interesses de usuários para o novo formato
+   * [ADMIN] Migra interesses de usuários para o novo formato
+   * @async
+   * @function migrateUserInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise<Object>} Resultado da migração
    */
   async migrateUserInterests(req, res) {
     try {

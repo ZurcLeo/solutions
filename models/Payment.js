@@ -131,6 +131,16 @@ class Payment {
         }
     }
 
+    // Método alternativo para compatibilidade
+    static async getByUserId(userId, limit = 10) {
+        try {
+            return await this.findByUserId(userId, { limit });
+        } catch (error) {
+            logger.warn('Failed to get payments by user ID', { userId, error: error.message });
+            return [];
+        }
+    }
+
     // Validar dados do pagamento
     static validate(paymentData) {
         const errors = [];

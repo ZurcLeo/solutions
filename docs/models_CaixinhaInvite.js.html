@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: models/CaixinhaInvite.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: models/CaixinhaInvite.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>const { getFirestore } = require('../firebaseAdmin');
+const db = getFirestore();
+const { logger } = require('../logger');
+
+class CaixinhaInvite {
+  constructor(data) {
+    this.id = data.id;
+    this.caixinhaId = data.caixinhaId;
+    this.type = data.type || 'caixinha_invite'; // caixinha_invite ou caixinha_email_invite
+    this.status = data.status || 'pending'; // pending, accepted, rejected, canceled, expired
+    this.senderId = data.senderId;
+    this.senderName = data.senderName;
+    this.targetName = data.targetName;
+    this.targetId = data.targetId; // Para convites para usuários existentes
+    this.email = data.email; // Para convites por email
+    this.message = data.message || '';
+    this.createdAt = data.createdAt || new Date();
+    this.expiresAt = data.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
+    this.respondedAt = data.respondedAt;
+    this.responseReason = data.responseReason;
+  }
+
+  /**
+   * Busca um convite específico pelo ID
+   * @param {string} caixinhaId - ID da caixinha
+   * @param {string} caxinhaInviteId - ID do convite
+   * @returns {Promise&lt;CaixinhaInvite>} Objeto CaixinhaInvite
+   */
+  static async getById(caixinhaId, caxinhaInviteId) {
+    const doc = await db.collection('caixinhas').doc(caixinhaId).collection('pendingRequests').doc(caxinhaInviteId).get();
+    if (!doc.exists) {
+      // Se não encontrar nos pendentes, procurar no histórico
+      const historicDoc = await db.collection('caixinhas').doc(caixinhaId).collection('historic').doc(caxinhaInviteId).get();
+      if (!historicDoc.exists) {
+        throw new Error('Convite não encontrado.');
+      }
+      return new CaixinhaInvite({ id: historicDoc.id, ...historicDoc.data() });
+    }
+    return new CaixinhaInvite({ id: doc.id, ...doc.data() });
+  }
+
+  /**
+   * Cria um novo convite para a caixinha
+   * @param {Object} data - Dados do convite
+   * @returns {Promise&lt;CaixinhaInvite>} Objeto CaixinhaInvite criado
+   */
+  static async create(data) {
+    // Validar dados mínimos necessários
+    if (!data.caixinhaId) {
+      throw new Error('ID da caixinha é obrigatório.');
+    }
+    if (!data.senderId) {
+      throw new Error('ID do remetente é obrigatório.');
+    }
+    if (!data.targetId &amp;&amp; !data.email) {
+      throw new Error('É necessário fornecer ID do destinatário ou email.');
+    }
+
+    const invite = new CaixinhaInvite(data);
+    logger.info('Criando novo convite para caixinha:', invite);
+
+    // Iniciar uma operação em lote para garantir consistência
+    const batch = db.batch();
+
+    // Gerar um ID único para o convite
+    const inviteRef = db.collection('caixinhas').doc(data.caixinhaId).collection('pendingRequests').doc();
+    const inviteId = inviteRef.id;
+    invite.id = inviteId;
+
+    const inviteData = {
+      id: inviteId,
+      caixinhaId: invite.caixinhaId,
+      type: invite.type,
+      status: invite.status,
+      senderId: invite.senderId,
+      senderName: invite.senderName,
+      targetName: invite.targetName,
+      targetId: invite.targetId || null,
+      email: invite.email || null,
+      message: invite.message || null,
+      createdAt: invite.createdAt || new Date(),
+      expiresAt: invite.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    };
+
+    // 1. Criar o convite na coleção pendingRequests da caixinha
+    batch.set(inviteRef, inviteData);
+
+    // 2. Se há um targetId (usuário existe), criar uma referência na coleção de convites do usuário
+    if (data.targetId) {
+      const userInviteRef = db.collection('usuario')
+        .doc(data.targetId)
+        .collection('pendingCaixinhaInvites')
+        .doc(inviteId);
+
+      batch.set(userInviteRef, {
+        ...inviteData,
+        originalPath: `caixinhas/${data.caixinhaId}/pendingRequests/${inviteId}`
+      });
+    }
+
+    // 3. Adicionar à coleção de convites enviados pelo remetente
+    const senderInviteRef = db.collection('usuario')
+      .doc(data.senderId)
+      .collection('sentCaixinhaInvites')
+      .doc(inviteId);
+
+    batch.set(senderInviteRef, {
+      ...inviteData,
+      originalPath: `caixinhas/${data.caixinhaId}/pendingRequests/${inviteId}`
+    });
+
+    // Executar o lote de operações
+    try {
+      await batch.commit();
+      logger.info(`Convite ${inviteId} criado com sucesso para a caixinha ${data.caixinhaId}`);
+      return invite;
+    } catch (error) {
+      logger.error(`Erro ao criar convite: ${error.message}`, error);
+      throw new Error(`Falha ao criar convite: ${error.message}`);
+    }
+  }
+
+  /**
+   * Atualiza o status de um convite
+   * @param {string} caixinhaId - ID da caixinha
+   * @param {string} caxinhaInviteId - ID do convite
+   * @param {Object} data - Dados a serem atualizados
+   * @returns {Promise&lt;CaixinhaInvite>} Objeto CaixinhaInvite atualizado
+   */
+  static async updateStatus(caixinhaId, caxinhaInviteId, data) {
+    // Iniciar uma operação em lote para garantir consistência
+    const batch = db.batch();
+    
+    // Referência ao convite original na caixinha
+    const inviteRef = db.collection('caixinhas')
+      .doc(caixinhaId)
+      .collection('pendingRequests')
+      .doc(caxinhaInviteId);
+      
+    const inviteDoc = await inviteRef.get();
+    
+    if (!inviteDoc.exists) {
+      throw new Error('Convite não encontrado ou já processado.');
+    }
+
+    const currentData = inviteDoc.data();
+    const updatedData = { ...data };
+    
+    // Se o status mudou para aceito ou rejeitado, mover para histórico
+    if (data.status === 'accepted' || data.status === 'rejected') {
+      updatedData.respondedAt = data.respondedAt || new Date();
+      
+      // Adicionar ao histórico da caixinha
+      const historicRef = db.collection('caixinhas')
+        .doc(caixinhaId)
+        .collection('historic')
+        .doc(caxinhaInviteId);
+      
+      batch.set(historicRef, {
+        ...currentData,
+        ...updatedData
+      });
+      
+      // Remover dos pendentes da caixinha
+      batch.delete(inviteRef);
+      
+      // Se houver um targetId, atualizar na coleção do usuário também
+      if (currentData.targetId) {
+        // Remover dos convites pendentes do usuário
+        const userPendingRef = db.collection('usuario')
+          .doc(currentData.targetId)
+          .collection('pendingCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        // Verificar se o documento existe antes de tentar deletar
+        const userPendingDoc = await userPendingRef.get();
+        if (userPendingDoc.exists) {
+          batch.delete(userPendingRef);
+        }
+        
+        // Adicionar ao histórico do usuário
+        const userHistoricRef = db.collection('usuario')
+          .doc(currentData.targetId)
+          .collection('historicCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        batch.set(userHistoricRef, {
+          ...currentData,
+          ...updatedData,
+          originalPath: `caixinhas/${caixinhaId}/historic/${caxinhaInviteId}`
+        });
+      }
+      
+      // Atualizar também na coleção do remetente
+      if (currentData.senderId) {
+        // Remover dos convites enviados pendentes do remetente
+        const senderPendingRef = db.collection('usuario')
+          .doc(currentData.senderId)
+          .collection('sentCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        // Verificar se o documento existe antes de tentar deletar
+        const senderPendingDoc = await senderPendingRef.get();
+        if (senderPendingDoc.exists) {
+          batch.delete(senderPendingRef);
+        }
+        
+        // Adicionar ao histórico de convites enviados do remetente
+        const senderHistoricRef = db.collection('usuario')
+          .doc(currentData.senderId)
+          .collection('historicSentCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        batch.set(senderHistoricRef, {
+          ...currentData,
+          ...updatedData,
+          originalPath: `caixinhas/${caixinhaId}/historic/${caxinhaInviteId}`
+        });
+      }
+    } else {
+      // Apenas atualizar o documento existente na caixinha
+      batch.update(inviteRef, updatedData);
+      
+      // Se houver um targetId, atualizar na coleção do usuário também
+      if (currentData.targetId) {
+        const userInviteRef = db.collection('usuario')
+          .doc(currentData.targetId)
+          .collection('pendingCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        // Verificar se o documento existe antes de tentar atualizar
+        const userDoc = await userInviteRef.get();
+        if (userDoc.exists) {
+          batch.update(userInviteRef, updatedData);
+        }
+      }
+      
+      // Atualizar também na coleção do remetente
+      if (currentData.senderId) {
+        const senderInviteRef = db.collection('usuario')
+          .doc(currentData.senderId)
+          .collection('sentCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        // Verificar se o documento existe antes de tentar atualizar
+        const senderDoc = await senderInviteRef.get();
+        if (senderDoc.exists) {
+          batch.update(senderInviteRef, updatedData);
+        }
+      }
+    }
+    
+    // Executar o lote de operações
+    try {
+      await batch.commit();
+      logger.info(`Status do convite ${caxinhaInviteId} atualizado para ${data.status}`);
+      
+      // Retornar o objeto atualizado
+      if (data.status === 'accepted' || data.status === 'rejected') {
+        const historicDoc = await db.collection('caixinhas')
+          .doc(caixinhaId)
+          .collection('historic')
+          .doc(caxinhaInviteId)
+          .get();
+          
+        return new CaixinhaInvite({ id: historicDoc.id, ...historicDoc.data() });
+      } else {
+        const updatedDoc = await db.collection('caixinhas')
+          .doc(caixinhaId)
+          .collection('pendingRequests')
+          .doc(caxinhaInviteId)
+          .get();
+          
+        return new CaixinhaInvite({ id: updatedDoc.id, ...updatedDoc.data() });
+      }
+    } catch (error) {
+      logger.error(`Erro ao atualizar status do convite: ${error.message}`, error);
+      throw new Error(`Falha ao atualizar status do convite: ${error.message}`);
+    }
+  }
+
+  /**
+   * Busca convites recebidos por um usuário diretamente na coleção userInvites
+   * @param {string} userId - ID do usuário
+   * @param {Object} options - Opções de filtro
+   * @returns {Promise&lt;Array&lt;CaixinhaInvite>>} Lista de convites
+   */
+  static async getReceivedInvites(userId, options = {}) {
+    const { status = 'pending', type = null } = options;
+    const invites = [];
+    
+    try {
+      // Buscar na estrutura centralizada de userInvites
+      let query = db.collection('usuario')
+        .doc(userId)
+        .collection('pendingCaixinhaInvites');
+      
+      // Adicionar filtros conforme necessário
+      if (type &amp;&amp; type !== 'all') {
+        query = query.where('type', '==', type);
+      }
+      
+      if (status !== 'all') {
+        query = query.where('status', '==', status);
+      }
+      
+      const invitesSnapshot = await query.get();
+      
+      // Processar resultados
+      invitesSnapshot.forEach(doc => {
+        invites.push(new CaixinhaInvite({ id: doc.id, ...doc.data() }));
+      });
+      
+      logger.info(`Encontrados ${invites.length} convites recebidos para o usuário ${userId}`);
+      return invites;
+      
+    } catch (error) {
+      logger.error(`Erro ao buscar convites recebidos: ${error.message}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Busca convites enviados por um usuário diretamente na coleção userInvites
+   * @param {string} userId - ID do usuário
+   * @param {Object} options - Opções de filtro
+   * @returns {Promise&lt;Array&lt;CaixinhaInvite>>} Lista de convites
+   */
+  static async getSentInvites(userId, options = {}) {
+    const { status = 'pending', type = null } = options;
+    const invites = [];
+    
+    try {
+      // Buscar na estrutura centralizada de userInvites
+      let query = db.collection('usuario')
+        .doc(userId)
+        .collection('sentCaixinhaInvites');
+      
+      // Adicionar filtros conforme necessário
+      if (type &amp;&amp; type !== 'all') {
+        query = query.where('type', '==', type);
+      }
+      
+      if (status !== 'all') {
+        query = query.where('status', '==', status);
+      }
+      
+      const invitesSnapshot = await query.get();
+      
+      // Processar resultados
+      invitesSnapshot.forEach(doc => {
+        invites.push(new CaixinhaInvite({ id: doc.id, ...doc.data() }));
+      });
+      
+      logger.info(`Encontrados ${invites.length} convites enviados pelo usuário ${userId}`);
+      return invites;
+      
+    } catch (error) {
+      logger.error(`Erro ao buscar convites enviados: ${error.message}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Busca convites por caixinha
+   * @param {string} caixinhaId - ID da caixinha
+   * @param {Object} options - Opções de filtro
+   * @returns {Promise&lt;Array&lt;CaixinhaInvite>>} Lista de convites
+   */
+  static async getByCaixinhaId(caixinhaId, options = {}) {
+    const { status = 'pending' } = options;
+    
+    try {
+      let query = db.collection('caixinhas').doc(caixinhaId).collection('pendingRequests');
+      
+      // Filtrar por status, se for diferente de 'all'
+      if (status !== 'all') {
+        query = query.where('status', '==', status);
+      }
+      
+      const invitesSnapshot = await query.get();
+      const invites = [];
+      
+      invitesSnapshot.forEach(doc => {
+        invites.push(new CaixinhaInvite({ id: doc.id, ...doc.data() }));
+      });
+
+      logger.info(`Encontrados ${invites.length} convites para a caixinha ${caixinhaId}`);
+      return invites;
+    } catch (error) {
+      logger.error(`Erro ao buscar convites da caixinha: ${error.message}`, error);
+      return [];
+    }
+  }
+  
+  /**
+   * Exclui um convite pendente
+   * @param {string} caixinhaId - ID da caixinha
+   * @param {string} caxinhaInviteId - ID do convite
+   * @returns {Promise&lt;void>}
+   */
+  static async delete(caixinhaId, caxinhaInviteId) {
+    // Iniciar uma operação em lote para garantir consistência
+    const batch = db.batch();
+    
+    try {
+      // Referência ao convite original
+      const inviteRef = db.collection('caixinhas')
+        .doc(caixinhaId)
+        .collection('pendingRequests')
+        .doc(caxinhaInviteId);
+      
+      const inviteDoc = await inviteRef.get();
+      
+      if (!inviteDoc.exists) {
+        throw new Error('Convite não encontrado ou já processado.');
+      }
+      
+      const inviteData = inviteDoc.data();
+      
+      // Excluir o convite da caixinha
+      batch.delete(inviteRef);
+      
+      // Se houver um targetId, excluir da coleção do usuário
+      if (inviteData.targetId) {
+        const userInviteRef = db.collection('usuario')
+          .doc(inviteData.targetId)
+          .collection('pendingCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        const userDoc = await userInviteRef.get();
+        if (userDoc.exists) {
+          batch.delete(userInviteRef);
+        }
+      }
+      
+      // Excluir da coleção do remetente
+      if (inviteData.senderId) {
+        const senderInviteRef = db.collection('usuario')
+          .doc(inviteData.senderId)
+          .collection('sentCaixinhaInvites')
+          .doc(caxinhaInviteId);
+        
+        const senderDoc = await senderInviteRef.get();
+        if (senderDoc.exists) {
+          batch.delete(senderInviteRef);
+        }
+      }
+      
+      // Executar o lote de operações
+      await batch.commit();
+      
+      logger.info(`Convite ${caxinhaInviteId} excluído com sucesso da caixinha ${caixinhaId}`);
+    } catch (error) {
+      logger.error(`Erro ao excluir convite: ${error.message}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reenvia um convite existente
+   * @param {string} caixinhaId - ID da caixinha
+   * @param {string} caxinhaInviteId - ID do convite
+   * @param {Object} options - Opções adicionais (ex: nova mensagem)
+   * @returns {Promise&lt;CaixinhaInvite>} Convite atualizado
+   */
+  static async resendInvite(caixinhaId, caxinhaInviteId, options = {}) {
+    try {
+      // Buscar o convite original
+      const invite = await this.getById(caixinhaId, caxinhaInviteId);
+      
+      if (!invite) {
+        throw new Error('Convite não encontrado.');
+      }
+      
+      // Atualizar a data de expiração e mensagem (se fornecida)
+      const updateData = {
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // Nova expiração de 7 dias
+      };
+      
+      if (options.message) {
+        updateData.message = options.message;
+      }
+      
+      // Atualizar o status para 'pending' se estiver expirado
+      if (invite.status === 'expired') {
+        updateData.status = 'pending';
+      }
+      
+      // Atualizar o convite
+      const updatedInvite = await this.updateStatus(caixinhaId, caxinhaInviteId, updateData);
+      
+      logger.info(`Convite ${caxinhaInviteId} reenviado com sucesso`);
+      return updatedInvite;
+      
+    } catch (error) {
+      logger.error(`Erro ao reenviar convite: ${error.message}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verifica e marca convites expirados
+   * @returns {Promise&lt;number>} Número de convites atualizados
+   */
+  static async checkExpiredInvites() {
+    const now = new Date();
+    let updatedCount = 0;
+    
+    try {
+      // Buscar todas as caixinhas
+      const caixinhasSnapshot = await db.collection('caixinhas').get();
+      
+      for (const caixinhaDoc of caixinhasSnapshot.docs) {
+        const caixinhaId = caixinhaDoc.id;
+        
+        // Buscar convites pendentes expirados
+        const expiredInvitesSnapshot = await db.collection('caixinhas')
+          .doc(caixinhaId)
+          .collection('pendingRequests')
+          .where('status', '==', 'pending')
+          .where('expiresAt', '&lt;', now)
+          .get();
+        
+        // Atualizar status para expirado
+        const batch = db.batch();
+        let batchCount = 0;
+        
+        for (const doc of expiredInvitesSnapshot.docs) {
+          const inviteId = doc.id;
+          const inviteData = doc.data();
+          
+          // Atualizar na coleção da caixinha
+          const inviteRef = db.collection('caixinhas')
+            .doc(caixinhaId)
+            .collection('pendingRequests')
+            .doc(inviteId);
+            
+          batch.update(inviteRef, { status: 'expired' });
+          
+          // Atualizar no userInvites do destinatário
+          if (inviteData.targetId) {
+            const userInviteRef = db.collection('usuario')
+              .doc(inviteData.targetId)
+              .collection('pendingCaixinhaInvites')
+              .doc(inviteId);
+            
+            batch.update(userInviteRef, { status: 'expired' });
+          }
+          
+          // Atualizar no userInvites do remetente
+          if (inviteData.senderId) {
+            const senderInviteRef = db.collection('usuario')
+              .doc(inviteData.senderId)
+              .collection('sentCaixinhaInvites')
+              .doc(inviteId);
+            
+            batch.update(senderInviteRef, { status: 'expired' });
+          }
+          
+          batchCount++;
+          updatedCount++;
+          
+          // Commitar o batch a cada 500 documentos para evitar limites do Firestore
+          if (batchCount >= 500) {
+            await batch.commit();
+            batch = db.batch();
+            batchCount = 0;
+          }
+        }
+        
+        // Commitar o batch final se ainda houver documentos
+        if (batchCount > 0) {
+          await batch.commit();
+        }
+      }
+      
+      logger.info(`${updatedCount} convites marcados como expirados`);
+      return updatedCount;
+      
+    } catch (error) {
+      logger.error(`Erro ao verificar convites expirados: ${error.message}`, error);
+      throw error;
+    }
+  }
+}
+
+module.exports = CaixinhaInvite;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

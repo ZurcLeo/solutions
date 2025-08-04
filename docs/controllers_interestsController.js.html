@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/interestsController.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/interestsController.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @fileoverview Controller de interesses - gerencia interesses de usuários e categorias
+ * @module controllers/interestsController
+ */
+
+const { logger } = require('../logger');
+const Interest = require('../models/Interest');
+const InterestsCategory = require('../models/InterestsCategory');
+
+/**
+ * Controlador para gerenciar endpoints de interesses
+ */
+const interestsController = {
+  /**
+   * Busca todas as categorias de interesses disponíveis com seus respectivos interesses
+   * @async
+   * @function getAvailableInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Lista de categorias com interesses
+   */
+  async getAvailableInterests(req, res) {
+    try {
+      // 1. Buscar todas as categorias ativas
+      const categories = await InterestsCategory.getAllCategories();
+  
+      // 2. Para cada categoria, buscar APENAS os interesses relacionados àquela categoria
+      const categoriesWithInterests = await Promise.all(
+        categories.map(async (category) => {
+          // Modificação aqui - passar o ID da categoria como filtro
+          const interests = await Interest.getInterestsByCategory(category.id);
+  
+          return {
+            ...category.toPlainObject(),
+            interests: interests.map(interest => interest.toPlainObject()),
+          };
+        })
+      );
+  
+      return res.status(200).json({ success: true, data: categoriesWithInterests });
+    } catch (error) {
+      console.error('Erro ao buscar interesses e categorias:', error);
+      return res.status(500).json({ success: false, message: 'Erro ao buscar interesses e categorias.' });
+    }
+  },
+
+  /**
+   * Busca interesses de um usuário específico
+   * @async
+   * @function getUserInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.userId - ID do usuário
+   * @param {boolean} req.isFirstAccess - Indica se é primeiro acesso
+   * @param {Object} req.user - Usuário autenticado
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Interesses do usuário
+   */
+  async getUserInterests(req, res) {
+    try {
+      const { userId } = req.params;
+      const { isFirstAccess } = req.isFirstAccess
+      // Validar usuário (pode ser feito por middleware)
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID do usuário é obrigatório'
+        });
+      }
+      
+      // Verificar autorização (o próprio usuário ou admin)
+      if (req.user &amp;&amp; req.user.uid !== userId &amp;&amp; !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Não autorizado a acessar interesses de outro usuário'
+        });
+      }
+      
+      if (!isFirstAccess) {
+        const interests = await Interest.getUserInterests(userId);
+        return res.status(200).json({
+          success: true,
+          data: interests
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {}
+      });
+    } catch (error) {
+      logger.error('Erro ao obter interesses do usuário', {
+        controller: 'interestsController',
+        function: 'getUserInterests',
+        error: error.message
+      });
+      
+      // Tratar erro específico de "Usuário não encontrado"
+      if (error.message.includes('não encontrado')) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuário não encontrado'
+        });
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao obter interesses do usuário',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * Atualiza os interesses de um usuário
+   * @async
+   * @function updateUserInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.userId - ID do usuário
+   * @param {Object} req.body - Dados da atualização
+   * @param {Array&lt;string>} req.body.interestIds - IDs dos interesses selecionados
+   * @param {Object} req.user - Usuário autenticado
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Resultado da atualização
+   */
+  async updateUserInterests(req, res) {
+    try {
+      const { userId } = req.params;
+      const { interestIds } = req.body;
+      
+      // Validar dados
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID do usuário é obrigatório'
+        });
+      }
+      
+      if (!Array.isArray(interestIds)) {
+        return res.status(400).json({
+          success: false,
+          message: 'interestIds deve ser um array'
+        });
+      }
+      
+      // Verificar autorização (o próprio usuário ou admin)
+      if (req.user &amp;&amp; req.user.uid !== userId &amp;&amp; !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Não autorizado a modificar interesses de outro usuário'
+        });
+      }
+      
+      const result = await Interest.updateUserInterests(userId, interestIds);
+      
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      logger.error('Erro ao atualizar interesses do usuário', {
+        controller: 'interestsController',
+        function: 'updateUserInterests',
+        error: error.message
+      });
+      
+      // Tratar erro específico de "Usuário não encontrado"
+      if (error.message.includes('não encontrado')) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuário não encontrado'
+        });
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao atualizar interesses do usuário',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * [ADMIN] Cria uma nova categoria de interesses
+   * @async
+   * @function createCategory
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.body - Dados da categoria
+   * @param {string} req.body.name - Nome da categoria
+   * @param {string} req.body.description - Descrição da categoria
+   * @param {string} req.body.icon - Ícone da categoria
+   * @param {number} req.body.order - Ordem de exibição
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Categoria criada
+   */
+  async createCategory(req, res) {
+    try {
+      // Verificar se é admin
+      if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Acesso restrito a administradores'
+        });
+      }
+      
+      const { name, description, icon, order } = req.body;
+      
+      // Validar dados
+      if (!name) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nome da categoria é obrigatório'
+        });
+      }
+      
+      const categoryData = {
+        name,
+        description,
+        icon,
+        order: order || 0,
+        active: true
+      };
+      
+      const category = await InterestsCategory.createCategory(categoryData);
+      
+      return res.status(201).json({
+        success: true,
+        data: category
+      });
+    } catch (error) {
+      logger.error('Erro ao criar categoria', {
+        controller: 'interestsController',
+        function: 'createCategory',
+        error: error.message
+      });
+      
+      // Tratar erro de categoria duplicada
+      if (error.message.includes('já existe')) {
+        return res.status(409).json({
+          success: false,
+          message: error.message
+        });
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao criar categoria',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * [ADMIN] Atualiza uma categoria existente
+   * @async
+   * @function updateCategory
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.categoryId - ID da categoria
+   * @param {Object} req.body - Dados da atualização
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Categoria atualizada
+   */
+  async updateCategory(req, res) {
+    try {
+      // Verificar se é admin
+      if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Acesso restrito a administradores'
+        });
+      }
+      
+      const { categoryId } = req.params;
+      const { name, description, icon, order, active } = req.body;
+      
+      // Validar dados
+      if (!categoryId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID da categoria é obrigatório'
+        });
+      }
+      
+      const updateData = {};
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (icon !== undefined) updateData.icon = icon;
+      if (order !== undefined) updateData.order = order;
+      if (active !== undefined) updateData.active = active;
+      
+      const category = await InterestsCategory.updateCategory(categoryId, updateData);
+      
+      return res.status(200).json({
+        success: true,
+        data: category
+      });
+    } catch (error) {
+      logger.error('Erro ao atualizar categoria', {
+        controller: 'interestsController',
+        function: 'updateCategory',
+        error: error.message
+      });
+      
+      // Tratar erro de categoria não encontrada
+      if (error.message.includes('não encontrada')) {
+        return res.status(404).json({
+          success: false,
+          message: 'Categoria não encontrada'
+        });
+      }
+      
+      // Tratar erro de categoria duplicada
+      if (error.message.includes('já existe')) {
+        return res.status(409).json({
+          success: false,
+          message: error.message
+        });
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao atualizar categoria',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * [ADMIN] Cria um novo interesse dentro de uma categoria
+   * @async
+   * @function createInterest
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.body - Dados do interesse
+   * @param {string} req.body.label - Rótulo do interesse
+   * @param {string} req.body.categoryId - ID da categoria
+   * @param {string} req.body.description - Descrição do interesse
+   * @param {number} req.body.order - Ordem de exibição
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Interesse criado
+   */
+  async createInterest(req, res) {
+    try {
+      // Verificar se é admin
+      if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Acesso restrito a administradores'
+        });
+      }
+      
+      const { label, categoryId, description, order } = req.body;
+      
+      // Validar dados
+      if (!label || !categoryId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Label e categoryId são obrigatórios'
+        });
+      }
+      
+      const interestData = {
+        label,
+        categoryId,
+        description,
+        order: order || 0,
+        active: true
+      };
+      
+      const interest = await interestsService.createInterest(interestData);
+      
+      return res.status(201).json({
+        success: true,
+        data: interest
+      });
+    } catch (error) {
+      logger.error('Erro ao criar interesse', {
+        controller: 'interestsController',
+        function: 'createInterest',
+        error: error.message
+      });
+      
+      // Tratar erro de categoria não encontrada
+      if (error.message.includes('Categoria não encontrada')) {
+        return res.status(404).json({
+          success: false,
+          message: 'Categoria não encontrada'
+        });
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao criar interesse',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * [ADMIN] Atualiza um interesse existente
+   * @async
+   * @function updateInterest
+   * @param {Object} req - Objeto de requisição Express
+   * @param {string} req.params.interestId - ID do interesse
+   * @param {Object} req.body - Dados da atualização
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Interesse atualizado
+   */
+  async updateInterest(req, res) {
+    try {
+      // Verificar se é admin
+      if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Acesso restrito a administradores'
+        });
+      }
+      
+      const { interestId } = req.params;
+      const { label, categoryId, description, order, active } = req.body;
+      
+      // Validar dados
+      if (!interestId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID do interesse é obrigatório'
+        });
+      }
+      
+      const updateData = {};
+      if (label !== undefined) updateData.label = label;
+      if (categoryId !== undefined) updateData.categoryId = categoryId;
+      if (description !== undefined) updateData.description = description;
+      if (order !== undefined) updateData.order = order;
+      if (active !== undefined) updateData.active = active;
+      
+      const interest = await interestsService.updateInterest(interestId, updateData);
+      
+      return res.status(200).json({
+        success: true,
+        data: interest
+      });
+    } catch (error) {
+      logger.error('Erro ao atualizar interesse', {
+        controller: 'interestsController',
+        function: 'updateInterest',
+        error: error.message
+      });
+      
+      // Tratar erro de interesse não encontrado
+      if (error.message.includes('não encontrado')) {
+        return res.status(404).json({
+          success: false,
+          message: 'Interesse não encontrado'
+        });
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao atualizar interesse',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * [ADMIN] Busca estatísticas de uso dos interesses
+   * @async
+   * @function getInterestStats
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Estatísticas de interesses
+   */
+  async getInterestStats(req, res) {
+    try {
+      // Verificar se é admin (mantendo a verificação no controlador)
+      if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Acesso restrito a administradores'
+        });
+      }
+  
+      // Chamar o serviço para calcular as estatísticas
+      const stats = await Interest.calculateInterestStatistics();
+  
+      return res.status(200).json({ success: true, ...stats });
+  
+    } catch (error) {
+      logger.error('Erro ao obter estatísticas de interesses', {
+        controller: 'interestsController',
+        function: 'getInterestStats',
+        error: error.message
+      });
+  
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao obter estatísticas de interesses',
+        error: error.message
+      });
+    }
+  },
+  
+  /**
+   * [ADMIN] Migra interesses do formato estático para o Firestore
+   * @async
+   * @function migrateStaticInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.body - Dados da migração
+   * @param {Object} req.body.staticInterests - Interesses estáticos a migrar
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Resultado da migração
+   */
+  async migrateStaticInterests(req, res) {
+    try {
+      // Verificar se é admin
+      if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Acesso restrito a administradores'
+        });
+      }
+      
+      const { staticInterests } = req.body;
+      
+      if (!staticInterests || typeof staticInterests !== 'object') {
+        return res.status(400).json({
+          success: false,
+          message: 'Dados de interesses estáticos são obrigatórios'
+        });
+      }
+      
+      const result = await interestsService.migrateStaticInterestsToFirestore(staticInterests);
+      
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      logger.error('Erro ao migrar interesses estáticos', {
+        controller: 'interestsController',
+        function: 'migrateStaticInterests',
+        error: error.message
+      });
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao migrar interesses estáticos',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * [ADMIN] Migra interesses de usuários para o novo formato
+   * @async
+   * @function migrateUserInterests
+   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} res - Objeto de resposta Express
+   * @returns {Promise&lt;Object>} Resultado da migração
+   */
+  async migrateUserInterests(req, res) {
+    try {
+      // Verificar se é admin
+      if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Acesso restrito a administradores'
+        });
+      }
+      
+      const result = await interestsService.migrateUserInterestsToNewFormat();
+      
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      logger.error('Erro ao migrar interesses de usuários', {
+        controller: 'interestsController',
+        function: 'migrateUserInterests',
+        error: error.message
+      });
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao migrar interesses de usuários',
+        error: error.message
+      });
+    }
+  }
+};
+
+module.exports = interestsController;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

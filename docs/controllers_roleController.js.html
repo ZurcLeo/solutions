@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/roleController.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/roleController.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @fileoverview Controller de roles - gerencia sistema de papéis e permissões RBAC
+ * @module controllers/roleController
+ */
+
+const { logger } = require('../logger');
+const roleService = require('../services/roleService');
+const permissionService = require('../services/permissionService');
+const RolePermission = require('../models/RolePermission');
+
+/**
+ * Busca todas as roles do sistema com filtros opcionais
+ * @async
+ * @function getAllRoles
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.query - Filtros opcionais
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Lista de roles
+ */
+const getAllRoles = async (req, res) => {
+  try {
+    const filters = req.query || {};
+    const roles = await roleService.getRoles(filters);
+    
+    res.status(200).json({
+      success: true,
+      data: roles
+    });
+  } catch (error) {
+    logger.error('Erro ao buscar roles', {
+      controller: 'roleController',
+      method: 'getAllRoles',
+      error: error.message
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao buscar roles',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Busca uma role específica pelo ID
+ * @async
+ * @function getRoleById
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Dados da role
+ */
+const getRoleById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const role = await roleService.getRoleById(id);
+    
+    res.status(200).json({
+      success: true,
+      data: role
+    });
+  } catch (error) {
+    logger.error('Erro ao buscar role por ID', {
+      controller: 'roleController',
+      method: 'getRoleById',
+      roleId: req.params.id,
+      error: error.message
+    });
+    
+    if (error.message === 'Role não encontrada') {
+      return res.status(404).json({
+        success: false,
+        message: 'Role não encontrada'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao buscar role',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Cria uma nova role no sistema
+ * @async
+ * @function createRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Role criada
+ */
+const createRole = async (req, res) => {
+  try {
+    const roleData = req.body;
+    const role = await roleService.createRole(roleData);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Role criada com sucesso',
+      data: role
+    });
+  } catch (error) {
+    logger.error('Erro ao criar role', {
+      controller: 'roleController',
+      method: 'createRole',
+      roleData: req.body,
+      error: error.message
+    });
+    
+    if (error.message.includes('já existe')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao criar role',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Atualiza dados de uma role existente
+ * @async
+ * @function updateRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} req.body - Dados atualizados
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Role atualizada
+ */
+const updateRole = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const roleData = req.body;
+    const role = await roleService.updateRole(id, roleData);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Role atualizada com sucesso',
+      data: role
+    });
+  } catch (error) {
+    logger.error('Erro ao atualizar role', {
+      controller: 'roleController',
+      method: 'updateRole',
+      roleId: req.params.id,
+      roleData: req.body,
+      error: error.message
+    });
+    
+    if (error.message === 'Role não encontrada') {
+      return res.status(404).json({
+        success: false,
+        message: 'Role não encontrada'
+      });
+    }
+    
+    if (error.message.includes('já existe')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao atualizar role',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Remove uma role do sistema
+ * @async
+ * @function deleteRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Confirmação da remoção
+ */
+const deleteRole = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await roleService.deleteRole(id);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Role removida com sucesso'
+    });
+  } catch (error) {
+    logger.error('Erro ao remover role', {
+      controller: 'roleController',
+      method: 'deleteRole',
+      roleId: req.params.id,
+      error: error.message
+    });
+    
+    if (error.message === 'Role não encontrada') {
+      return res.status(404).json({
+        success: false,
+        message: 'Role não encontrada'
+      });
+    }
+    
+    if (error.message.includes('em uso')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao remover role',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Busca todas as permissões associadas a uma role
+ * @async
+ * @function getRolePermissions
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.id - ID da role
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Lista de permissões da role
+ */
+const getRolePermissions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const permissions = await roleService.getRolePermissions(id);
+    
+    res.status(200).json({
+      success: true,
+      data: permissions
+    });
+  } catch (error) {
+    logger.error('Erro ao buscar permissões da role', {
+      controller: 'roleController',
+      method: 'getRolePermissions',
+      roleId: req.params.id,
+      error: error.message
+    });
+    
+    if (error.message === 'Role não encontrada') {
+      return res.status(404).json({
+        success: false,
+        message: 'Role não encontrada'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao buscar permissões da role',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Atribui uma permissão específica a uma role
+ * @async
+ * @function assignPermissionToRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.roleId - ID da role
+ * @param {string} req.params.permissionId - ID da permissão
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Resultado da atribuição
+ */
+const assignPermissionToRole = async (req, res) => {
+  try {
+    const { roleId, permissionId } = req.params;
+    const result = await permissionService.assignPermissionToRole(roleId, permissionId);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Permissão atribuída à role com sucesso',
+      data: result
+    });
+  } catch (error) {
+    logger.error('Erro ao atribuir permissão à role', {
+      controller: 'roleController',
+      method: 'assignPermissionToRole',
+      roleId: req.params.roleId,
+      permissionId: req.params.permissionId,
+      error: error.message
+    });
+    
+    if (error.message.includes('não encontrada')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao atribuir permissão à role',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Remove uma permissão específica de uma role
+ * @async
+ * @function removePermissionFromRole
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.roleId - ID da role
+ * @param {string} req.params.permissionId - ID da permissão
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Confirmação da remoção
+ */
+const removePermissionFromRole = async (req, res) => {
+  try {
+    const { roleId, permissionId } = req.params;
+    const result = await permissionService.removePermissionFromRole(roleId, permissionId);
+    
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: 'Associação entre role e permissão não encontrada'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Permissão removida da role com sucesso'
+    });
+  } catch (error) {
+    logger.error('Erro ao remover permissão da role', {
+      controller: 'roleController',
+      method: 'removePermissionFromRole',
+      roleId: req.params.roleId,
+      permissionId: req.params.permissionId,
+      error: error.message
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao remover permissão da role',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Inicializa sistema RBAC com roles e permissões padrão
+ * @async
+ * @function initializeSystem
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise&lt;Object>} Confirmação da inicialização
+ */
+const initializeSystem = async (req, res) => {
+  try {
+    // Inicializar roles padrão
+    await roleService.initializeDefaultRoles();
+    
+    // Inicializar permissões padrão
+    await permissionService.initializeDefaultPermissions();
+    
+    // Configurar permissões básicas para cada role
+    await setupDefaultRolePermissions();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Sistema de RBAC inicializado com sucesso'
+    });
+  } catch (error) {
+    logger.error('Erro ao inicializar sistema de RBAC', {
+      controller: 'roleController',
+      method: 'initializeSystem',
+      error: error.message
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao inicializar sistema de RBAC',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Configura associações padrão entre roles e permissões
+ * @async
+ * @function setupDefaultRolePermissions
+ * @returns {Promise&lt;void>} Configurações aplicadas
+ */
+const setupDefaultRolePermissions = async () => {
+  try {
+    // Obter dados de initialData
+    const { roles, permissions, rolePermissions } = require('../config/data/initialData');
+    
+    // Buscar roles e permissões do banco
+    const dbRoles = await roleService.getRoles();
+    const dbPermissions = await permissionService.getPermissions();
+    
+    // Criar um mapa para facilitar a busca por ID
+    const roleIdMap = {};
+    dbRoles.forEach(role => {
+      roleIdMap[role.id] = role;
+    });
+    
+    const permissionIdMap = {};
+    dbPermissions.forEach(perm => {
+      permissionIdMap[perm.id] = perm;
+    });
+    
+    // Para cada associação role-permissão definida
+    for (const rpId in rolePermissions) {
+      const rp = rolePermissions[rpId];
+      const roleId = rp.roleId;
+      const permissionId = rp.permissionId;
+      
+      // Verificar se role e permissão existem no banco
+      if (!roleIdMap[roleId] || !permissionIdMap[permissionId]) {
+        logger.warn(`Role ${roleId} ou permissão ${permissionId} não encontrada`, {
+          function: 'setupDefaultRolePermissions'
+        });
+        continue;
+      }
+      
+      try {
+        // Verificar se já existe a associação
+        const existingRolePermissions = await RolePermission.getByRoleId(roleId);
+        const alreadyAssigned = existingRolePermissions.some(rp => 
+          rp.permissionId === permissionId
+        );
+        
+        if (!alreadyAssigned) {
+          await permissionService.assignPermissionToRole(roleId, permissionId);
+          
+          const roleName = roles[roleId].name;
+          const permName = permissions[permissionId].name;
+          
+          logger.info(`Permissão '${permName}' atribuída à role '${roleName}'`, {
+            function: 'setupDefaultRolePermissions'
+          });
+        }
+      } catch (error) {
+        const roleName = roles[roleId]?.name || roleId;
+        const permName = permissions[permissionId]?.name || permissionId;
+        
+        logger.warn(`Erro ao atribuir permissão '${permName}' à role '${roleName}'`, {
+          function: 'setupDefaultRolePermissions',
+          error: error.message
+        });
+      }
+    }
+    
+    logger.info('Configuração de permissões padrão concluída', {
+      function: 'setupDefaultRolePermissions'
+    });
+  } catch (error) {
+    logger.error('Erro ao configurar permissões padrão', {
+      function: 'setupDefaultRolePermissions',
+      error: error.message
+    });
+    
+    throw error;
+  }
+};
+
+module.exports = {
+  getAllRoles,
+  getRoleById,
+  createRole,
+  updateRole,
+  deleteRole,
+  getRolePermissions,
+  assignPermissionToRole,
+  removePermissionFromRole,
+  initializeSystem
+};</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_authController.html">controllers/authController</a></li><li><a href="module-controllers_blacklistController.html">controllers/blacklistController</a></li><li><a href="module-controllers_connectionsController.html">controllers/connectionsController</a></li><li><a href="module-controllers_emailController.html">controllers/emailController</a></li><li><a href="module-controllers_groupsCaixinhaController.html">controllers/groupsCaixinhaController</a></li><li><a href="module-controllers_interestsController.html">controllers/interestsController</a></li><li><a href="module-controllers_inviteController.html">controllers/inviteController</a></li><li><a href="module-controllers_notificationsController.html">controllers/notificationsController</a></li><li><a href="module-controllers_openaiController.html">controllers/openaiController</a></li><li><a href="module-controllers_permissionController.html">controllers/permissionController</a></li><li><a href="module-controllers_postController.html">controllers/postController</a></li><li><a href="module-controllers_recaptchaController.html">controllers/recaptchaController</a></li><li><a href="module-controllers_rifaController.html">controllers/rifaController</a></li><li><a href="module-controllers_roleController.html">controllers/roleController</a></li><li><a href="module-controllers_userController.html">controllers/userController</a></li><li><a href="module-controllers_videoSdkController.html">controllers/videoSdkController</a></li><li><a href="module-services_CaixinhaInviteService.html">services/CaixinhaInviteService</a></li><li><a href="module-services_SupportService.html">services/SupportService</a></li><li><a href="module-services_authService.html">services/authService</a></li><li><a href="module-services_blacklistService.html">services/blacklistService</a></li><li><a href="module-services_caixinhaService.html">services/caixinhaService</a></li><li><a href="module-services_connectionService.html">services/connectionService</a></li><li><a href="module-services_contribuicaoService.html">services/contribuicaoService</a></li><li><a href="module-services_disputeService.html">services/disputeService</a></li><li><a href="module-services_emailService.html">services/emailService</a></li><li><a href="module-services_encryptionService.html">services/encryptionService</a></li><li><a href="module-services_inviteService.html">services/inviteService</a></li><li><a href="module-services_ja3Service.html">services/ja3Service</a></li></ul><h3>Namespaces</h3><ul><li><a href="module-services_emailService-emailService.html">emailService</a></li></ul><h3>Classes</h3><ul><li><a href="AppError.html">AppError</a></li><li><a href="AuthenticationError.html">AuthenticationError</a></li><li><a href="ConflictError.html">ConflictError</a></li><li><a href="ForbiddenError.html">ForbiddenError</a></li><li><a href="HttpError.html">HttpError</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Message.html">Message</a></li><li><a href="NotFoundError.html">NotFoundError</a></li><li><a href="PermissionService.html">PermissionService</a></li><li><a href="RateLimitError.html">RateLimitError</a></li><li><a href="RoleService.html">RoleService</a></li><li><a href="ServiceError.html">ServiceError</a></li><li><a href="UserRoleService.html">UserRoleService</a></li><li><a href="ValidationError.html">ValidationError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_calculateSimilarity">_calculateSimilarity</a></li><li><a href="global.html#_findPendingAccountsForPayment">_findPendingAccountsForPayment</a></li><li><a href="global.html#_levenshteinDistance">_levenshteinDistance</a></li><li><a href="global.html#_processPaymentNotification">_processPaymentNotification</a></li><li><a href="global.html#_validatePayerData">_validatePayerData</a></li><li><a href="global.html#_verifyWebhookSignature">_verifyWebhookSignature</a></li><li><a href="global.html#acceptInvite">acceptInvite</a></li><li><a href="global.html#activateBankAccount">activateBankAccount</a></li><li><a href="global.html#addContribuicao">addContribuicao</a></li><li><a href="global.html#approveLoan">approveLoan</a></li><li><a href="global.html#assignRoleToUser">assignRoleToUser</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#broadcastUserStatus">broadcastUserStatus</a></li><li><a href="global.html#cancelDispute">cancelDispute</a></li><li><a href="global.html#cancelInvite">cancelInvite</a></li><li><a href="global.html#cancelarRifa">cancelarRifa</a></li><li><a href="global.html#checkAuthService">checkAuthService</a></li><li><a href="global.html#checkBankValidation">checkBankValidation</a></li><li><a href="global.html#checkCaixinhaService">checkCaixinhaService</a></li><li><a href="global.html#checkConnectionsService">checkConnectionsService</a></li><li><a href="global.html#checkDatabaseConnection">checkDatabaseConnection</a></li><li><a href="global.html#checkDependencies">checkDependencies</a></li><li><a href="global.html#checkDisputeRequirement">checkDisputeRequirement</a></li><li><a href="global.html#checkExpiredInvites">checkExpiredInvites</a></li><li><a href="global.html#checkFirebaseConnection">checkFirebaseConnection</a></li><li><a href="global.html#checkFullSystem">checkFullSystem</a></li><li><a href="global.html#checkInterestsService">checkInterestsService</a></li><li><a href="global.html#checkNotificationsService">checkNotificationsService</a></li><li><a href="global.html#checkPermission">checkPermission</a></li><li><a href="global.html#checkPublicServices">checkPublicServices</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#checkServerResources">checkServerResources</a></li><li><a href="global.html#checkServices">checkServices</a></li><li><a href="global.html#checkSpecificService">checkSpecificService</a></li><li><a href="global.html#checkUserService">checkUserService</a></li><li><a href="global.html#confirmBankValidation">confirmBankValidation</a></li><li><a href="global.html#createBankAccount">createBankAccount</a></li><li><a href="global.html#createCaixinha">createCaixinha</a></li><li><a href="global.html#createDispute">createDispute</a></li><li><a href="global.html#createHealthResponse">createHealthResponse</a></li><li><a href="global.html#createRifa">createRifa</a></li><li><a href="global.html#createRuleChangeDispute">createRuleChangeDispute</a></li><li><a href="global.html#deleteBankAccount">deleteBankAccount</a></li><li><a href="global.html#deleteCaixinha">deleteCaixinha</a></li><li><a href="global.html#dependenciesHealthCheck">dependenciesHealthCheck</a></li><li><a href="global.html#detectDeviceType">detectDeviceType</a></li><li><a href="global.html#determineOverallStatus">determineOverallStatus</a></li><li><a href="global.html#evaluateThreshold">evaluateThreshold</a></li><li><a href="global.html#extractToken">extractToken</a></li><li><a href="global.html#formatErrorForHealthResponse">formatErrorForHealthResponse</a></li><li><a href="global.html#fullSystemHealthCheck">fullSystemHealthCheck</a></li><li><a href="global.html#generateValidationCode">generateValidationCode</a></li><li><a href="global.html#generateValidationPix">generateValidationPix</a></li><li><a href="global.html#gerarComprovante">gerarComprovante</a></li><li><a href="global.html#gerarComprovanteSorteio">gerarComprovanteSorteio</a></li><li><a href="global.html#gerarHashVerificacao">gerarHashVerificacao</a></li><li><a href="global.html#gerarRelatorio">gerarRelatorio</a></li><li><a href="global.html#gerenciarEmprestimos">gerenciarEmprestimos</a></li><li><a href="global.html#gerenciarMembros">gerenciarMembros</a></li><li><a href="global.html#getAccountHistory">getAccountHistory</a></li><li><a href="global.html#getAllBankAccounts">getAllBankAccounts</a></li><li><a href="global.html#getAllRifasByCaixinha">getAllRifasByCaixinha</a></li><li><a href="global.html#getCaixinhaById">getCaixinhaById</a></li><li><a href="global.html#getCaixinhaInvites">getCaixinhaInvites</a></li><li><a href="global.html#getCaixinhas">getCaixinhas</a></li><li><a href="global.html#getDisputeById">getDisputeById</a></li><li><a href="global.html#getDisputeVoteInfo">getDisputeVoteInfo</a></li><li><a href="global.html#getDisputes">getDisputes</a></li><li><a href="global.html#getInvitationsByType">getInvitationsByType</a></li><li><a href="global.html#getInviteDetails">getInviteDetails</a></li><li><a href="global.html#getLoanById">getLoanById</a></li><li><a href="global.html#getLoanStats">getLoanStats</a></li><li><a href="global.html#getLoans">getLoans</a></li><li><a href="global.html#getMembers">getMembers</a></li><li><a href="global.html#getReceivedInvites">getReceivedInvites</a></li><li><a href="global.html#getRifaById">getRifaById</a></li><li><a href="global.html#getSentInvites">getSentInvites</a></li><li><a href="global.html#getUserRoles">getUserRoles</a></li><li><a href="global.html#getUserStatus">getUserStatus</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#initBankValidation">initBankValidation</a></li><li><a href="global.html#initializeFirstAdmin">initializeFirstAdmin</a></li><li><a href="global.html#initializeLocalStorage">initializeLocalStorage</a></li><li><a href="global.html#injectRoleInfo">injectRoleInfo</a></li><li><a href="global.html#inviteByEmail">inviteByEmail</a></li><li><a href="global.html#inviteExistingMember">inviteExistingMember</a></li><li><a href="global.html#isAdmin">isAdmin</a></li><li><a href="global.html#isUserOnline">isUserOnline</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#logServiceStatus">logServiceStatus</a></li><li><a href="global.html#makePayment">makePayment</a></li><li><a href="global.html#mercadoPagoWebhook">mercadoPagoWebhook</a></li><li><a href="global.html#migrateAdminUsers">migrateAdminUsers</a></li><li><a href="global.html#migrateInvitesToNewStructure">migrateInvitesToNewStructure</a></li><li><a href="global.html#obterNumeroAleatorioNIST">obterNumeroAleatorioNIST</a></li><li><a href="global.html#obterNumeroAleatorioRandomOrg">obterNumeroAleatorioRandomOrg</a></li><li><a href="global.html#obterResultadoLoteria">obterResultadoLoteria</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#parseCookies">parseCookies</a></li><li><a href="global.html#publicHealthCheck">publicHealthCheck</a></li><li><a href="global.html#realizarSorteio">realizarSorteio</a></li><li><a href="global.html#registerMessageHandlers">registerMessageHandlers</a></li><li><a href="global.html#registerNotificationHandlers">registerNotificationHandlers</a></li><li><a href="global.html#registerPresenceHandlers">registerPresenceHandlers</a></li><li><a href="global.html#rejectInvite">rejectInvite</a></li><li><a href="global.html#rejectLoan">rejectLoan</a></li><li><a href="global.html#rejectUserRole">rejectUserRole</a></li><li><a href="global.html#removeRoleFromUser">removeRoleFromUser</a></li><li><a href="global.html#requestLoan">requestLoan</a></li><li><a href="global.html#resendInvite">resendInvite</a></li><li><a href="global.html#resendInviteEmail">resendInviteEmail</a></li><li><a href="global.html#sendAlertsIfNeeded">sendAlertsIfNeeded</a></li><li><a href="global.html#sendRealTimeNotification">sendRealTimeNotification</a></li><li><a href="global.html#serviceCheckers">serviceCheckers</a></li><li><a href="global.html#serviceHealthCheck">serviceHealthCheck</a></li><li><a href="global.html#setupActivityMonitor">setupActivityMonitor</a></li><li><a href="global.html#setupGracefulShutdown">setupGracefulShutdown</a></li><li><a href="global.html#setupHealthMonitoring">setupHealthMonitoring</a></li><li><a href="global.html#setupSystemMonitoring">setupSystemMonitoring</a></li><li><a href="global.html#socketAuthMiddleware">socketAuthMiddleware</a></li><li><a href="global.html#socketLoggingMiddleware">socketLoggingMiddleware</a></li><li><a href="global.html#updateBankAccount">updateBankAccount</a></li><li><a href="global.html#updateCaixinha">updateCaixinha</a></li><li><a href="global.html#updateRifa">updateRifa</a></li><li><a href="global.html#updateUserStatus">updateUserStatus</a></li><li><a href="global.html#validateAccount">validateAccount</a></li><li><a href="global.html#validateUserRole">validateUserRole</a></li><li><a href="global.html#venderBilhete">venderBilhete</a></li><li><a href="global.html#verificarAutenticidadeSorteio">verificarAutenticidadeSorteio</a></li><li><a href="global.html#verificarConfiguracoes">verificarConfiguracoes</a></li><li><a href="global.html#verificarIntegridade">verificarIntegridade</a></li><li><a href="global.html#voteOnDispute">voteOnDispute</a></li><li><a href="global.html#webhookLogger">webhookLogger</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Tue Jun 24 2025 14:11:53 GMT-0300 (Brasilia Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

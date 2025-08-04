@@ -64,6 +64,24 @@ class MessageService {
   }
 
   /**
+   * Verifica se um usuário é participante de uma conversa
+   * @param {string} conversationId - ID da conversa
+   * @param {string} userId - ID do usuário
+   * @returns {Promise<boolean>} - true se o usuário é participante
+   */
+  static async isUserParticipantOfConversation(conversationId, userId) {
+    try {
+      logger.info(`Verificando se usuário ${userId} é participante da conversa ${conversationId}`);
+      const isParticipant = await Message.isUserParticipantOfConversation(conversationId, userId);
+      logger.debug(`Usuário ${userId} ${isParticipant ? 'é' : 'não é'} participante da conversa ${conversationId}`);
+      return isParticipant;
+    } catch (error) {
+      logger.error(`Erro ao verificar participação do usuário ${userId} na conversa ${conversationId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Cria uma nova mensagem
    * @param {Object} messageData - Dados da mensagem
    * @returns {Promise<Object>} - Mensagem criada

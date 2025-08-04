@@ -5,6 +5,7 @@ module.exports = (app) => {
     { path: '/api/rbac', handler: require('../../routes/rbac') },
     { path: '/api/health', handler: require('../../routes/health') },
     { path: '/api/auth', handler: require('../../routes/auth') },
+    { path: '/api/support', handler: require('../../routes/support') },
     { path: '/api/interests', handler: require('../../routes/interests') },
     { path: '/api/caixinha', handler: require('../../routes/caixinha') },
     { path: '/api/rifas', handler: require('../../routes/rifas') },

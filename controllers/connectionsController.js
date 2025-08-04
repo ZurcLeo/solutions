@@ -1,9 +1,25 @@
+/**
+ * @fileoverview Controller de conexões - gerencia amizades, melhor amigo e solicitações
+ * @module controllers/connectionsController
+ */
+
 const ActiveConnection = require('../models/ActiveConnection');
 const InactiveConnection = require('../models/InactiveConnection');
 const RequestedConnection = require('../models/RequestedConnection');
 const connectionService = require('../services/connectionService')
 const { logger } = require('../logger');
 
+/**
+ * Adiciona usuário como melhor amigo na lista de conexões ativas
+ * @async
+ * @function addBestFriend
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.friendId - ID do amigo
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da adição
+ */
 exports.addBestFriend = async (req, res) => {
   const { friendId } = req.params;
   const userId = req.user.uid;
@@ -35,6 +51,17 @@ exports.addBestFriend = async (req, res) => {
   }
 };
 
+/**
+ * Remove usuário da lista de melhores amigos
+ * @async
+ * @function removeBestFriend
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.friendId - ID do amigo
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da remoção
+ */
 exports.removeBestFriend = async (req, res) => {
   const { friendId } = req.params;
   const userId = req.user.uid;
@@ -66,6 +93,16 @@ exports.removeBestFriend = async (req, res) => {
   }
 };
 
+/**
+ * Busca conexões ativas, solicitações enviadas e recebidas do usuário
+ * @async
+ * @function getActiveConnectionById
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Conexões do usuário
+ */
 exports.getActiveConnectionById = async (req, res) => {
   const userId = req.user.uid;
   logger.info('loggando o usuario nas conexoes', userId);
@@ -87,6 +124,15 @@ exports.getActiveConnectionById = async (req, res) => {
   }
 };
 
+/**
+ * Busca conexões de um usuário específico por ID
+ * @async
+ * @function getConnectionsByUserId
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.userId - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Amigos e melhores amigos do usuário
+ */
 exports.getConnectionsByUserId = async (req, res) => {
   const { userId } = req.params;
 
@@ -98,6 +144,17 @@ exports.getConnectionsByUserId = async (req, res) => {
   }
 };
 
+/**
+ * Aceita solicitação de amizade pendente
+ * @async
+ * @function acceptConnectionRequest
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.senderId - ID do remetente da solicitação
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário (destinatário)
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Conexão criada
+ */
 exports.acceptConnectionRequest = async (req, res) => {
   const { senderId } = req.params; // ID do remetente da solicitação
   const receiverId = req.user.uid; // ID do usuário autenticado (destinatário)
@@ -224,6 +281,17 @@ exports.getRequestedConnectionById = async (req, res) => {
   }
 };
 
+/**
+ * Cria nova solicitação de conexão com validações de duplicidade
+ * @async
+ * @function createRequestedConnection
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da solicitação
+ * @param {string} req.body.userId - ID do usuário que envia
+ * @param {string} req.body.friendId - ID do usuário destinatário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Solicitação criada
+ */
 exports.createRequestedConnection = async (req, res) => {
   const { userId, friendId } = req.body;
 

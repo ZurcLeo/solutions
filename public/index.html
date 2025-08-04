@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ElosCloud API</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        .logo {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, #fff, #f0f0f0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .status {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: #28a745;
+            border-radius: 25px;
+            font-weight: 600;
+            margin: 1rem 0;
+        }
+        .links {
+            margin-top: 2rem;
+        }
+        .link {
+            display: inline-block;
+            margin: 0.5rem 1rem;
+            padding: 1rem 2rem;
+            background: rgba(255, 255, 255, 0.2);
+            text-decoration: none;
+            color: white;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+        .link:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        .info {
+            margin-top: 2rem;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">ElosCloud API</div>
+        <div class="status">🟢 Sistema Online</div>
+        <p>Backend de serviços ElosCloud</p>
+        
+        <div class="links">
+            <a href="/api-docs" class="link">📚 Documentação</a>
+            <a href="/api/health" class="link">🏥 Health Check</a>
+            <a href="https://eloscloud.com" class="link">🌐 Site Principal</a>
+        </div>
+        
+        <div class="info">
+            <p>API RESTful para pagamentos, autenticação e gestão de usuários</p>
+            <p><small>Versão 1.0.0 | Ambiente: Produção</small></p>
+        </div>
+    </div>
+</body>
+</html>

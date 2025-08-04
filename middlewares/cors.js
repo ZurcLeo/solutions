@@ -6,6 +6,7 @@ const productionOrigins = [
   'https://eloscloud.com',
   'https://eloscloud.com.br',
   'https://backend-elos.onrender.com',
+  'https://api.eloscloud.com',
   'https://accounts.google.com',
   'https://elossolucoescloud-1804e.firebaseapp.com',
   'https://oauth2.googleapis.com',

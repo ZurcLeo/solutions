@@ -4,6 +4,7 @@ const { logger } = require('../logger');
 const LocalStorageService = require('../services/LocalStorageService')
 const FirestoreService = require('../utils/firestoreService');
 const dbServiceUserRole = LocalStorageService.collection('user_roles');
+const dbServiceRole = LocalStorageService.collection('roles');
 const User = require('./User');
 const Role = require('./Role');
 const RolePermission = require('./RolePermission');
@@ -208,11 +209,9 @@ static async getUserRoles(userId, contextType = null, resourceId = null) {
       
       // 4. Construir o objeto de role para salvar no perfil do usuário
       const userRole = {
-        roleId,
-        roleName: roleData.name,
+        assignedAt: new Date().toISOString(),
         context: context || { type: 'global', resourceId: null },
         validationStatus: options.validationStatus || 'pending',
-        assignedAt: new Date().toISOString(),
         metadata: options.metadata || {}
       };
       

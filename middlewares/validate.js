@@ -46,18 +46,89 @@ const validate = (schema) => (req, res, next) => {
   } 
   // Para outros métodos (POST, PUT, DELETE), validamos o body
   else {
-    dataToValidate = req.body;
+    let bodyToValidate = req.body;
+    
+    // Se o body é uma string, tenta fazer parse
+    if (typeof req.body === 'string') {
+      try {
+        bodyToValidate = JSON.parse(req.body);
+      } catch (parseError) {
+        logger.error('Erro ao fazer parse do body JSON', {
+          service: 'validationMiddleware',
+          body: req.body,
+          parseError: parseError.message,
+          path: req.path
+        });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Formato JSON inválido' 
+        });
+      }
+    }
+    
+    // Se o body tem uma propriedade "body" aninhada, usa ela
+    if (bodyToValidate && typeof bodyToValidate === 'object' && bodyToValidate.body) {
+      if (typeof bodyToValidate.body === 'string') {
+        try {
+          bodyToValidate = JSON.parse(bodyToValidate.body);
+        } catch (parseError) {
+          logger.error('Erro ao fazer parse do body aninhado', {
+            service: 'validationMiddleware',
+            nestedBody: bodyToValidate.body,
+            parseError: parseError.message,
+            path: req.path
+          });
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Formato JSON aninhado inválido' 
+          });
+        }
+      } else if (typeof bodyToValidate.body === 'object') {
+        bodyToValidate = bodyToValidate.body;
+      }
+    }
+    
+    // Garantir que temos um objeto válido para validação
+    if (!bodyToValidate || typeof bodyToValidate !== 'object') {
+      logger.error('Body da requisição inválido ou ausente', {
+        service: 'validationMiddleware',
+        body: req.body,
+        bodyToValidate,
+        bodyType: typeof bodyToValidate,
+        path: req.path
+      });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Dados da requisição inválidos' 
+      });
+    }
+    
+    // Criar uma cópia do body para evitar mutação
+    dataToValidate = { ...bodyToValidate };
     
     // Se userId não estiver no body mas estiver nos params, adicione-o
-    if (!req.body.userId && (req.params.userId || req.query.userId)) {
+    if (!dataToValidate.userId && (req.params.userId || req.query.userId)) {
       dataToValidate.userId = req.params.userId || req.query.userId;
+    }
+    
+    // Pré-processamento específico para rotas de roles
+    if (req.path.includes('/roles') && dataToValidate.context) {
+      // Se o contexto é global e resourceId é string vazia, converter para null
+      if (dataToValidate.context.type === 'global' && dataToValidate.context.resourceId === '') {
+        dataToValidate.context.resourceId = null;
+      }
     }
   }
 
   logger.debug('Dados para validação', {
     service: 'validationMiddleware',
     dataToValidate,
-    path: req.path
+    path: req.path,
+    originalBody: req.body,
+    params: req.params,
+    bodyType: typeof req.body,
+    bodyIsString: typeof req.body === 'string',
+    bodyParsed: typeof req.body === 'string' ? JSON.parse(req.body) : null
   });
 
   const { error, value } = validationSchema.validate(dataToValidate);
@@ -67,7 +138,11 @@ const validate = (schema) => (req, res, next) => {
       service: 'validationMiddleware',
       error: error.details[0].message,
       path: req.path,
-      data: dataToValidate
+      method: req.method,
+      dataToValidate,
+      originalBody: req.body,
+      params: req.params,
+      validationDetails: error.details
     });
     return res.status(400).json({ 
       success: false, 

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Controller de videoconferência - integração com VideoSDK para chamadas de vídeo
+ * @module controllers/videoSdkController
+ */
+
 const axios = require('axios');
 const admin = require('firebase-admin');
 const jwt = require('jsonwebtoken');
@@ -12,6 +17,11 @@ if (!API_KEY || !SECRET || !ENDPOINT) {
     process.exit(1);
 }
 
+/**
+ * Gera token JWT para autenticação no VideoSDK
+ * @function generateVideoSdkToken
+ * @returns {string} Token JWT válido por 120 minutos
+ */
 const generateVideoSdkToken = () => {
     const options = { 
         expiresIn: "120m", 
@@ -24,14 +34,32 @@ const generateVideoSdkToken = () => {
     
     const token = jwt.sign(payload, SECRET, options);
     
-    return res.status(200).json({ token });
+    return token;
 };
 
+/**
+ * Retorna token de autenticação para o VideoSDK
+ * @function getToken
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Object} Token de autenticação
+ */
 exports.getToken = (req, res) => {
     const token = generateVideoSdkToken();
     res.json({ token });
 };
 
+/**
+ * Cria uma nova sala de videoconferência
+ * @async
+ * @function createMeeting
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da reunião
+ * @param {string} req.body.token - Token de autenticação
+ * @param {string} req.body.region - Região do servidor
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados da sala criada
+ */
 exports.createMeeting = async (req, res) => {
     const { token, region } = req.body;
     const url = `${ENDPOINT}/v2/rooms`;
@@ -50,6 +78,17 @@ exports.createMeeting = async (req, res) => {
     }
 };
 
+/**
+ * Valida se uma sala de videoconferência existe e está ativa
+ * @async
+ * @function validateMeeting
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.meetingId - ID da reunião
+ * @param {Object} req.body - Dados da validação
+ * @param {string} req.body.token - Token de autenticação
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Status da validação
+ */
 exports.validateMeeting = async (req, res) => {
     const token = req.body.token;
     const meetingId = req.params.meetingId;
@@ -70,6 +109,19 @@ exports.validateMeeting = async (req, res) => {
     }
 };
 
+/**
+ * Inicia uma sessão de videoconferência e salva no Firestore
+ * @async
+ * @function startSession
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.user - Dados do usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} req.body - Dados da sessão
+ * @param {string} req.body.roomId - ID da sala
+ * @param {string} req.body.participantId - ID do participante
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados da sessão iniciada
+ */
 exports.startSession = async (req, res) => {
     const userId = req.user.uid;
     const { roomId, participantId } = req.body;
@@ -106,6 +158,16 @@ exports.startSession = async (req, res) => {
     }
 };
 
+/**
+ * Finaliza uma sessão de videoconferência
+ * @async
+ * @function endSession
+ * @param {Object} req - Objeto de requisição Express
+ * @param {Object} req.body - Dados da sessão
+ * @param {string} req.body.roomId - ID da sala a ser finalizada
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação do encerramento
+ */
 exports.endSession = async (req, res) => {
     const { roomId } = req.body;
 

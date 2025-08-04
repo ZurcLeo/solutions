@@ -1,9 +1,21 @@
-// src/controllers/rifaController.js
+/**
+ * @fileoverview Controller de rifas - gerencia rifas, bilhetes e sorteios em caixinhas
+ * @module controllers/rifaController
+ */
+
 const { logger } = require('../logger');
 const RifaService = require('../services/rifaService');
 
 /**
- * Busca todas as rifas de uma caixinha
+ * Busca todas as rifas de uma caixinha específica
+ * @async
+ * @function listarRifas
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Lista de rifas da caixinha
  */
 const listarRifas = async (req, res) => {
   const { caixinhaId } = req.params;
@@ -60,7 +72,16 @@ const listarRifas = async (req, res) => {
 };
 
 /**
- * Busca uma rifa específica por ID
+ * Busca uma rifa específica por ID dentro de uma caixinha
+ * @async
+ * @function obterRifa
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {string} req.params.rifaId - ID da rifa
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Dados da rifa
  */
 const obterRifa = async (req, res) => {
   const { caixinhaId, rifaId } = req.params;
@@ -119,7 +140,16 @@ const obterRifa = async (req, res) => {
 };
 
 /**
- * Cria uma nova rifa
+ * Cria uma nova rifa em uma caixinha
+ * @async
+ * @function criarRifa
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} req.body - Dados da rifa
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Rifa criada
  */
 const criarRifa = async (req, res) => {
   const { caixinhaId } = req.params;
@@ -182,7 +212,17 @@ const criarRifa = async (req, res) => {
 };
 
 /**
- * Atualiza uma rifa existente
+ * Atualiza dados de uma rifa existente
+ * @async
+ * @function atualizarRifa
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {string} req.params.rifaId - ID da rifa
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} req.body - Dados atualizados da rifa
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Rifa atualizada
  */
 const atualizarRifa = async (req, res) => {
   const { caixinhaId, rifaId } = req.params;
@@ -243,7 +283,17 @@ const atualizarRifa = async (req, res) => {
 };
 
 /**
- * Cancela uma rifa
+ * Cancela uma rifa existente com motivo
+ * @async
+ * @function cancelarRifa
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {string} req.params.rifaId - ID da rifa
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {string} req.body.motivo - Motivo do cancelamento
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Rifa cancelada
  */
 const cancelarRifa = async (req, res) => {
   const { caixinhaId, rifaId } = req.params;
@@ -304,7 +354,17 @@ const cancelarRifa = async (req, res) => {
 };
 
 /**
- * Vende um bilhete da rifa
+ * Processa venda de bilhete da rifa para um usuário
+ * @async
+ * @function venderBilhete
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {string} req.params.rifaId - ID da rifa
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {number} req.body.numeroBilhete - Número do bilhete
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Bilhete vendido
  */
 const venderBilhete = async (req, res) => {
   const { caixinhaId, rifaId } = req.params;
@@ -367,7 +427,18 @@ const venderBilhete = async (req, res) => {
 };
 
 /**
- * Realiza o sorteio da rifa
+ * Executa sorteio da rifa com método e referência específicos
+ * @async
+ * @function realizarSorteio
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {string} req.params.rifaId - ID da rifa
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {string} req.body.metodo - Método do sorteio
+ * @param {string} req.body.referencia - Referência do sorteio
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Resultado do sorteio
  */
 const realizarSorteio = async (req, res) => {
   const { caixinhaId, rifaId } = req.params;
@@ -430,7 +501,16 @@ const realizarSorteio = async (req, res) => {
 };
 
 /**
- * Verifica a autenticidade do sorteio
+ * Verifica autenticidade e integridade de um sorteio realizado
+ * @async
+ * @function verificarAutenticidade
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {string} req.params.rifaId - ID da rifa
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Resultado da verificação
  */
 const verificarAutenticidade = async (req, res) => {
   const { caixinhaId, rifaId } = req.params;
@@ -489,7 +569,16 @@ const verificarAutenticidade = async (req, res) => {
 };
 
 /**
- * Gera o comprovante do sorteio
+ * Gera comprovante oficial do sorteio realizado
+ * @async
+ * @function gerarComprovante
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.caixinhaId - ID da caixinha
+ * @param {string} req.params.rifaId - ID da rifa
+ * @param {Object} req.user - Usuário autenticado
+ * @param {string} req.user.uid - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Comprovante do sorteio
  */
 const gerarComprovante = async (req, res) => {
   const { caixinhaId, rifaId } = req.params;

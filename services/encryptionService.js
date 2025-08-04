@@ -1,5 +1,10 @@
-// services/encryptionService.js (atualizado)
-
+/**
+ * @fileoverview Serviço de criptografia para gerenciar o ciclo de vida de dados sensíveis, incluindo criptografia, descriptografia, rotação de chaves e auditoria.
+ * @module services/encryptionService
+ * @requires crypto
+ * @requires ../logger
+ * @requires ./secretsManager
+ */
 const crypto = require('crypto');
 const { logger } = require('../logger');
 const secretsManager = require('./secretsManager'); // Serviço para gerenciamento de segredos
@@ -22,8 +27,13 @@ class EncryptionService {
   }
 
   /**
-   * Inicializa o serviço de forma assíncrona
+   * Inicializa o serviço de forma assíncrona, carregando a chave principal e pré-carregando versões anteriores.
    * @private
+   * @async
+   * @function _initialize
+   * @returns {Promise<boolean>} Retorna `true` se a inicialização for bem-sucedida.
+   * @throws {Error} Se houver falha ao carregar as chaves de criptografia.
+   * @description Garante que as chaves de criptografia necessárias estejam disponíveis em cache antes que o serviço possa ser utilizado.
    */
   async _initialize() {
     try {
@@ -64,10 +74,14 @@ class EncryptionService {
   }
 
   /**
-   * Carrega uma chave específica do gerenciador de segredos
+   * Carrega uma chave de criptografia específica (por versão) do gerenciador de segredos ou das variáveis de ambiente.
    * @private
-   * @param {string} version - Versão da chave
-   * @returns {Buffer} Chave em formato Buffer
+   * @async
+   * @function _loadKey
+   * @param {string} version - A versão da chave a ser carregada (ex: '1', '2').
+   * @returns {Promise<Buffer>} A chave de criptografia em formato Buffer.
+   * @throws {Error} Se a chave não for encontrada ou ocorrer um erro ao carregá-la.
+   * @description Primeiramente verifica o cache; se a chave não estiver presente, a recupera de forma segura dependendo do ambiente (`secretsManager` em produção, `process.env` em desenvolvimento).
    */
   async _loadKey(version) {
     // Verificar primeiro no cache
@@ -111,8 +125,13 @@ class EncryptionService {
   }
 
   /**
-   * Garante que o serviço esteja inicializado antes de usar
+   * Garante que o serviço esteja completamente inicializado antes de permitir operações de criptografia/descriptografia.
    * @private
+   * @async
+   * @function _ensureInitialized
+   * @returns {Promise<void>}
+   * @throws {Error} Se o serviço não estiver inicializado.
+   * @description Espera pela conclusão do processo de inicialização assíncrono.
    */
   async _ensureInitialized() {
     if (!this.initialized) {
@@ -123,11 +142,18 @@ class EncryptionService {
   }
 
   /**
-   * Criptografa dados sensíveis
-   * @param {Object|string} data - Dados a serem criptografados
-   * @param {Object} options - Opções adicionais
-   * @returns {Object} Dados criptografados com metadados
+   * Criptografa dados sensíveis utilizando o algoritmo `aes-256-gcm` e a chave de criptografia atual.
+   * @async
+   * @function encrypt
+   * @param {Object|string} data - Os dados a serem criptografados. Pode ser um objeto (será serializado para JSON) ou uma string.
+   * @param {Object} [options={}] - Opções adicionais para a criptografia.
+   * @param {string} [options.aad] - Dados Autenticados Adicionais (Additional Authenticated Data) para proteção extra de integridade.
+   * @param {string} [options.dataType='unknown'] - Um rótulo para o tipo de dado que está sendo criptografado, útil para auditoria.
+   * @returns {Promise<Object>} Um objeto contendo os dados criptografados, IV, tag de autenticação, versão da chave e algoritmo.
+   * @throws {Error} Se houver falha na criptografia (ex: chave não disponível).
+   * @description Converte os dados para string, gera um IV (Vetor de Inicialização) aleatório, criptografa, gera uma tag de autenticação e registra um evento de auditoria.
    */
+
   async encrypt(data, options = {}) {
     await this._ensureInitialized();
     
@@ -196,10 +222,16 @@ class EncryptionService {
   }
 
   /**
-   * Descriptografa dados
-   * @param {Object} encryptedData - Dados criptografados com metadados
-   * @param {Object} options - Opções adicionais
-   * @returns {Object|string} Dados descriptografados
+   * Descriptografa dados previamente criptografados pelo serviço.
+   * @async
+   * @function decrypt
+   * @param {Object} encryptedData - O objeto contendo os dados criptografados e metadados (`version`, `iv`, `encrypted`, `authTag`).
+   * @param {Object} [options={}] - Opções adicionais para a descriptografia.
+   * @param {string} [options.aad] - Dados Autenticados Adicionais (deve ser o mesmo usado na criptografia, se aplicável).
+   * @param {string} [options.dataType='unknown'] - Rótulo para o tipo de dado, útil para auditoria.
+   * @returns {Promise<Object|string>} Os dados descriptografados. Tenta parsear como JSON se for válido, caso contrário retorna como string.
+   * @throws {Error} Se os dados criptografados forem inválidos/incompletos, a chave não estiver disponível, ou a integridade dos dados estiver comprometida (falha na autenticação da tag).
+   * @description Recupera a chave correta pela versão, descriptografa os dados e valida sua integridade usando a tag de autenticação, registrando um evento de auditoria.
    */
   async decrypt(encryptedData, options = {}) {
     await this._ensureInitialized();
@@ -293,9 +325,20 @@ class EncryptionService {
   }
 
   /**
-   * Criptografa especificamente dados bancários
-   * @param {Object} bankData - Dados bancários a serem criptografados
-   * @returns {Object} Dados bancários criptografados
+   * Criptografa especificamente dados bancários, adicionando metadados e um AAD.
+   * @async
+   * @function encryptBankData
+   * @param {Object} bankData - Os dados bancários a serem criptografados.
+   * @param {string} bankData.bankName - Nome do banco.
+   * @param {string} bankData.bankCode - Código do banco.
+   * @param {string} bankData.accountType - Tipo da conta (ex: 'corrente', 'poupança').
+   * @param {string} bankData.accountNumber - Número da conta bancária.
+   * @param {string} bankData.branchCode - Código da agência.
+   * @param {string} bankData.holderName - Nome do titular da conta.
+   * @param {string} bankData.holderDocument - Documento do titular da conta (CPF/CNPJ).
+   * @returns {Promise<Object>} Um objeto contendo os dados criptografados e informações não sensíveis para exibição (ex: `lastDigits`).
+   * @throws {Error} Se os dados bancários forem inválidos (campos obrigatórios ausentes).
+   * @description Valida, estrutura e criptografa dados bancários confidenciais, retornando uma representação segura para armazenamento.
    */
   async encryptBankData(bankData) {
     // Validar dados bancários antes de criptografar
@@ -333,9 +376,13 @@ class EncryptionService {
   }
 
   /**
-   * Descriptografa dados bancários
-   * @param {Object} encryptedBankData - Dados bancários criptografados
-   * @returns {Object} Dados bancários descriptografados
+   * Descriptografa dados bancários previamente criptografados.
+   * @async
+   * @function decryptBankData
+   * @param {Object} encryptedBankData - O objeto que contém os dados bancários criptografados, incluindo o campo `encrypted`.
+   * @returns {Promise<Object>} Os dados bancários descriptografados, combinados com quaisquer metadados em texto claro.
+   * @throws {Error} Se os dados bancários forem inválidos ou não estiverem no formato criptografado esperado.
+   * @description Descriptografa a parte sensível dos dados bancários e os recombina com as informações não criptografadas.
    */
   async decryptBankData(encryptedBankData) {
     if (!encryptedBankData || !encryptedBankData.encrypted) {
@@ -357,10 +404,14 @@ class EncryptionService {
   }
 
   /**
-   * Valida dados bancários antes da criptografia
+   * Valida a presença dos campos obrigatórios em um objeto de dados bancários.
    * @private
-   * @param {Object} bankData - Dados bancários a serem validados
+   * @function _validateBankData
+   * @param {Object} bankData - Os dados bancários a serem validados.
+   * @throws {Error} Se qualquer campo obrigatório estiver ausente.
+   * @description Garante a integridade e completude dos dados bancários antes de sua criptografia.
    */
+
   _validateBankData(bankData) {
     const requiredFields = [
       'bankName', 'bankCode', 'accountType', 
@@ -375,10 +426,13 @@ class EncryptionService {
   }
 
   /**
-   * Registra evento de auditoria
+   * Registra eventos de auditoria relacionados a operações de criptografia/descriptografia.
    * @private
-   * @param {string} eventType - Tipo de evento (encrypt, decrypt, etc.)
-   * @param {Object} eventData - Dados do evento
+   * @function _logAuditEvent
+   * @param {string} eventType - O tipo de evento (ex: 'encrypt', 'decrypt', 'encrypt_failed', 'decrypt_failed', 'key_rotation').
+   * @param {Object} eventData - Dados adicionais relevantes para o evento.
+   * @returns {void}
+   * @description Utiliza o logger para registrar informações sobre as operações de criptografia e pode, em sistemas críticos, enviar para um serviço de auditoria dedicado.
    */
   _logAuditEvent(eventType, eventData) {
     // Evitar logging de dados sensíveis
@@ -400,9 +454,13 @@ class EncryptionService {
   }
 
   /**
-   * Rotaciona a chave de criptografia para uma nova versão
-   * @param {string} newVersion - Nova versão da chave
-   * @returns {Object} Informação sobre a chave rotacionada
+   * Rotaciona a chave de criptografia atual para uma nova versão.
+   * @async
+   * @function rotateKey
+   * @param {string} newVersion - A nova versão da chave para a qual o serviço deve alternar.
+   * @returns {Promise<Object>} Um objeto com o status de sucesso, a versão antiga e a nova da chave, e o timestamp da rotação.
+   * @throws {Error} Se a nova chave não for encontrada ou ocorrer um erro durante a rotação.
+   * @description Carrega a nova chave, a define como a chave ativa do serviço e registra o evento de rotação para auditoria.
    */
   async rotateKey(newVersion) {
     await this._ensureInitialized();
@@ -448,10 +506,14 @@ class EncryptionService {
   }
 
   /**
-   * Re-criptografa dados com a chave atual
-   * @param {Object} encryptedData - Dados já criptografados
-   * @param {Object} options - Opções adicionais
-   * @returns {Object} Dados re-criptografados com a chave atual
+   * Re-criptografa dados que foram criptografados com uma chave antiga para a chave de criptografia atualmente ativa.
+   * @async
+   * @function reEncrypt
+   * @param {Object} encryptedData - Os dados já criptografados (pode ser com uma chave antiga).
+   * @param {Object} [options={}] - Opções adicionais (as mesmas usadas na criptografia e descriptografia).
+   * @returns {Promise<Object>} Os dados re-criptografados com a chave atual.
+   * @throws {Error} Se houver falha na descriptografia com a chave antiga ou na nova criptografia.
+   * @description Descriptografa os dados usando a chave original e, em seguida, os criptografa novamente com a chave mais recente.
    */
   async reEncrypt(encryptedData, options = {}) {
     // Descriptografar com a chave antiga
@@ -462,8 +524,11 @@ class EncryptionService {
   }
 
   /**
-   * Limpa as chaves antigas do cache conforme política
-   * @param {number} maxAgeInDays - Idade máxima em dias para manter chaves no cache
+   * Limpa chaves antigas do cache de chaves, mantendo apenas a chave atual e as versões configuradas para serem mantidas.
+   * @function cleanOldKeysFromCache
+   * @param {number} [maxAgeInDays=30] - A idade máxima em dias para manter as chaves no cache (atualmente não usado diretamente, mas pode ser um filtro futuro).
+   * @returns {void}
+   * @description Ajuda a gerenciar o cache de chaves para evitar o acúmulo desnecessário de chaves antigas que não são mais necessárias para descriptografia.
    */
   cleanOldKeysFromCache(maxAgeInDays = 30) {
     const currentVersion = this.keyVersion;
@@ -495,8 +560,10 @@ class EncryptionService {
   }
 
   /**
-   * Gera uma nova chave de criptografia
-   * @returns {string} Nova chave em formato hexadecimal
+   * Gera uma nova chave de criptografia aleatória de 256 bits.
+   * @function generateKey
+   * @returns {string} Uma nova chave criptográfica em formato hexadecimal.
+   * @description Cria uma chave segura que pode ser usada para novas versões de criptografia.
    */
   generateKey() {
     return crypto.randomBytes(32).toString('hex'); // 256 bits (32 bytes)
