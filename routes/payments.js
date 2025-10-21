@@ -3,7 +3,16 @@ const router = express.Router();
 const paymentsController = require('../controllers/paymentsController');
 const verifyToken = require('../middlewares/auth');
 const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
-const { logger } = require('../logger')
+const { logger } = require('../logger');
+
+// Smart Security Middleware
+const { 
+  velocityCheck, 
+  deviceCheck, 
+  transactionAnalysis, 
+  riskScoring, 
+  securityLogging 
+} = require('../middlewares/smartSecurity');
 
 const ROUTE_NAME = 'payments'
 // Aplicar middleware de health check a todas as rotas de interests
@@ -77,7 +86,16 @@ router.get('/all-purchases', verifyToken, readLimit, paymentsController.getAllPu
  *       500:
  *         description: Erro no servidor
  */
-router.post('/create-payment-intent', writeLimit, paymentsController.createPaymentIntent);
+router.post('/create-payment-intent', 
+  verifyToken,                           // Autenticação obrigatória
+  deviceCheck,                           // Análise de dispositivo
+  velocityCheck('payment_intent'),       // Verificação de velocidade
+  transactionAnalysis,                   // Análise de padrões
+  riskScoring,                          // Score de risco
+  writeLimit,                           // Rate limiting tradicional
+  securityLogging,                      // Log de contexto
+  paymentsController.createPaymentIntent
+);
 
 /**
  * @swagger
@@ -130,7 +148,30 @@ router.get('/session-status', readLimit, paymentsController.sessionStatus);
  */
 router.get('/purchases', readLimit, paymentsController.getPurchases);
 
-router.post('/pix', verifyToken, paymentsController.createPixPayment);
+// PIX - Proteção máxima (mais restritivo)
+router.post('/pix', 
+  verifyToken,
+  deviceCheck,
+  velocityCheck('pix_payment'),         // Mais restritivo para PIX
+  transactionAnalysis,
+  riskScoring,
+  (req, res, next) => {
+    // Verificação adicional para PIX
+    if (req.securityContext?.riskProfile?.riskLevel === 'HIGH' || 
+        req.securityContext?.riskProfile?.riskLevel === 'CRITICAL') {
+      return res.status(202).json({
+        message: 'PIX transaction requires additional verification',
+        requiresApproval: true,
+        estimatedTime: '10-30 minutes',
+        riskLevel: req.securityContext.riskProfile.riskLevel,
+        contactSupport: req.securityContext.riskProfile.riskLevel === 'CRITICAL'
+      });
+    }
+    next();
+  },
+  securityLogging,
+  paymentsController.createPixPayment
+);
 router.get('/status/:paymentId', verifyToken, paymentsController.checkPixPaymentStatus);
 
 /**
@@ -232,6 +273,16 @@ router.get('/status/:paymentId', verifyToken, paymentsController.checkPixPayment
  *       500:
  *         description: Erro no servidor
  */
-router.post('/card', verifyToken, writeLimit, paymentsController.createCardPayment);
+// Pagamento com cartão
+router.post('/card', 
+  verifyToken,
+  deviceCheck,
+  velocityCheck('card_payment'),
+  transactionAnalysis,
+  riskScoring,
+  writeLimit,
+  securityLogging,
+  paymentsController.createCardPayment
+);
 
 module.exports = router;

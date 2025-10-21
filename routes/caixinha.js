@@ -12,7 +12,16 @@ const { healthCheck } = require('../middlewares/healthMiddleware');
 const disputeController = require('../controllers/disputeController');
 const loanController = require('../controllers/loanController')
 const disputeSchema = require('../schemas/disputeSchema');
-const loanSchema = require('../schemas/loanSchema')
+const loanSchema = require('../schemas/loanSchema');
+
+// Smart Security Middleware
+const { 
+  velocityCheck, 
+  deviceCheck, 
+  transactionAnalysis, 
+  riskScoring, 
+  securityLogging 
+} = require('../middlewares/smartSecurity');
 
 const ROUTE_NAME = 'caixinha'
 // Aplicar middleware de health check a todas as rotas de interests
@@ -91,11 +100,37 @@ router.get('/user/:userId',
  *       500:
  *         description: Erro no servidor.
  */
+// Criar caixinha - ação sensível
 router.post('/', 
   verifyToken, 
+  deviceCheck,
+  velocityCheck('caixinha_creation'),
+  (req, res, next) => {
+    // Restrições especiais para criação de caixinhas
+    const riskLevel = req.securityContext?.riskProfile?.riskLevel;
+    
+    if (riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
+      logger.warn('High/Critical risk user attempted to create caixinha', {
+        userId: req.user.uid,
+        riskLevel,
+        deviceTrust: req.securityContext?.device?.trustScore
+      });
+      
+      return res.status(403).json({
+        error: 'Account verification required to create caixinhas',
+        riskLevel,
+        message: 'For security reasons, your account needs additional verification to create new caixinhas.',
+        contactSupport: true,
+        supportEmail: 'security@eloscloud.com'
+      });
+    }
+    next();
+  },
   validate(caixinhaSchema.create), 
-  writeLimit, 
-  caixinhaController.createCaixinha);
+  writeLimit,
+  securityLogging,
+  caixinhaController.createCaixinha
+);
 
 /**
  * @swagger
@@ -351,11 +386,17 @@ router.get('/membros/:caixinhaId',
  *       403:
  *         description: Usuário sem permissão para convidar
  */
+// Convite para membro existente
 router.post('/membros/:caixinhaId/convite', 
   verifyToken, 
+  deviceCheck,
+  velocityCheck('caixinha_invite'),
+  riskScoring,
   validate(caixinhaInviteSchema.create),
-  writeLimit, 
-  caixinhaInviteController.inviteExistingMember);
+  writeLimit,
+  securityLogging,
+  caixinhaInviteController.inviteExistingMember
+);
 
 /**
  * @swagger
@@ -406,11 +447,17 @@ router.post('/membros/:caixinhaId/convite',
  *       403:
  *         description: Usuário sem permissão para convidar
  */
+// Convite por email 
 router.post('/membros/:caixinhaId/convite-email', 
   verifyToken, 
+  deviceCheck,
+  velocityCheck('email_invite'),
+  riskScoring,
   validate(caixinhaSchema.conviteEmail),
-  writeLimit, 
-  caixinhaInviteController.inviteByEmail);
+  writeLimit,
+  securityLogging,
+  caixinhaInviteController.inviteByEmail
+);
 
 /**
  * @swagger

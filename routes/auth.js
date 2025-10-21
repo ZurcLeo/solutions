@@ -6,9 +6,16 @@ const validate = require('../middlewares/validate');
 const {authSchemas} = require('../schemas/authSchemas');
 const userSchema = require('../schemas/userSchema');
 const { rateLimiter, authRateLimiter } = require('../middlewares/rateLimiter');
-const { logger } = require('../logger')
+const { logger } = require('../logger');
 const { healthCheck } = require('../middlewares/healthMiddleware');
 const firstAccess = require('../middlewares/firstAccess');
+
+// Smart Security Middleware
+const { 
+  velocityCheck, 
+  deviceCheck, 
+  securityLogging 
+} = require('../middlewares/smartSecurity');
 
 const ROUTE_NAME = 'auth'
 // Aplicar middleware de health check a todas as rotas de interests
@@ -97,8 +104,43 @@ router.route('/session')
 *             schema:
 *               $ref: '#/components/schemas/ErrorResponse'
 */
+// Registro de usuário com análise de segurança
 router.route('/register')
- .post(authRateLimiter, firstAccess, authController.register);
+ .post(
+   deviceCheck,                         // Análise de dispositivo
+   velocityCheck('registration'),       // Verificação de velocity
+   (req, res, next) => {
+     // Logic de segurança para registro
+     const velocityAnalysis = req.securityContext?.velocity;
+     const deviceAnalysis = req.securityContext?.device;
+     
+     if (velocityAnalysis?.riskLevel === 'HIGH') {
+       logger.warn('High velocity registration attempt blocked', {
+         ip: req.ip,
+         userAgent: req.get('User-Agent'),
+         riskScore: velocityAnalysis.riskScore
+       });
+       
+       return res.status(429).json({
+         error: 'Too many registration attempts. Please try again later.',
+         retryAfter: 3600,
+         riskLevel: velocityAnalysis.riskLevel
+       });
+     }
+     
+     // Marcar se dispositivo é suspeito para validações adicionais
+     if (deviceAnalysis?.riskScore > 0.7) {
+       req.requireEmailVerification = true;
+       req.securityNotice = 'Additional verification required due to security policies.';
+     }
+     
+     next();
+   },
+   authRateLimiter, 
+   firstAccess, 
+   securityLogging,
+   authController.register
+ );
  
 /**
 * @swagger
@@ -264,8 +306,49 @@ router.route('/refresh-token')
 *             schema:
 *               $ref: '#/components/schemas/ErrorResponse'
 */
+// Autenticação/Login com análise de device
 router.route('/token')
- .post(rateLimiter, firstAccess, authController.getToken);
+ .post(
+   deviceCheck,                         // Análise de dispositivo  
+   velocityCheck('login'),              // Verificação de velocity de login
+   (req, res, next) => {
+     // Logic de segurança para login
+     const deviceAnalysis = req.securityContext?.device;
+     const velocityAnalysis = req.securityContext?.velocity;
+     
+     if (!deviceAnalysis?.isKnownDevice && deviceAnalysis?.riskScore > 0.7) {
+       // Dispositivo novo com alto risco
+       logger.warn('Login from high-risk new device', {
+         deviceId: deviceAnalysis.deviceId,
+         riskScore: deviceAnalysis.riskScore,
+         ip: req.ip
+       });
+       
+       req.requireEmailVerification = true;
+       req.securityNotice = 'New device detected. Email verification will be required.';
+     }
+     
+     if (velocityAnalysis?.riskLevel === 'HIGH') {
+       logger.warn('High velocity login attempts', {
+         ip: req.ip,
+         attempts: velocityAnalysis.actions,
+         riskScore: velocityAnalysis.riskScore
+       });
+       
+       return res.status(429).json({
+         error: 'Too many login attempts. Please try again later.',
+         retryAfter: 900, // 15 minutes
+         riskLevel: velocityAnalysis.riskLevel
+       });
+     }
+     
+     next();
+   },
+   rateLimiter, 
+   firstAccess, 
+   securityLogging,
+   authController.getToken
+ );
 
  /**
 * @swagger

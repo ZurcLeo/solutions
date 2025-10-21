@@ -22,7 +22,8 @@ module.exports = (app) => {
     { path: '/api/users', handler: require('../../routes/user') },
     { path: '/api/video-sdk', handler: require('../../routes/videosdk') },
     { path: '/api/connections', handler: require('../../routes/connections') },
-    { path: '/api/webhook', handler: require('../../routes/webhook') }
+    { path: '/api/webhook', handler: require('../../routes/webhook') },
+    { path: '/api/security', handler: require('../../routes/security') }
     // Adicione todas as outras rotas aqui
   ];
 
