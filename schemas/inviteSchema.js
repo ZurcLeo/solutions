@@ -31,7 +31,12 @@ const sendInviteSchema = Joi.object({
   friendName: Joi.string().required().messages({
     'string.empty': 'Nome do amigo não pode estar vazio.',
     'any.required': 'Nome do amigo é obrigatório.',
-  })
+  }),
+  // Campos opcionais adicionados pelo InviteService
+  userId: Joi.string().optional(),
+  senderName: Joi.string().optional(),
+  senderEmail: Joi.string().email().optional(),
+  senderUid: Joi.string().optional()
 });
 
 module.exports = inviteSchema;
