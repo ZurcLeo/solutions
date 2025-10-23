@@ -21,4 +21,18 @@ const inviteSchema = Joi.object({
   headers: Joi.date().optional()
 });
 
+// Schema específico para envio de convites
+const sendInviteSchema = Joi.object({
+  email: Joi.string().email().required().messages({
+    'string.email': 'Email deve ser um endereço de email válido.',
+    'string.empty': 'Email não pode estar vazio.',
+    'any.required': 'Email é obrigatório.',
+  }),
+  friendName: Joi.string().required().messages({
+    'string.empty': 'Nome do amigo não pode estar vazio.',
+    'any.required': 'Nome do amigo é obrigatório.',
+  })
+});
+
 module.exports = inviteSchema;
+module.exports.sendInviteSchema = sendInviteSchema;

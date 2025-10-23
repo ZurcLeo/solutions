@@ -3,6 +3,7 @@ const router = express.Router();
 const verifyToken = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
 const inviteSchema = require('../schemas/inviteSchema');
+const { sendInviteSchema } = require('../schemas/inviteSchema');
 const inviteController = require('../controllers/inviteController');
 const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger');
@@ -138,7 +139,7 @@ router.post('/invalidate', verifyToken, writeLimit, validate(inviteSchema), invi
  *       500:
  *         description: Erro no servidor
  */
-router.post('/generate', verifyToken, writeLimit, validate(inviteSchema), inviteController.sendInvite);
+router.post('/generate', verifyToken, writeLimit, validate(sendInviteSchema), inviteController.sendInvite);
 
 /**
  * @swagger
