@@ -69,9 +69,7 @@ class Invite {
     logger.info(`Buscando convite com ID ${inviteId}`, {
       service: 'inviteModel',
       function: 'getById',
-      inviteId,
-      email,
-      nome
+      inviteId
     });
   
     try {
@@ -109,8 +107,6 @@ class Invite {
         service: 'inviteModel',
         function: 'getById',
         inviteId,
-        email,
-        nome,
         error: error.message
       });
 
