@@ -1,8 +1,9 @@
-// src/services/loanService.js
 const Emprestimos = require('../models/Emprestimos');
 const { logger } = require('../logger');
 const Caixinha = require('../models/Caixinhas');
 const disputeService = require('./disputeService');
+const { getFirestore } = require('../firebaseAdmin');
+const db = getFirestore();
 
 /**
  * Obtém todos os empréstimos de uma caixinha
@@ -96,6 +97,24 @@ const requestLoan = async (caixinhaId, loanData) => {
       valor: loanData.valor
     });
 
+    // 1. Verificar se o membro está ativo
+    const membroSnapshot = await db
+      .collection('caixinhas')
+      .doc(caixinhaId)
+      .collection('membros')
+      .where('userId', '==', loanData.userId)
+      .limit(1)
+      .get();
+
+    if (membroSnapshot.empty) {
+      throw new Error('Membro não encontrado nesta caixinha');
+    }
+
+    const membroData = membroSnapshot.docs[0].data();
+    if (membroData.status !== 'ativo' && membroData.active !== true) {
+      throw new Error('Membro inativo não pode solicitar empréstimo');
+    }
+
     // Verificar requisito de disputa
     const { requiresDispute } = await disputeService.checkDisputeRequirement(caixinhaId, 'LOAN_APPROVAL', loanData.userId);
     
@@ -134,7 +153,7 @@ const requestLoan = async (caixinhaId, loanData) => {
       };
     }
     
-    // Caso não seja necessária disputa, criar o empréstimo diretamente
+    // Caso não seja necessária disputa, criar the empréstimo diretamente
     const loan = await Emprestimos.create(caixinhaId, loanData);
     
     return {
@@ -173,46 +192,61 @@ const makePayment = async (caixinhaId, loanId, paymentData) => {
       valor: paymentData.valor
     });
 
-    // Verificar se empréstimo existe
-    const loan = await Emprestimos.getById(caixinhaId, loanId);
-    
-    if (!loan) {
-      const error = new Error('Empréstimo não encontrado');
-      error.statusCode = 404;
-      throw error;
-    }
-    
-    // Verificar status
-    if (loan.status !== 'aprovado' && loan.status !== 'parcial') {
-      const error = new Error(`Pagamento não pode ser registrado para empréstimo no status: ${loan.status}`);
-      error.statusCode = 400;
-      throw error;
-    }
-    
-    // Registrar pagamento
-    const updatedLoan = await Emprestimos.registrarPagamento(
-      caixinhaId, 
-      loanId, 
-      paymentData.valor, 
-      paymentData.observacao || ''
-    );
-    
-    // Atualizar saldo da caixinha
-    const caixinha = await Caixinha.getById(caixinhaId);
-    if (caixinha) {
-      // Supondo que exista um método para atualizar o saldo da caixinha
-      await Caixinha.updateBalance(caixinhaId, {
-        type: 'LOAN_PAYMENT',
-        amount: paymentData.valor,
-        loanId,
-        userId: loan.memberId
+    return await db.runTransaction(async (transaction) => {
+      // 1. Obter empréstimo
+      const loanRef = db.collection('caixinhas').doc(caixinhaId).collection('emprestimos').doc(loanId);
+      const loanDoc = await transaction.get(loanRef);
+      
+      if (!loanDoc.exists) {
+        throw new Error('Empréstimo não encontrado');
+      }
+      
+      const loan = loanDoc.data();
+      
+      // 2. Verificar status
+      if (loan.status !== 'aprovado' && loan.status !== 'parcial') {
+        throw new Error(`Pagamento não pode ser registrado para empréstimo no status: ${loan.status}`);
+      }
+      
+      // 3. Obter caixinha
+      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+      const caixinhaDoc = await transaction.get(caixinhaRef);
+      
+      if (!caixinhaDoc.exists) {
+        throw new Error('Caixinha não encontrada');
+      }
+      
+      const caixinha = caixinhaDoc.data();
+      
+      // 4. Calcular novo saldo do empréstimo
+      const valorPagoAnterior = (loan.parcelas || []).reduce((total, p) => total + p.valor, 0);
+      const novoValorPago = valorPagoAnterior + paymentData.valor;
+      const novoStatus = novoValorPago >= loan.valorTotal ? 'quitado' : 'parcial';
+      
+      const parcelas = [...(loan.parcelas || []), {
+        data: new Date().toISOString(),
+        valor: paymentData.valor,
+        observacao: paymentData.observacao || ''
+      }];
+      
+      // 5. Atualizar empréstimo e caixinha
+      transaction.update(loanRef, {
+        parcelas,
+        status: novoStatus,
+        valorPago: novoValorPago,
+        ...(novoStatus === 'quitado' && { dataQuitacao: new Date().toISOString() })
       });
-    }
-    
-    return {
-      success: true,
-      data: updatedLoan
-    };
+      
+      transaction.update(caixinhaRef, {
+        saldoTotal: (caixinha.saldoTotal || 0) + paymentData.valor,
+        dataUltimaAtualizacao: new Date().toISOString()
+      });
+      
+      return {
+        success: true,
+        data: { ...loan, id: loanId, status: novoStatus, parcelas }
+      };
+    });
   } catch (error) {
     logger.error('Erro ao registrar pagamento', {
       service: 'loanService',
@@ -244,46 +278,58 @@ const approveLoan = async (caixinhaId, loanId, adminId) => {
       adminId
     });
 
-    // Verificar se empréstimo existe
-    const loan = await Emprestimos.getById(caixinhaId, loanId);
-    
-    if (!loan) {
-      const error = new Error('Empréstimo não encontrado');
-      error.statusCode = 404;
-      throw error;
-    }
-    
-    // Verificar permissão do administrador
-    const caixinha = await Caixinha.getById(caixinhaId);
-    if (caixinha.adminId !== adminId) {
-      // Verificar se o adminId é membro da caixinha
-      const isMember = caixinha.members.includes(adminId);
+    return await db.runTransaction(async (transaction) => {
+      // 1. Obter empréstimo
+      const loanRef = db.collection('caixinhas').doc(caixinhaId).collection('emprestimos').doc(loanId);
+      const loanDoc = await transaction.get(loanRef);
       
-      if (!isMember) {
-        const error = new Error('Usuário não tem permissão para aprovar este empréstimo');
-        error.statusCode = 403;
-        throw error;
+      if (!loanDoc.exists) {
+        throw new Error('Empréstimo não encontrado');
       }
-    }
-    
-    // Aprovar empréstimo
-    const updatedLoan = await Emprestimos.aprovar(caixinhaId, loanId, adminId);
-    
-    // Atualizar saldo da caixinha
-    if (caixinha) {
-      // Supondo que exista um método para atualizar o saldo da caixinha
-      await Caixinha.updateBalance(caixinhaId, {
-        type: 'LOAN_APPROVAL',
-        amount: -loan.valorSolicitado, // Valor negativo para saída de dinheiro
-        loanId,
-        userId: loan.memberId
+      
+      const loan = loanDoc.data();
+      if (loan.status !== 'pendente') {
+        throw new Error(`Empréstimo não pode ser aprovado no status: ${loan.status}`);
+      }
+      
+      // 2. Obter caixinha e verificar permissão e saldo
+      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
+      const caixinhaDoc = await transaction.get(caixinhaRef);
+      
+      if (!caixinhaDoc.exists) {
+        throw new Error('Caixinha não encontrada');
+      }
+      
+      const caixinha = caixinhaDoc.data();
+      
+      // Verificar permissão (admin ou membro autorizado)
+      if (caixinha.adminId !== adminId && !(caixinha.members || []).includes(adminId)) {
+        throw new Error('Usuário não tem permissão para aprovar este empréstimo');
+      }
+      
+      // VERIFICAR SALDO (Invariante: saldoTotal nunca vai negativo)
+      const valorSolicitado = loan.valorSolicitado || loan.valor;
+      if ((caixinha.saldoTotal || 0) < valorSolicitado) {
+        throw new Error('Saldo insuficiente na caixinha');
+      }
+      
+      // 3. Atualizar empréstimo e caixinha (ATOMICIDADE)
+      transaction.update(loanRef, {
+        status: 'aprovado',
+        dataAprovacao: new Date().toISOString(),
+        adminAprovador: adminId
       });
-    }
-    
-    return {
-      success: true,
-      data: updatedLoan
-    };
+      
+      transaction.update(caixinhaRef, {
+        saldoTotal: caixinha.saldoTotal - valorSolicitado,
+        dataUltimaAtualizacao: new Date().toISOString()
+      });
+      
+      return {
+        success: true,
+        data: { ...loan, id: loanId, status: 'aprovado' }
+      };
+    });
   } catch (error) {
     logger.error('Erro ao aprovar empréstimo', {
       service: 'loanService',
@@ -318,29 +364,20 @@ const rejectLoan = async (caixinhaId, loanId, adminId, reason = '') => {
       reason
     });
 
-    // Verificar se empréstimo existe
-    const loan = await Emprestimos.getById(caixinhaId, loanId);
-    
-    if (!loan) {
-      const error = new Error('Empréstimo não encontrado');
-      error.statusCode = 404;
-      throw error;
-    }
-    
-    // Verificar permissão do administrador
+    // Verificar permissão e status antes de rejeitar
     const caixinha = await Caixinha.getById(caixinhaId);
-    if (caixinha.adminId !== adminId) {
-      // Verificar se o adminId é membro da caixinha
-      const isMember = caixinha.members.includes(adminId);
-      
-      if (!isMember) {
-        const error = new Error('Usuário não tem permissão para rejeitar este empréstimo');
-        error.statusCode = 403;
-        throw error;
-      }
+    if (caixinha.adminId !== adminId && !(caixinha.members || []).includes(adminId)) {
+      throw new Error('Usuário não tem permissão para rejeitar este empréstimo');
     }
-    
-    // Rejeitar empréstimo
+
+    const loan = await Emprestimos.getById(caixinhaId, loanId);
+    if (!loan) {
+      throw new Error('Empréstimo não encontrado');
+    }
+    if (loan.status !== 'pendente') {
+      throw new Error(`Empréstimo não pode ser rejeitado no status: ${loan.status}`);
+    }
+
     const updatedLoan = await Emprestimos.rejeitar(caixinhaId, loanId, adminId, reason);
     
     return {

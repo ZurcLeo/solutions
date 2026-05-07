@@ -1,0 +1,60 @@
+# Dependências (reinstaladas no build)
+node_modules/
+
+# Git
+.git/
+.gitignore
+
+# Certificados SSL locais (Fly.io termina SSL na borda)
+certificates/
+*.crt
+*.key
+*.pem
+*.srl
+*.csr
+
+# Dados de usuário (não pertencem à imagem)
+fotoDePerfil/
+
+# Dados de runtime (gerados em startup via initializeLocalData)
+data/
+
+# Logs de runtime
+log/
+logs/
+*.log
+combined.log
+debug.txt
+
+# Arquivos sensíveis
+.env
+.env.*
+serviceAccountKey.json
+secure-keys.txt
+
+# Dados JSON de estado local (não são código)
+blacklist.json
+convites.json
+conexoes.json
+mensagens.json
+notificacoes.json
+postagens.json
+presentes.json
+publico.json
+usuario.json
+mail.json
+
+# Documentação gerada
+docs/
+examples/
+
+# Scripts de desenvolvimento
+nodemon.json
+jsdoc.json
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Testes e ferramentas de desenvolvimento
+coverage/

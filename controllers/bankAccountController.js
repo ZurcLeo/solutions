@@ -1,6 +1,7 @@
 const BankAccount = require('../models/BankAccount');
 const paymentService = require('../services/paymentService');
 const { logger } = require('../logger');
+const { securityValidation } = require('../schemas/bankAccountSchema');
 
 /**
  * Registra uma nova conta bancária para uma caixinha.
@@ -17,8 +18,32 @@ exports.createBankAccount = async (req, res) => {
     caixinhaId,
   });
 
-  if (!accountHolder || !pixKeyType || !pixKey || !accountType || !bankName || !adminId || !accountNumber || !bankCode || !agency) {
-    return res.status(400).json({ message: 'Dados obrigatórios estão faltando.' });
+  // Validação básica já é feita pelo middleware Joi
+  // Validação adicional de segurança
+  try {
+    const securityCheck = securityValidation(req.body);
+    if (securityCheck.warnings.length > 0) {
+      logger.warn('Avisos de segurança ao criar conta bancária', {
+        controller: 'BankAccountController',
+        method: 'createBankAccount',
+        adminId,
+        caixinhaId,
+        warnings: securityCheck.warnings
+      });
+    }
+  } catch (securityError) {
+    logger.error('Falha na validação de segurança', {
+      controller: 'BankAccountController',
+      method: 'createBankAccount',
+      adminId,
+      caixinhaId,
+      error: securityError.message
+    });
+    return res.status(400).json({
+      success: false,
+      message: 'Dados bancários contêm padrões suspeitos',
+      error: securityError.message
+    });
   }
 
   try {

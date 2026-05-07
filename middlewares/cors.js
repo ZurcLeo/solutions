@@ -2,17 +2,19 @@ const cors = require('cors');
 const { logger } = require('../logger');
 
 // Separar origens por ambiente para melhor controle
+// CORS_ADDITIONAL_ORIGIN: injete via variável de ambiente para adicionar
+// URLs de infraestrutura (ex: URL do Fly.io) sem hardcode no código.
 const productionOrigins = [
   'https://eloscloud.com',
   'https://eloscloud.com.br',
-  'https://backend-elos.onrender.com',
   'https://api.eloscloud.com',
   'https://accounts.google.com',
   'https://elossolucoescloud-1804e.firebaseapp.com',
   'https://oauth2.googleapis.com',
   'https://apis.google.com',
-  'https://www.googleapis.com'
-];
+  'https://www.googleapis.com',
+  process.env.CORS_ADDITIONAL_ORIGIN,
+].filter(Boolean);
 
 const developmentOrigins = [
   'http://localhost:3000',

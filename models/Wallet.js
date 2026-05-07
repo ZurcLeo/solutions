@@ -10,6 +10,13 @@ class Wallet {
       this.lastUpdated = data.lastUpdated || new Date();
     }
   
+    static async findByUserId(userId) {
+      const db = getFirestore();
+      const doc = await db.collection('wallets').doc(userId).get();
+      if (!doc.exists) return null;
+      return new Wallet({ ...doc.data(), userId });
+    }
+
     static async updateBalance(userId, amount, type) {
       const db = getFirestore();
       const walletRef = db.collection('wallets').doc(userId);

@@ -256,13 +256,17 @@ const invalidateInvite = async (inviteId, newUserId) => {
     
     // Enviar email de boas-vindas
     // await sendWelcomeEmail(invite.email, invite.friendName);
-    
+
     await emailService.sendEmail({
       to: invite.email,
       subject: '[ElosCloud] Embarque realizado com sucesso',
-      userId: newUserRef.uid,
-      inviteId,
-      templateType: 'welcome'
+      templateType: 'welcome',
+      data: {
+        friendName: invite.friendName
+      },
+      userId: newUserId,
+      reference: inviteId,
+      referenceType: 'invite'
     });
 
 const notificationData = {
@@ -616,24 +620,28 @@ const resendInvite = async (inviteId, userId) => {
       lastSentAt: new Date(),
       resendCount: (invite.resendCount || 0) + 1
     });
-    
-    // Gerar e enviar email de lembrete
-    const emailContent = await prepareReminderEmailContent({
-      inviteId,
-      qrCodeBuffer,
-      maskedHashedInviteId,
-      senderName: sender.nome,
-      senderPhotoURL: sender.fotoDoPerfil || '',
-      friendName: invite.friendName
-    });
-    
+
+    // Calcular data de expiração
+    const createdAt = moment(invite.createdAt.toDate());
+    const expiresAt = createdAt.clone().add(INVITE_EXPIRATION_DAYS, 'days');
+
+    // Enviar email de lembrete usando o novo sistema de templates
     await emailService.sendEmail({
       to: invite.email,
       subject: '[ElosCloud] Lembrete de Convite',
-      content: emailContent,
+      templateType: 'convite_lembrete',
+      data: {
+        inviteId,
+        qrCodeBuffer,
+        maskedHashedInviteId,
+        senderName: sender.nome,
+        senderPhotoURL: sender.fotoDoPerfil || '',
+        friendName: invite.friendName,
+        expiresAt: expiresAt.format('DD/MM/YYYY')
+      },
       userId,
-      inviteId,
-      type: 'convite_lembrete'
+      reference: inviteId,
+      referenceType: 'invite'
     });
     
     // Criar notificação
