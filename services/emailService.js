@@ -94,9 +94,10 @@ const emailService = {
       };
     }
     
+    let emailRecord = null;
     try {
       // 2. Create email record in Firestore first
-      const emailRecord = await Email.create({
+      emailRecord = await Email.create({
         to,
         subject,
         templateType,
@@ -147,8 +148,8 @@ const emailService = {
       };
     } catch (error) {
       // If we have an email record, update its status to error
-      if (params.emailId) {
-        await Email.updateStatus(params.emailId, 'error', {
+      if (emailRecord && emailRecord.id) {
+        await Email.updateStatus(emailRecord.id, 'error', {
           error: error.message
         });
       }

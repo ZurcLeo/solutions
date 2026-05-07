@@ -448,7 +448,7 @@ const generateAndSendInvite = async (userId, email, friendName) => {
       senderPhotoURL: user.fotoDoPerfil || '',
       status: 'pending',
       createdAt: new Date(),
-      lastSentAt: new Date(),
+      lastSentAt: null,
       resendCount: 0
     };
     
@@ -504,13 +504,14 @@ const generateAndSendInvite = async (userId, email, friendName) => {
     });
     // ----------------------------------------
 
-    if (!emailResult.success) {
-      logger.warn('Erro ao enviar email de convite', {
+    if (emailResult.success) {
+      await inviteRef.update({ lastSentAt: new Date() });
+    } else {
+      logger.warn('Erro ao enviar email de convite — lastSentAt não atualizado, reenvio liberado', {
         error: emailResult.error,
         inviteId,
         email
       });
-      // Continuamos mesmo com erro no email, pois o convite foi criado
     }
     const notificationData = {
       type: 'convite',
