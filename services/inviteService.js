@@ -25,12 +25,50 @@ const User = require('../models/User');
 const emailService = require('./emailService');
 const notificationService = require('./notificationService');
 const { HttpError } = require('../utils/errors');
-const { getFirestore } = require('../firebaseAdmin');
+const { getFirestore, getStorage } = require('../firebaseAdmin');
+const { userExistsByEmail } = require('../utils/firebaseAuthUtils');
 
 // Configurações
 const INVITE_EXPIRATION_DAYS = 5;
 const RESEND_COOLDOWN_HOURS = 1;
 const MAX_PENDING_INVITES_PER_USER = 10;
+
+/**
+ * Gera o PNG do QR Code, faz upload para o Firebase Storage e retorna a URL pública.
+ * @param {string} inviteId
+ * @param {string} targetUrl - URL de destino que o QR Code aponta
+ * @returns {Promise<string>} URL pública do QR Code
+ */
+const uploadQRCodeToStorage = async (inviteId, targetUrl) => {
+  const pngBuffer = await QRCode.toBuffer(targetUrl, { type: 'png', width: 300 });
+  const bucket = getStorage();
+  const filePath = `qrcodes/${inviteId}.png`;
+  const file = bucket.file(filePath);
+  await file.save(pngBuffer, {
+    contentType: 'image/png',
+    public: true,
+    metadata: { cacheControl: 'public, max-age=31536000' }
+  });
+  return `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+};
+
+/**
+ * Remove o arquivo de QR Code do Firebase Storage (fire-and-forget).
+ * @param {string} inviteId
+ */
+const deleteQRCodeFromStorage = async (inviteId) => {
+  try {
+    const bucket = getStorage();
+    await bucket.file(`qrcodes/${inviteId}.png`).delete();
+    logger.info('QR Code removido do Storage', { service: 'inviteService', inviteId });
+  } catch (err) {
+    logger.warn('Falha ao remover QR Code do Storage', {
+      service: 'inviteService',
+      inviteId,
+      error: err.message
+    });
+  }
+};
 const BASE_URL = process.env.NODE_ENV === 'development' 
   ? 'https://localhost:3000'
   : 'https://eloscloud.com';
@@ -128,8 +166,8 @@ const validateInvite = async (inviteId, email, nome) => {
     
     const { invite, inviteRef } = await Invite.getById(inviteId);
     
-    // Verificar nome do amigo
-    if (invite.friendName.toLowerCase() !== nome.toLowerCase()) {
+    // Verificar nome do amigo (skip se friendName estiver vazio — convites originados de caixinha)
+    if (invite.friendName && invite.friendName.toLowerCase() !== nome.toLowerCase()) {
       throw new HttpError('Nome não corresponde ao convite', 400);
     }
     
@@ -254,12 +292,15 @@ const invalidateInvite = async (inviteId, newUserId) => {
       });
     });
     
+    // Remover QR Code do Storage (convite consumido, arquivo não é mais necessário)
+    deleteQRCodeFromStorage(inviteId);
+
     // Enviar email de boas-vindas
     // await sendWelcomeEmail(invite.email, invite.friendName);
 
     await emailService.sendEmail({
       to: invite.email,
-      subject: '[ElosCloud] Embarque realizado com sucesso',
+      subject: 'Embarque realizado com sucesso na ElosCloud',
       templateType: 'welcome',
       data: {
         friendName: invite.friendName
@@ -280,7 +321,11 @@ const userId = invite.senderId;
     // Notificar remetente
     await notificationService.createNotification(userId, notificationData);
     
-    return { success: true };
+    return {
+      success: true,
+      caxinhaInviteId: invite.caxinhaInviteId || null,
+      caixinhaId: invite.caixinhaId || null
+    };
   } catch (error) {
     logger.error('Erro ao invalidar convite', {
       service: 'inviteService',
@@ -324,19 +369,28 @@ const canSendInvite = async (userId, email) => {
       throw new HttpError('Usuário não encontrado', 404);
     }
     
-    // 2. Verificar limite de convites pendentes
+    // 2. Verificar se o email do destinatário já está cadastrado no Firebase Auth
+    const alreadyRegistered = await userExistsByEmail(email);
+    if (alreadyRegistered) {
+      return {
+        canSend: false,
+        message: 'Este email já possui uma conta cadastrada'
+      };
+    }
+
+    // 3. Verificar limite de convites pendentes
     const pendingInvites = await Invite.getPendingBySender(userId);
-    
+
     if (pendingInvites.length >= MAX_PENDING_INVITES_PER_USER) {
       return {
         canSend: false,
         message: `Você atingiu o limite de ${MAX_PENDING_INVITES_PER_USER} convites pendentes`
       };
     }
-    
-    // 3. Verificar se já existe convite para este email
+
+    // 4. Verificar se já existe convite para este email
     const existingInvite = await Invite.findByEmail(email);
-    
+
     if (!existingInvite) {
       // Não existe convite, pode enviar
       return {
@@ -344,15 +398,22 @@ const canSendInvite = async (userId, email) => {
         user
       };
     }
-    
-    // 4. Se já existe convite, verificar status
+
+    // 5. Se já existe convite, verificar status
     if (existingInvite.status === 'used') {
       return {
         canSend: false,
         message: 'Este email já foi registrado através de um convite'
       };
     }
-    
+
+    if (existingInvite.status === 'validated') {
+      return {
+        canSend: false,
+        message: 'Este email já está em processo de registro'
+      };
+    }
+
     if (existingInvite.status === 'pending') {
       // Verificar se é do mesmo remetente
       if (existingInvite.senderId !== userId) {
@@ -455,10 +516,10 @@ const generateAndSendInvite = async (userId, email, friendName) => {
     // Criar documento do convite
     const inviteRef = db.collection('convites').doc();
     
-    // Criar QR Code
+    // Gerar QR Code e armazenar no Storage
     const qrCodeUrl = `${BASE_URL}/invite/validate/${inviteId}`;
-    const qrCodeBuffer = await QRCode.toDataURL(qrCodeUrl);
-    
+    const qrCodeBuffer = await uploadQRCodeToStorage(inviteId, qrCodeUrl);
+
     // Adicionar hash para segurança
     const hashedInviteId = crypto
       .createHash('sha256')
@@ -487,7 +548,7 @@ const generateAndSendInvite = async (userId, email, friendName) => {
     const emailService = require('../services/emailService');
     const emailResult = await emailService.sendEmail({
       to: email,
-      subject: '[ElosCloud] Bilhete de Embarque',
+      subject: 'Seu convite para a ElosCloud chegou',
       templateType: 'convite',
       data: {
         inviteId,
@@ -602,10 +663,15 @@ const resendInvite = async (inviteId, userId) => {
     // Carregar dados do remetente
     const sender = await User.getById(userId);
     
-    // Criar QR Code
-    const qrCodeUrl = `${BASE_URL}/invite/validate/${inviteId}`;
-    const qrCodeBuffer = await QRCode.toDataURL(qrCodeUrl);
-    
+    // Reutilizar QR Code já armazenado ou regenerar se não encontrado
+    const qrCodeTargetUrl = `${BASE_URL}/invite/validate/${inviteId}`;
+    const bucket = getStorage();
+    const qrFilePath = `qrcodes/${inviteId}.png`;
+    const [qrExists] = await bucket.file(qrFilePath).exists();
+    const qrCodeBuffer = qrExists
+      ? `https://storage.googleapis.com/${bucket.name}/${qrFilePath}`
+      : await uploadQRCodeToStorage(inviteId, qrCodeTargetUrl);
+
     // Preparar hash para segurança
     const hashedInviteId = crypto
       .createHash('sha256')
@@ -629,7 +695,7 @@ const resendInvite = async (inviteId, userId) => {
     // Enviar email de lembrete usando o novo sistema de templates
     await emailService.sendEmail({
       to: invite.email,
-      subject: '[ElosCloud] Lembrete de Convite',
+      subject: 'Lembrete: você tem um convite pendente na ElosCloud',
       templateType: 'convite_lembrete',
       data: {
         inviteId,
@@ -717,9 +783,10 @@ const getSentInvites = async (userId) => {
         expiresAt: expiresAt.format('DD/MM/YYYY'),
         timeRemaining: isExpired ? 'Expirado' : expiresAt.fromNow(),
         statusDisplay: isExpired ? 'expired' : invite.status,
-        canResend: 
-          invite.status === 'pending' && 
-          !isExpired && 
+        canCancel: invite.status === 'pending' && !isExpired,
+        canResend:
+          invite.status === 'pending' &&
+          !isExpired &&
           (!invite.lastSentAt || moment().diff(moment(invite.lastSentAt.toDate()), 'hours') >= RESEND_COOLDOWN_HOURS)
       };
     });
@@ -781,7 +848,10 @@ const cancelInvite = async (inviteId, userId) => {
       canceledAt: new Date(),
       canceledBy: userId
     });
-    
+
+    // Remover QR Code do Storage (convite cancelado, arquivo não é mais necessário)
+    deleteQRCodeFromStorage(inviteId);
+
     logger.info('Convite cancelado com sucesso', {
       service: 'inviteService',
       function: 'cancelInvite',
@@ -857,6 +927,75 @@ const getInviteById = async (inviteId) => {
   }
 };
 
+/**
+ * Cria um convite de plataforma vinculado a um convite de caixinha por email.
+ * Usado internamente pelo CaixinhaInviteService para garantir que o link enviado
+ * aponte para /invite/validate/:inviteId (rota existente), não para /convite/:id.
+ */
+const createInviteForCaixinha = async ({
+  senderId, senderName, senderPhotoURL,
+  email, caxinhaInviteId, caixinhaId, caixinha, message
+}) => {
+  const db = getFirestore();
+
+  // Verificar se já existe um convite de plataforma pendente para este email
+  const existingInvite = await Invite.findByEmail(email);
+  if (existingInvite && existingInvite.status === 'pending') {
+    // Apenas injeta os metadados de caixinha no convite existente
+    await db.collection('convites').doc(existingInvite.id).update({
+      caxinhaInviteId,
+      caixinhaId
+    });
+    return { inviteId: existingInvite.inviteId };
+  }
+
+  // Criar novo convite de plataforma
+  const inviteId = uuidv4();
+  const expiresAt = moment().add(INVITE_EXPIRATION_DAYS, 'days').toDate();
+
+  await db.collection('convites').add({
+    inviteId,
+    email: email.toLowerCase(),
+    friendName: '',
+    senderId,
+    senderName,
+    senderPhotoURL: senderPhotoURL || '',
+    status: 'pending',
+    createdAt: new Date(),
+    expiresAt,
+    lastSentAt: null,
+    resendCount: 0,
+    caxinhaInviteId,
+    caixinhaId
+  });
+
+  // Enviar email com template de caixinha mas link correto da plataforma
+  const inviteLink = `${process.env.FRONTEND_URL}/invite/validate/${inviteId}`;
+  const expirationDate = new Date(Date.now() + INVITE_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
+
+  await emailService.sendEmail({
+    to: email,
+    subject: `${senderName} convidou você para a ElosCloud`,
+    templateType: 'caixinha_invite',
+    data: {
+      caixinhaNome: caixinha.nome,
+      caixinhaDescricao: caixinha.descricao,
+      contribuicaoMensal: caixinha.contribuicaoMensal,
+      senderName,
+      senderPhotoURL: senderPhotoURL || '',
+      recipientName: '',
+      message,
+      inviteLink,
+      expirationDate: expirationDate.toLocaleDateString('pt-BR')
+    },
+    userId: senderId,
+    reference: inviteId,
+    referenceType: 'invite'
+  });
+
+  return { inviteId };
+};
+
 // ========== FUNÇÕES AUXILIARES INTERNAS ==========
 
 /**
@@ -889,12 +1028,13 @@ const generateRegistrationToken = (inviteId, email) => {
 
 module.exports = {
   checkInvite,
-  validateInvite, 
+  validateInvite,
   invalidateInvite,
   generateAndSendInvite,
   resendInvite,
   getSentInvites,
   cancelInvite,
   canSendInvite,
-  getInviteById
+  getInviteById,
+  createInviteForCaixinha
 };

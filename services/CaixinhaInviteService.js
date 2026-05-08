@@ -18,6 +18,7 @@ const notificationService = require('../services/notificationService')
 // const Membro = require('../models/Membro')
 const { logger } = require('../logger');
 const emailService = require('./emailService');
+const inviteService = require('./inviteService');
 
 class CaixinhaInviteService {
   /**
@@ -255,13 +256,17 @@ class CaixinhaInviteService {
         createdAt: new Date()
       });
       
-      // Enviar email com convite
-      await this._sendInviteEmail({
-        caixinha,
-        sender,
+      // Criar convite de plataforma vinculado a este convite de caixinha
+      // (garante link correto: /invite/validate/:id em vez de /convite/:id)
+      await inviteService.createInviteForCaixinha({
+        senderId: data.senderId,
+        senderName: sender.nome || sender.displayName,
+        senderPhotoURL: sender.fotoPerfil || '',
         email: data.email,
-        message: data.message,
-        caxinhaInviteId: invite.id
+        caxinhaInviteId: invite.id,
+        caixinhaId: data.caixinhaId,
+        caixinha,
+        message: data.message
       });
       
       return {
@@ -1095,6 +1100,65 @@ async _sendInviteNotification(data) {
     } catch (error) {
       logger.error('Erro ao verificar convites expirados:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Vincula um convite de caixinha (tipo email) ao usuário recém-registrado.
+   * Chamado pelo authController após invalidação do convite de plataforma.
+   */
+  async linkToRegisteredUser(caxinhaInviteId, caixinhaId, userId) {
+    try {
+      const inviteRef = db
+        .collection('caixinhas').doc(caixinhaId)
+        .collection('pendingRequests').doc(caxinhaInviteId);
+
+      const inviteDoc = await inviteRef.get();
+      if (!inviteDoc.exists || inviteDoc.data().status !== 'pending') {
+        logger.warn('linkToRegisteredUser: convite não encontrado ou já processado', {
+          caxinhaInviteId, caixinhaId, userId
+        });
+        return;
+      }
+
+      const invite = inviteDoc.data();
+      const batch = db.batch();
+
+      // Atualizar targetId no pendingRequests da caixinha
+      batch.update(inviteRef, { targetId: userId });
+
+      // Criar entrada em usuario/{userId}/pendingCaixinhaInvites
+      const userInviteRef = db
+        .collection('usuario').doc(userId)
+        .collection('pendingCaixinhaInvites').doc(caxinhaInviteId);
+
+      batch.set(userInviteRef, {
+        ...invite,
+        targetId: userId,
+        id: caxinhaInviteId
+      });
+
+      await batch.commit();
+
+      // Notificar via Socket.IO (realtime) — fire-and-forget
+      try {
+        await this._sendInviteNotification({
+          caixinhaId,
+          type: 'new_invite',
+          userId: invite.senderId,
+          targetId: userId,
+          status: 'pending'
+        });
+      } catch (notifError) {
+        logger.warn('linkToRegisteredUser: erro ao enviar notificação', notifError);
+      }
+
+      logger.info('linkToRegisteredUser: convite vinculado ao novo usuário', {
+        caxinhaInviteId, caixinhaId, userId
+      });
+    } catch (error) {
+      // Não propagar — o registro do usuário já foi concluído com sucesso
+      logger.error('linkToRegisteredUser: erro', error);
     }
   }
 

@@ -14,7 +14,8 @@
 const { getAuth } = require('../firebaseAdmin');
 const jwt = require('jsonwebtoken');
 const authService = require('../services/authService');
-const inviteService = require('../services/inviteService')
+const inviteService = require('../services/inviteService');
+const caixinhaInviteService = require('../services/CaixinhaInviteService');
 const userService = require('../services/userService');
 const { generateToken, generateRefreshToken } = require('../services/authService');
 const { logger } = require('../logger');
@@ -306,7 +307,16 @@ exports.register = async (req, res) => {
     
     // 2. Verificar e invalidar o convite (se fornecido)
     if (inviteId) {
-      await inviteService.invalidateInvite(inviteId, userId);
+      const inviteResult = await inviteService.invalidateInvite(inviteId, userId);
+
+      // Bridge: se o convite de plataforma veio de um convite de caixinha, vincular o usuário
+      if (inviteResult.caxinhaInviteId && inviteResult.caixinhaId) {
+        await caixinhaInviteService.linkToRegisteredUser(
+          inviteResult.caxinhaInviteId,
+          inviteResult.caixinhaId,
+          userId
+        );
+      }
     }
 
     // 4. Gerar token JWT da aplicação
