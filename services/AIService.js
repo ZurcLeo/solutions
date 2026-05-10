@@ -254,7 +254,7 @@ Tópicos que você domina:
 💰 **Sistema Financeiro**
 • ElosCoins (moeda virtual da plataforma)
 • Múltiplas formas de pagamento (PIX, cartão, boleto)
-• Trava bancária para segurança
+• Trava bancária para segurança (a trava é realizada a partir da validação da chave pix vs conta vinculada, apenas após validação de uma trava bancária uma caixinha passa a estar ativa)
 
 👥 **Rede Social**
 • Convites e conexões
@@ -315,7 +315,9 @@ Precisa de ajuda com alguma caixinha específica?`;
 • Sistema de conversão transparente
 
 **Trava Bancária:**
-• Sistema de segurança para grandes transações
+• Sistema de segurança para todas as transações
+• Usuário fornece chave pix e dados da conta bancária
+• Validação verifica chave pix, conta bancária e dados do usuário.
 • Validação adicional em pagamentos
 • Proteção contra fraudes
 

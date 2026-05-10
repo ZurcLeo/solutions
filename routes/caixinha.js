@@ -1285,11 +1285,26 @@ router.post('/:caixinhaId/emprestimos/:loanId/aprovar',
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:caixinhaId/emprestimos/:loanId/rejeitar', 
-  verifyToken, 
+router.post('/:caixinhaId/emprestimos/:loanId/rejeitar',
+  verifyToken,
   validate(loanSchema.reject),
-  writeLimit, 
+  writeLimit,
   loanController.rejectLoan);
+
+router.post('/:caixinhaId/contribuicao',
+  verifyToken,
+  writeLimit,
+  caixinhaController.addContribuicao);
+
+router.get('/:caixinhaId/contribuicoes',
+  verifyToken,
+  readLimit,
+  caixinhaController.getContribuicoes);
+
+router.get('/:caixinhaId/relatorio',
+  verifyToken,
+  readLimit,
+  caixinhaController.gerarRelatorio);
 
 
 module.exports = router;

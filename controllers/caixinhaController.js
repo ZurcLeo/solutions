@@ -361,7 +361,7 @@ const getCaixinhas = async (req, res) => {
         controller: 'CaixinhaController',
         method: 'addContribuicao',
         caixinhaId,
-        userId: req.user.ucaixinhaId,
+        userId: req.user.uid,
         data: req.body
       });
 
@@ -369,7 +369,7 @@ const getCaixinhas = async (req, res) => {
         caixinhaId,
         {
           ...req.body,
-          membroId: req.user.ucaixinhaId
+          membroId: req.user.uid
         }
       );
 
@@ -505,6 +505,42 @@ const gerenciarMembros = async (req, res) => {
     }
   }
 
+  const getContribuicoes = async (req, res) => {
+    const { caixinhaId } = req.params;
+    const { membroId, dataInicio, dataFim } = req.query;
+
+    try {
+      logger.info('Buscando contribuições', {
+        controller: 'CaixinhaController',
+        method: 'getContribuicoes',
+        caixinhaId,
+        userId: req.user.uid
+      });
+
+      const filtros = {};
+      if (membroId) filtros.membroId = membroId;
+      if (dataInicio) filtros.dataInicio = new Date(dataInicio);
+      if (dataFim) filtros.dataFim = new Date(dataFim);
+
+      const contribuicoes = await ContribuicaoService.getContribuicoesByCaixinha(caixinhaId, filtros);
+
+      res.status(200).json(contribuicoes);
+    } catch (error) {
+      logger.error('Erro ao buscar contribuições', {
+        controller: 'CaixinhaController',
+        method: 'getContribuicoes',
+        caixinhaId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        message: 'Erro ao buscar contribuições',
+        error: error.message
+      });
+    }
+  };
+
   module.exports = {
     getCaixinhas,
     gerenciarEmprestimos,
@@ -515,6 +551,7 @@ const gerenciarMembros = async (req, res) => {
     updateCaixinha,
     deleteCaixinha,
     addContribuicao,
+    getContribuicoes,
     getMembers,
     gerenciarMembros
   }

@@ -1,4 +1,6 @@
 const paymentService = require('../services/paymentService');
+const asaasService = require('../services/asaasService');
+const ledgerService = require('../services/ledgerService');
 const BankAccount = require('../models/BankAccount');
 const { logger } = require('../logger');
 const crypto = require('crypto');
@@ -290,4 +292,127 @@ exports._verifyWebhookSignature = (req, signature) => {
 exports._validatePayerData = async (paymentData, bankAccount) => {
   const bankAccountController = require('./bankAccountController');
   return bankAccountController._validatePayerData(paymentData, bankAccount);
+};
+
+// ─── Asaas Webhook ────────────────────────────────────────────────────────────
+
+/**
+ * Webhook do Asaas para notificações de pagamento.
+ * Responde 200 imediatamente; processa em background.
+ * Rota: POST /api/webhook/asaas
+ */
+exports.asaasWebhook = async (req, res) => {
+  const { event, payment } = req.body;
+
+  logger.info('Webhook Asaas recebido', {
+    controller: 'WebhookController',
+    method: 'asaasWebhook',
+    event,
+    paymentId: payment?.id,
+    externalReference: payment?.externalReference,
+    action: 'ASAAS_WEBHOOK_RECEIVED'
+  });
+
+  // Validar token antes de qualquer coisa
+  if (!asaasService.validateWebhookToken(req)) {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
+
+  // Responder 200 imediatamente (Asaas exige resposta rápida)
+  res.status(200).json({ status: 'received' });
+
+  // Processar em background
+  setImmediate(async () => {
+    try {
+      await exports._processAsaasEvent(event, payment);
+    } catch (error) {
+      logger.error('Erro no processamento do webhook Asaas em background', {
+        controller: 'WebhookController',
+        method: 'asaasWebhook',
+        event,
+        paymentId: payment?.id,
+        error: error.message,
+        action: 'ASAAS_WEBHOOK_BACKGROUND_ERROR'
+      });
+    }
+  });
+};
+
+/**
+ * Processa eventos de pagamento do Asaas.
+ * PAYMENT_CONFIRMED e PAYMENT_RECEIVED são os eventos de crédito.
+ */
+exports._processAsaasEvent = async (event, payment) => {
+  const creditEvents = ['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'];
+
+  if (!creditEvents.includes(event)) {
+    logger.info('Evento Asaas ignorado', {
+      controller: 'WebhookController',
+      method: '_processAsaasEvent',
+      event,
+      action: 'ASAAS_EVENT_IGNORED'
+    });
+    return;
+  }
+
+  if (!payment?.externalReference) {
+    logger.warn('Webhook Asaas sem externalReference — não é contribuição de caixinha', {
+      controller: 'WebhookController',
+      method: '_processAsaasEvent',
+      paymentId: payment?.id,
+      event
+    });
+    return;
+  }
+
+  // externalReference = "{caixinhaId}:{userId}"
+  const parts = payment.externalReference.split(':');
+  if (parts.length !== 2) {
+    logger.warn('externalReference mal formatado', {
+      controller: 'WebhookController',
+      method: '_processAsaasEvent',
+      externalReference: payment.externalReference
+    });
+    return;
+  }
+
+  const [caixinhaId, userId] = parts;
+
+  logger.info('Creditando membro via webhook Asaas', {
+    controller: 'WebhookController',
+    method: '_processAsaasEvent',
+    paymentId: payment.id,
+    caixinhaId,
+    userId,
+    amount: payment.value,
+    event
+  });
+
+  const result = await ledgerService.creditMember({
+    caixinhaId,
+    userId,
+    amount: payment.value,
+    paymentId: payment.id,
+    description: `PIX confirmado — ${event}`
+  });
+
+  if (result.alreadyProcessed) {
+    logger.info('Webhook duplicado ignorado pelo ledger', {
+      controller: 'WebhookController',
+      method: '_processAsaasEvent',
+      paymentId: payment.id
+    });
+    return;
+  }
+
+  logger.info('Crédito registrado com sucesso via webhook Asaas', {
+    controller: 'WebhookController',
+    method: '_processAsaasEvent',
+    txId: result.txId,
+    paymentId: payment.id,
+    caixinhaId,
+    userId,
+    amount: payment.value,
+    action: 'ASAAS_CREDIT_SUCCESS'
+  });
 };

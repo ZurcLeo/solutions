@@ -15,6 +15,7 @@ const webhookLogger = (req, res, next) => {
     headers: {
       'x-signature': req.headers['x-signature'],
       'x-request-id': req.headers['x-request-id'],
+      'asaas-access-token': req.headers['asaas-access-token'] ? '[PRESENTE]' : '[AUSENTE]',
       'user-agent': req.headers['user-agent']
     },
     body: req.body,
@@ -28,6 +29,12 @@ const webhookLogger = (req, res, next) => {
  * Não requer autenticação pois é chamado pelo Mercado Pago
  */
 router.post('/mercadopago', webhookLogger, webhookController.mercadoPagoWebhook);
+
+/**
+ * Webhook do Asaas para notificações de pagamento PIX
+ * Não requer autenticação JWT — validação via asaas-access-token header
+ */
+router.post('/asaas', webhookLogger, webhookController.asaasWebhook);
 
 /**
  * Endpoint de teste para webhook (apenas em desenvolvimento)

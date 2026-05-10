@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const paymentsController = require('../controllers/paymentsController');
+const asaasController = require('../controllers/asaasController');
 const verifyToken = require('../middlewares/auth');
 const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger');
@@ -283,6 +284,58 @@ router.post('/card',
   writeLimit,
   securityLogging,
   paymentsController.createCardPayment
+);
+
+// ─── Rotas Asaas ──────────────────────────────────────────────────────────────
+
+// Criar cobrança PIX para contribuição (proteção máxima, igual ao PIX existente)
+router.post('/asaas/pix',
+  verifyToken,
+  deviceCheck,
+  velocityCheck('pix_payment'),
+  transactionAnalysis,
+  riskScoring,
+  (req, res, next) => {
+    if (req.securityContext?.riskProfile?.riskLevel === 'HIGH' ||
+        req.securityContext?.riskProfile?.riskLevel === 'CRITICAL') {
+      return res.status(202).json({
+        message: 'Transação requer verificação adicional',
+        requiresApproval: true,
+        riskLevel: req.securityContext.riskProfile.riskLevel
+      });
+    }
+    next();
+  },
+  securityLogging,
+  asaasController.createPixCharge
+);
+
+// Consultar status de pagamento Asaas
+router.get('/asaas/status/:paymentId',
+  verifyToken,
+  readLimit,
+  asaasController.getPaymentStatus
+);
+
+// Consultar saldo virtual do membro na caixinha
+router.get('/asaas/balance/:caixinhaId',
+  verifyToken,
+  readLimit,
+  asaasController.getMemberBalance
+);
+
+// Membro solicita saque
+router.post('/asaas/withdrawal/request',
+  verifyToken,
+  writeLimit,
+  asaasController.requestWithdrawal
+);
+
+// Admin aprova saque e executa transferência PIX
+router.post('/asaas/withdrawal/approve',
+  verifyToken,
+  writeLimit,
+  asaasController.approveWithdrawal
 );
 
 module.exports = router;

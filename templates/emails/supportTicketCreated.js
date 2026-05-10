@@ -43,7 +43,8 @@ module.exports = function(data) {
     general: 'Geral'
   };
 
-  const logoURL = process.env.LOGO_URL || "https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/logo.png";
+  const ASSETS_BASE_URL = process.env.ASSETS_BASE_URL || 'https://eloscloud.com';
+  const logoURL = process.env.LOGO_URL || `${ASSETS_BASE_URL}/assets/logo.png`;
 
   return `
   <!DOCTYPE html>

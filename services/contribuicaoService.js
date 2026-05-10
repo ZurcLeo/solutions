@@ -4,8 +4,51 @@
  * @requires firebaseAdmin
  * @requires ../logger
  */
-const { getFirestore } = require('../firebaseAdmin');
+const { getFirestore, FieldValue } = require('../firebaseAdmin');
 const { logger } = require('../logger');
+
+const db = getFirestore();
+
+// ─── Pré-validações ───────────────────────────────────────────────────────────
+
+const verificarMembroAtivo = async (caixinhaId, membroId) => {
+  const snapshot = await db
+    .collection('caixinhas')
+    .doc(caixinhaId)
+    .collection('membros')
+    .where('userId', '==', membroId)
+    .limit(1)
+    .get();
+
+  if (snapshot.empty) {
+    throw new Error('Membro não encontrado nesta caixinha.');
+  }
+
+  const { status } = snapshot.docs[0].data();
+  if (status !== 'ativo') {
+    throw new Error(`Membro com status '${status}' não pode realizar contribuições.`);
+  }
+};
+
+const verificarDuplicidade = async (caixinhaId, membroId) => {
+  const hoje = new Date();
+  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+
+  const snapshot = await db
+    .collection('caixinhas')
+    .doc(caixinhaId)
+    .collection('contribuicoes')
+    .where('membroId', '==', membroId)
+    .where('dataContribuicao', '>=', inicioMes)
+    .limit(5)
+    .get();
+
+  // Filtra no client para ignorar contribuições já estornadas
+  const ativa = snapshot.docs.find(doc => doc.data().status !== 'estornada');
+  if (ativa) {
+    throw new Error('Membro já realizou contribuição neste mês.');
+  }
+};
 
 /**
  * Registra uma nova contribuição para uma caixinha em uma transação.
@@ -30,6 +73,8 @@ exports.registrarContribuicao = async (caixinhaId, data) => {
 
   try {
     validarContribuicao(data);
+    await verificarMembroAtivo(caixinhaId, data.membroId);
+    await verificarDuplicidade(caixinhaId, data.membroId);
 
     const { contribuicaoRef, contribuicao } = await criarRegistroContribuicao(
       session,
@@ -44,11 +89,7 @@ exports.registrarContribuicao = async (caixinhaId, data) => {
       contribuicaoRef.id
     );
 
-    await atualizarSaldoCaixinha(
-      session,
-      caixinhaId,
-      data.valor
-    );
+    atualizarSaldoCaixinha(session, caixinhaId, data.valor);
 
     await session.commit();
 
@@ -257,13 +298,10 @@ const criarTransacaoContribuicao = async (session, caixinhaId, data, contribuica
  * @returns {Promise<void>}
  * @description Incrementa o `saldoTotal` e atualiza `dataUltimaContribuicao` no documento principal da caixinha.
  */
-const atualizarSaldoCaixinha = async (session, caixinhaId, valor) => {
+const atualizarSaldoCaixinha = (session, caixinhaId, valor) => {
   const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-  const caixinhaDoc = await caixinhaRef.get();
-  const saldoAtual = caixinhaDoc.data().saldoTotal || 0;
-
   session.update(caixinhaRef, {
-    saldoTotal: saldoAtual + valor,
+    saldoTotal: FieldValue.increment(valor),
     dataUltimaContribuicao: new Date()
   });
 };

@@ -4,17 +4,34 @@ const { v4: uuidv4 } = require('uuid');
 
 class PaymentService {
   constructor() {
+    // Inicialização lazy: não lança erro no startup se o token não estiver configurado.
+    // O erro será lançado apenas quando um método que requer MercadoPago for chamado.
     if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
-      throw new Error('MERCADOPAGO_ACCESS_TOKEN is not defined');
+      logger.warn('MERCADOPAGO_ACCESS_TOKEN não configurado — PaymentService em modo degradado', {
+        service: 'PaymentService'
+      });
+      this.client = null;
+      this.payment = null;
+    } else {
+      this.client = new MercadoPagoConfig({
+        accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN
+      });
+      this.payment = new Payment(this.client);
+    }
   }
-  
-  this.client = new MercadoPagoConfig({ 
-      accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
-  });
-  this.payment = new Payment(this.client);
-}
+
+  /**
+   * Garante que o cliente MercadoPago está disponível antes de usar.
+   * Chamado internamente pelos métodos que dependem da API do MercadoPago.
+   */
+  _requireMercadoPago() {
+    if (!this.payment || !this.client) {
+      throw new Error('MERCADOPAGO_ACCESS_TOKEN não está configurado. Configure a variável de ambiente para usar este recurso.');
+    }
+  }
 
   async createPixPayment(amount, description, payer, additionalData = {}) {
+    this._requireMercadoPago();
     try {
       // Validações obrigatórias para melhorar score de aprovação
       this._validatePayerData(payer);
@@ -92,6 +109,7 @@ class PaymentService {
   }
 
   async checkPaymentStatus(paymentId) {
+    this._requireMercadoPago();
     try {
       logger.info('Checking payment status', {
         service: 'PaymentService',
@@ -132,6 +150,7 @@ class PaymentService {
   }
 
   async createCardPayment(paymentData) {
+    this._requireMercadoPago();
     try {
       logger.info('Creating card payment', {
         service: 'PaymentService',

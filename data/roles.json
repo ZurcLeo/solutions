@@ -4,55 +4,55 @@
     "name": "Client",
     "description": "Usuário básico da plataforma",
     "isSystemRole": true,
-    "createdAt": "2025-08-07T16:00:59.769Z",
-    "updatedAt": "2025-08-07T16:00:59.769Z"
+    "createdAt": "2026-05-10T21:50:55.384Z",
+    "updatedAt": "2026-05-10T21:50:55.384Z"
   },
   "admin": {
     "id": "admin",
     "name": "Admin",
     "description": "Administrador do sistema com acesso completo",
     "isSystemRole": true,
-    "createdAt": "2025-08-07T16:00:59.769Z",
-    "updatedAt": "2025-08-07T16:00:59.769Z"
+    "createdAt": "2026-05-10T21:50:55.384Z",
+    "updatedAt": "2026-05-10T21:50:55.384Z"
   },
   "support": {
     "id": "support",
     "name": "Support",
     "description": "Equipe de suporte com acesso limitado a funções administrativas",
     "isSystemRole": true,
-    "createdAt": "2025-08-07T16:00:59.769Z",
-    "updatedAt": "2025-08-07T16:00:59.769Z"
+    "createdAt": "2026-05-10T21:50:55.384Z",
+    "updatedAt": "2026-05-10T21:50:55.384Z"
   },
   "seller": {
     "id": "seller",
     "name": "Seller",
     "description": "Vendedor com acesso ao marketplace",
     "isSystemRole": true,
-    "createdAt": "2025-08-07T16:00:59.769Z",
-    "updatedAt": "2025-08-07T16:00:59.769Z"
+    "createdAt": "2026-05-10T21:50:55.384Z",
+    "updatedAt": "2026-05-10T21:50:55.384Z"
   },
   "caixinhaManager": {
     "id": "caixinhaManager",
     "name": "CaixinhaManager",
     "description": "Administrador de uma caixinha específica",
     "isSystemRole": false,
-    "createdAt": "2025-08-07T16:00:59.769Z",
-    "updatedAt": "2025-08-07T16:00:59.769Z"
+    "createdAt": "2026-05-10T21:50:55.384Z",
+    "updatedAt": "2026-05-10T21:50:55.384Z"
   },
   "caixinhaMember": {
     "id": "caixinhaMember",
     "name": "CaixinhaMember",
     "description": "Membro de uma caixinha específica",
     "isSystemRole": false,
-    "createdAt": "2025-08-07T16:00:59.769Z",
-    "updatedAt": "2025-08-07T16:00:59.769Z"
+    "createdAt": "2026-05-10T21:50:55.384Z",
+    "updatedAt": "2026-05-10T21:50:55.384Z"
   },
   "caixinhaModerator": {
     "id": "caixinhaModerator",
     "name": "CaixinhaModerator",
     "description": "Moderador de uma caixinha específica",
     "isSystemRole": false,
-    "createdAt": "2025-08-07T16:00:59.769Z",
-    "updatedAt": "2025-08-07T16:00:59.769Z"
+    "createdAt": "2026-05-10T21:50:55.384Z",
+    "updatedAt": "2026-05-10T21:50:55.384Z"
   }
 }

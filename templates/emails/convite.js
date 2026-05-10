@@ -18,9 +18,12 @@ module.exports = function(data) {
     const qrCodeBuffer = data.qrCodeBuffer || '';
     const maskedHashedInviteId = data.maskedHashedInviteId || '';
     const senderName = data.senderName || 'Amigo';
-    const senderPhotoURL = data.senderPhotoURL || 'https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/default-profile.png';
+    const ASSETS_BASE_URL = process.env.ASSETS_BASE_URL || 'https://eloscloud.com';
+    const DEFAULT_PROFILE = `${ASSETS_BASE_URL}/assets/default-profile.png`;
+    const BG_IMAGE = `${ASSETS_BASE_URL}/assets/background_convite_eloscloud.png`;
+    const senderPhotoURL = data.senderPhotoURL || DEFAULT_PROFILE;
     const friendName = data.friendName || 'Amigo';
-    const friendFoto = data.friendFoto || 'https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/default-profile.png';
+    const friendFoto = data.friendFoto || DEFAULT_PROFILE;
     const expiresAt = data.expiresAt || '';
     
     // Backwards compatibility for content provided directly
@@ -111,7 +114,7 @@ module.exports = function(data) {
         <table width="100%" border="0" cellspacing="0" cellpadding="0">
           <tr>
             <td align="center" valign="top" style="padding: 10px;">
-              <table class="email-container" border="0" cellspacing="0" cellpadding="0" style="background: url('https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/emailPictures/background_convite_eloscloud.png?GoogleAccessId=firebase-adminsdk-xr3qw%40elossolucoescloud-1804e.iam.gserviceaccount.com&Expires=16447014000&Signature=URAP17re0vhIg8sObSblsd%2FVzk0OQ3lNB67LT6fPqWgZeMFjMcrqfQCs6tAO%2BPaxOB8Iu7DHjLcrDVHc%2Fw0cU%2F6Nw1zC5ay5d%2B993OwhjDLgWW6LIX086xaIHMXFxF8%2FBBUKSiTpFcSHMKfkSc6VY6XH%2FQcBhLzbQElxNO8RvHNugWFZxpXKtYSI1srP0daUOEr2diENDqrfup%2FcqhOC7C%2FtYPoz9qClmAHqHYjJ9ZeFqorh179S32FmuM7tBROQ2cANgNbX%2Fu08%2FgjNEX8SB1eCcCFRDPZ%2B1%2FQqGPu1kJ33Gf1sA5ZUHS5lWzgyxRkOBmcJ2504x7iRUCHZT9OE%2BA%3D%3D'); background-size: cover; opacity: 0.9; background-position: center; color: white;">
+              <table class="email-container" border="0" cellspacing="0" cellpadding="0" style="background: url('${BG_IMAGE}'); background-size: cover; opacity: 0.9; background-position: center; color: white;">
                 <tr>
                   <td align="center" valign="top" class="email-header">
                     BILHETE DE EMBARQUE
@@ -229,7 +232,7 @@ module.exports = function(data) {
       <table width="100%" border="0" cellspacing="0" cellpadding="0">
         <tr>
           <td align="center" valign="top" style="padding: 10px;">
-            <table class="email-container" border="0" cellspacing="0" cellpadding="0" style="background: url('https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/emailPictures/background_convite_eloscloud.png?GoogleAccessId=firebase-adminsdk-xr3qw%40elossolucoescloud-1804e.iam.gserviceaccount.com&Expires=16447014000&Signature=URAP17re0vhIg8sObSblsd%2FVzk0OQ3lNB67LT6fPqWgZeMFjMcrqfQCs6tAO%2BPaxOB8Iu7DHjLcrDVHc%2Fw0cU%2F6Nw1zC5ay5d%2B993OwhjDLgWW6LIX086xaIHMXFxF8%2FBBUKSiTpFcSHMKfkSc6VY6XH%2FQcBhLzbQElxNO8RvHNugWFZxpXKtYSI1srP0daUOEr2diENDqrfup%2FcqhOC7C%2FtYPoz9qClmAHqHYjJ9ZeFqorh179S32FmuM7tBROQ2cANgNbX%2Fu08%2FgjNEX8SB1eCcCFRDPZ%2B1%2FQqGPu1kJ33Gf1sA5ZUHS5lWzgyxRkOBmcJ2504x7iRUCHZT9OE%2BA%3D%3D'); background-size: cover; opacity: 0.9; background-position: center; color: white;">
+            <table class="email-container" border="0" cellspacing="0" cellpadding="0" style="background: url('${BG_IMAGE}'); background-size: cover; opacity: 0.9; background-position: center; color: white;">
               <tr>
                 <td align="center" valign="top" class="email-header">
                   BILHETE DE EMBARQUE

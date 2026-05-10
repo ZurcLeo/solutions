@@ -11,7 +11,8 @@ module.exports = function(data) {
     // Extract data with fallbacks
     const nome = data.nome || 'Novo Usuário';
     const email = data.email || '';
-    const logoURL = process.env.LOGO_URL || "https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/logo.png";
+    const ASSETS_BASE_URL = process.env.ASSETS_BASE_URL || 'https://eloscloud.com';
+    const logoURL = process.env.LOGO_URL || `${ASSETS_BASE_URL}/assets/logo.png`;
     
     return `
     <!DOCTYPE html>
