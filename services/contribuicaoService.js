@@ -124,6 +124,25 @@ exports.registrarContribuicao = async (caixinhaId, data) => {
  * @throws {Error} Se ocorrer um erro ao buscar as contribuições.
  * @description Constrói e executa uma query no banco de dados para recuperar contribuições de uma caixinha.
  */
+const construirQueryContribuicoes = (caixinhaId, filtros = {}) => {
+  let query = db
+    .collection('caixinhas')
+    .doc(caixinhaId)
+    .collection('contribuicoes');
+
+  if (filtros.membroId) {
+    query = query.where('membroId', '==', filtros.membroId);
+  }
+  if (filtros.dataInicio) {
+    query = query.where('dataContribuicao', '>=', filtros.dataInicio);
+  }
+  if (filtros.dataFim) {
+    query = query.where('dataContribuicao', '<=', filtros.dataFim);
+  }
+
+  return query;
+};
+
 exports.getContribuicoesByCaixinha = async (caixinhaId, filtros = {}) => {
   logger.info('Buscando contribuições', {
     service: 'contribuicaoService',
