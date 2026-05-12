@@ -1,6 +1,7 @@
 // src/middlewares/rateLimiter.js
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const { logger } = require('../logger');
+const { addToLocalBlacklist } = require('../utils/securityUtils');
 
 // Configuration - Move these to a configuration file/environment variables
 const RATE_LIMIT_CONFIG = {
@@ -43,6 +44,11 @@ const createRateLimitMiddleware = (limiter, name) => async (req, res, next) => {
       ip: req.ip,
       retryAfter: Math.round(error.msBeforeNext / 1000), // Include retryAfter in logs
     });
+
+    // AUTO-BLACKLIST: Se for uma rota sensível e exceder muito o limite, banir IP
+    if (['auth', 'banking'].includes(name) && error.consumedPoints > limiter.points * 2) {
+      addToLocalBlacklist(req.ip, 'ip', `Brute force attempt on ${name}`);
+    }
 
     res.status(429).json({
       error: 'Too many requests. Please try again later.',

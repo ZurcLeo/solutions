@@ -17,14 +17,7 @@ router.use(healthCheck(ROUTE_NAME));
 
 // Logging middleware for all requests
 router.use((req, res, next) => {
-  logger.info(`[ROUTE] Request received in ${ROUTE_NAME}`, {
-    path: req.path,
-    method: req.method,
-    userId: req.user?.uid,
-    params: req.params,
-    body: req.body,
-    query: req.query,
-  });
+  logger.info(`[ROUTE] Request received in ${ROUTE_NAME}`, { sreContext: req.sreContext || 'no-context' });
   next();
 });
 

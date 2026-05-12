@@ -8,19 +8,7 @@ const router = express.Router();
  * Middleware para logging de webhooks
  */
 const webhookLogger = (req, res, next) => {
-  logger.info('Webhook recebido', {
-    route: 'webhook',
-    method: req.method,
-    path: req.path,
-    headers: {
-      'x-signature': req.headers['x-signature'],
-      'x-request-id': req.headers['x-request-id'],
-      'asaas-access-token': req.headers['asaas-access-token'] ? '[PRESENTE]' : '[AUSENTE]',
-      'user-agent': req.headers['user-agent']
-    },
-    body: req.body,
-    action: 'WEBHOOK_RECEIVED'
-  });
+  logger.info('Webhook recebido', { sreContext: req.sreContext || 'no-context' });
   next();
 };
 

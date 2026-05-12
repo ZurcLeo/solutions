@@ -1,0 +1,96 @@
+name: QA Orchestrator
+
+on:
+  # Roda a cada 6 horas
+  schedule:
+    - cron: '0 */6 * * *'
+
+  # Disparo manual via GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      triggeredBy:
+        description: 'Motivo do disparo manual'
+        required: false
+        default: 'manual'
+
+  # Roda automaticamente após deploy bem-sucedido do backend
+  workflow_run:
+    workflows: ['Backend Deploy']
+    types: [completed]
+    branches: [main]
+
+jobs:
+  qa-run:
+    name: Executar QA Orchestrator
+    runs-on: ubuntu-latest
+
+    # Só roda se o deploy foi bem-sucedido (quando disparado por workflow_run)
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Aguardar backend estabilizar (pós-deploy)
+        if: github.event_name == 'workflow_run'
+        run: sleep 30
+
+      - name: Disparar QA run via API
+        id: trigger
+        run: |
+          TRIGGERED_BY="${{ github.event.inputs.triggeredBy || github.event_name }}"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.QA_BACKEND_URL }}/api/qa/run" \
+            -H "x-qa-token: ${{ secrets.QA_INTERNAL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"triggeredBy\": \"${TRIGGERED_BY}\"}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" != "202" ]; then
+            echo "::error::QA run falhou com status $HTTP_CODE"
+            exit 1
+          fi
+
+          RUN_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('runId','unknown'))")
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+      - name: Aguardar run completar (90s)
+        run: sleep 90
+
+      - name: Verificar health score
+        id: health
+        run: |
+          RESPONSE=$(curl -s "${{ secrets.QA_BACKEND_URL }}/api/qa/health")
+          echo "Health response: $RESPONSE"
+
+          SCORE=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('healthScore', 'null'))")
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status', 'unknown'))")
+
+          echo "Health score: $SCORE"
+          echo "Status: $STATUS"
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+      - name: Alertar se health score crítico
+        if: steps.health.outputs.status == 'critical'
+        run: |
+          echo "::error::Health score crítico: ${{ steps.health.outputs.score }}"
+          echo "Verifique o dashboard em ${{ secrets.QA_BACKEND_URL }}/api/qa/runs/${{ steps.trigger.outputs.run_id }}"
+          exit 1
+
+      - name: Resumo do run
+        if: always()
+        run: |
+          echo "## QA Orchestrator Run" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Run ID | ${{ steps.trigger.outputs.run_id }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Health Score | ${{ steps.health.outputs.score }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ steps.health.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Disparado por | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY

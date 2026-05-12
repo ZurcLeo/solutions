@@ -903,40 +903,40 @@ async acceptInvite(caxinhaInviteId, userId) {
   async _sendInviteEmail(data) {
     try {
       const { caixinha, sender, email, message, caxinhaInviteId, isResend = false } = data;
+      const NotificationDispatcher = require('./NotificationDispatcher');
       
       const inviteLink = `${process.env.FRONTEND_URL}/convite/${caxinhaInviteId}`;
       const expirationDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
       
-      // Preparar dados para o template
-      const templateData = {
-        caixinhaNome: caixinha.nome,
-        caixinhaDescricao: caixinha.descricao,
-        contribuicaoMensal: caixinha.contribuicaoMensal,
-        senderName: sender.nome || sender.displayName,
-        senderPhotoURL: sender.fotoPerfil || 'https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/default-profile.png',
-        recipientName: '',
-        message: message,
-        inviteLink: inviteLink,
-        expirationDate: expirationDate.toLocaleDateString('pt-BR')
-      };
-      
-      // Enviar email usando o serviço de email existente
-      await emailService.sendEmail({
-        to: email,
-        subject: isResend 
-          ? `Lembrete: Convite para participar da Caixinha "${caixinha.nome}"`
-          : `Convite para participar da Caixinha "${caixinha.nome}"`,
-        templateType: 'caixinha_invite',
-        data: templateData,
-        userId: sender.uid,
-        reference: caxinhaInviteId,
-        referenceType: 'caixinha_invite'
+      await NotificationDispatcher.dispatch({
+        userId: sender.uid, // Using sender for now as recipient isn't registered
+        type: 'caixinha_invite',
+        importance: 'high',
+        data: {
+          caixinhaNome: caixinha.nome,
+          caixinhaDescricao: caixinha.descricao,
+          contribuicaoMensal: caixinha.contribuicaoMensal,
+          senderName: sender.nome || sender.displayName,
+          senderPhotoURL: sender.fotoPerfil || 'https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/default-profile.png',
+          recipientName: '',
+          message: message,
+          inviteLink: inviteLink,
+          expirationDate: expirationDate.toLocaleDateString('pt-BR'),
+          isResend,
+          // Custom subject for dispatcher
+          emailSubject: isResend 
+            ? `Lembrete: Convite para participar da Caixinha "${caixinha.nome}"`
+            : `Convite para participar da Caixinha "${caixinha.nome}"`
+        },
+        metadata: {
+          triggeredBy: sender.uid,
+          correlationId: caxinhaInviteId
+        }
       });
       
       return true;
     } catch (error) {
-      logger.error('Erro ao enviar email de convite:', error);
-      // Não propagar o erro para não interromper o fluxo principal
+      logger.error('Erro ao despachar email de convite:', error);
       return false;
     }
   }
@@ -1008,6 +1008,7 @@ async acceptInvite(caxinhaInviteId, userId) {
 async _sendInviteNotification(data) {
   try {
     const { caixinhaId, type, userId, targetId, status } = data;
+    const NotificationDispatcher = require('./NotificationDispatcher');
     
     // Obter dados da caixinha
     const caixinha = await Caixinha.getById(caixinhaId);
@@ -1039,7 +1040,7 @@ async _sendInviteNotification(data) {
     
     // Enviar a notificação se título e conteúdo estiverem definidos
     if (title && content && recipientId) {
-      logger.info('Enviando notificação de convite', {
+      logger.info('Despachando notificação de convite via Dispatcher', {
         service: 'CaixinhaInviteService',
         function: '_sendInviteNotification',
         recipientId,
@@ -1047,21 +1048,23 @@ async _sendInviteNotification(data) {
         type: 'caixinha_invite'
       });
       
-      await notificationService.createNotification(
-        recipientId, // Primeiro parâmetro: userId
-        {
-          // Segundo parâmetro: notificationData
-          type: 'caixinha_invite',
+      await NotificationDispatcher.dispatch({
+        userId: recipientId,
+        type: 'caixinha_invite',
+        importance: 'medium', // Notifications are medium by default unless critical
+        data: {
           content,
           url: `/caixinha/${caixinhaId}`,
-          data: {
-            caixinhaId,
-            action: status
-          }
+          caixinhaId,
+          action: status
+        },
+        metadata: {
+          triggeredBy: userId,
+          correlationId: caixinhaId
         }
-      );
+      });
     } else {
-      logger.warn('Dados insuficientes para envio de notificação', {
+      logger.warn('Dados insuficientes para despacho de notificação', {
         service: 'CaixinhaInviteService',
         function: '_sendInviteNotification',
         hasTitle: Boolean(title),
@@ -1070,14 +1073,13 @@ async _sendInviteNotification(data) {
       });
     }
   } catch (error) {
-    logger.error('Erro ao enviar notificação de convite', {
+    logger.error('Erro ao despachar notificação de convite', {
       service: 'CaixinhaInviteService',
       function: '_sendInviteNotification',
       error: error.message,
       stack: error.stack,
       data
     });
-    // Não propagar o erro para não interromper o fluxo principal
   }
 }
 

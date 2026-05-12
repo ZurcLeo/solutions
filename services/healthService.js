@@ -65,9 +65,29 @@ const checkPublicServices = async () => {
         : 'API is operational but CPU usage is high';
     }
 
+    // NEW: Real dependency pings (basic)
+    const dependencies = {
+      database: await checkDatabaseConnection({ depth: 'basic' }),
+      openai: await checkOpenAIService({ depth: 'basic' }),
+      asaas: await checkAsaasService({ depth: 'basic' }),
+      notifications: await checkNotificationsService({ depth: 'basic' }),
+      connections: await checkConnectionsService({ depth: 'basic' }),
+      posts: await checkPostsService({ depth: 'basic' })
+    };
+
+    // If any critical dependency is down, degrade the public status
+    if (dependencies.database.status === 'error') {
+      status = 'error';
+      message = 'Critical dependency failure: Database';
+    } else if (Object.values(dependencies).some(d => d.status === 'error')) {
+      status = 'degraded';
+      message = 'API is operational but some services are failing';
+    }
+
     return {
       status,
       message,
+      dependencies,
       server: {
         memoryUsage: {
           total: `${Math.round(totalMemory / (1024 * 1024 * 1024))} GB`,
@@ -100,6 +120,72 @@ const checkPublicServices = async () => {
       message: 'Failed to perform basic health check',
       error: error.message
     };
+  }
+};
+
+/**
+ * Check OpenAI Service connectivity
+ */
+const checkOpenAIService = async (options = {}) => {
+  const { depth = 'basic' } = options;
+  const startTime = performance.now();
+
+  if (!process.env.OPENAI_API_KEY) {
+    return { status: 'error', message: 'API Key missing' };
+  }
+
+  try {
+    const OpenAI = require('openai');
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 5000 });
+    
+    if (depth === 'basic') {
+      // Just check if client can be instantiated and has key
+      return { 
+        status: 'healthy', 
+        responseTime: `${(performance.now() - startTime).toFixed(2)}ms` 
+      };
+    }
+
+    // Detailed check: list models (lightweight request)
+    await client.models.list();
+    return { 
+      status: 'healthy', 
+      responseTime: `${(performance.now() - startTime).toFixed(2)}ms` 
+    };
+  } catch (error) {
+    return { status: 'error', message: error.message };
+  }
+};
+
+/**
+ * Check Asaas Service connectivity
+ */
+const checkAsaasService = async (options = {}) => {
+  const { depth = 'basic' } = options;
+  const startTime = performance.now();
+
+  if (!process.env.ASAAS_API_KEY) {
+    return { status: 'error', message: 'API Key missing' };
+  }
+
+  try {
+    const asaas = require('./asaasService');
+    
+    if (depth === 'basic') {
+      return { 
+        status: 'healthy', 
+        responseTime: `${(performance.now() - startTime).toFixed(2)}ms` 
+      };
+    }
+
+    // Detailed check: try to list a few customers
+    await asaas.client.get('/customers', { params: { limit: 1 } });
+    return { 
+      status: 'healthy', 
+      responseTime: `${(performance.now() - startTime).toFixed(2)}ms` 
+    };
+  } catch (error) {
+    return { status: 'error', message: error.message };
   }
 };
 
@@ -647,10 +733,10 @@ const checkNotificationsService = async (options = {}) => {
         // Basic check
         const notificationsRef = await db.collection('notificacoes').limit(1).get();
 
-        logger.info(`❤️ User service`, {
+        logger.info(`❤️ Notifications service check`, {
             service: 'healthService',
             function: 'checkNotificationsService',
-            notificationsRef: notificationsRef.collection('notificacoes')
+            snapshotSize: notificationsRef.size
         });
 
         const responseTime = performance.now() - startTime;
@@ -1180,6 +1266,38 @@ const checkMessagesService = async (options = {}) => {
   };
 
 /**
+ * Check the Posts service
+ */
+const checkPostsService = async (options = {}) => {
+    try {
+        const startTime = performance.now();
+        const db = getFirestore();
+        
+        // Basic check: attempt to see if collection is accessible
+        const snapshot = await db.collection('postagens').limit(1).get();
+        const responseTime = performance.now() - startTime;
+        
+        let status = 'healthy';
+        if (responseTime > 800) status = 'error';
+        else if (responseTime > 500) status = 'warning';
+        
+        return {
+            status,
+            responseTime: `${responseTime.toFixed(2)}ms`,
+            details: {
+                collectionExists: !snapshot.empty,
+                count: snapshot.size
+            }
+        };
+    } catch (error) {
+        return {
+            status: 'error',
+            error: error.message
+        };
+    }
+};
+
+/**
  * Map service names to their check functions
  */
 const serviceCheckers = {
@@ -1192,7 +1310,8 @@ const serviceCheckers = {
     'user': checkUserService,
     'invites': checkInvitesService,
     'interests': checkInterestsService,
-    'connections': checkConnectionsService
+    'connections': checkConnectionsService,
+    'posts': checkPostsService
     // Add more services as needed
 };
 

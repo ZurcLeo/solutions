@@ -34,6 +34,10 @@ Este backend fornece APIs para:
 └── utils/          # Utilitários
 ```
 
+## Monitoramento e Qualidade
+
+- **Dashboard de Saúde & QA**: Acesse `/dashboard` para visualizar o status em tempo real dos serviços, dependências e resultados dos runs de QA.
+
 ## Documentação
 
 - **API Documentation**: Acesse `/api-docs` para ver a documentação Swagger

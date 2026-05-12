@@ -95,6 +95,25 @@ exports.creditMember = async ({ caixinhaId, userId, amount, paymentId, descripti
 
   await batch.commit();
 
+  // Notificar membro sobre o crédito
+  setImmediate(async () => {
+    try {
+      const NotificationDispatcher = require('./NotificationDispatcher');
+      await NotificationDispatcher.dispatch({
+        userId,
+        type: 'payment_confirmed',
+        importance: 'high',
+        data: {
+          amount: amount,
+          description: description || 'Contribuição recebida'
+        },
+        metadata: { triggeredBy: 'system', correlationId: paymentId || txDocRef.id }
+      });
+    } catch (err) {
+      logger.warn('Falha ao notificar crédito de membro', { error: err.message, userId, amount });
+    }
+  });
+
   logger.info('Crédito de membro concluído', {
     service: 'ledgerService',
     method: 'creditMember',

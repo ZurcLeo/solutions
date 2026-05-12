@@ -13,14 +13,7 @@ router.use(healthCheck(ROUTE_NAME)); // Apply health check
 
 // Log all requests to this router
 router.use((req, res, next) => {
-  logger.info(`[ROUTE] Request received in ${ROUTE_NAME}`, {
-    path: req.path,
-    method: req.method,
-    userId: req.user?.uid,
-    params: req.params,
-    body: req.body, // Be cautious logging full body in production
-    query: req.query,
-  });
+  logger.info(`[ROUTE] Request received in ${ROUTE_NAME}`, { sreContext: req.sreContext || 'no-context' });
   next();
 });
 

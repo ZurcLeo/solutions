@@ -156,6 +156,35 @@ const requestLoan = async (caixinhaId, loanData) => {
     // Caso não seja necessária disputa, criar the empréstimo diretamente
     const loan = await Emprestimos.create(caixinhaId, loanData);
     
+    // Notificar Admin da Caixinha sobre nova solicitação
+    try {
+      const NotificationDispatcher = require('./NotificationDispatcher');
+      const User = require('../models/User');
+      const Caixinha = require('../models/Caixinhas');
+      
+      const [caixinha, user] = await Promise.all([
+        Caixinha.getById(caixinhaId),
+        User.getById(loanData.userId)
+      ]);
+      
+      if (caixinha && caixinha.adminId) {
+        await NotificationDispatcher.dispatch({
+          userId: caixinha.adminId,
+          type: 'loan_requested',
+          importance: 'high',
+          data: {
+            amount: loanData.valor,
+            userName: user.nome || user.displayName || 'Um membro',
+            caixinhaName: caixinha.nome,
+            caixinhaId
+          },
+          metadata: { triggeredBy: loanData.userId, correlationId: loan.id }
+        });
+      }
+    } catch (notifError) {
+      logger.warn('Falha ao despachar notificação de solicitação de empréstimo', { error: notifError.message });
+    }
+
     return {
       success: true,
       data: loan,
@@ -325,6 +354,26 @@ const approveLoan = async (caixinhaId, loanId, adminId) => {
         dataUltimaAtualizacao: new Date().toISOString()
       });
       
+      // Notificar mutuário sobre aprovação
+      setImmediate(async () => {
+        try {
+          const NotificationDispatcher = require('./NotificationDispatcher');
+          await NotificationDispatcher.dispatch({
+            userId: loan.userId,
+            type: 'loan_approved',
+            importance: 'high',
+            data: {
+              amount: valorSolicitado,
+              dueDate: loan.dataVencimento || 'Data a definir',
+              loanId: loanId
+            },
+            metadata: { triggeredBy: adminId, correlationId: loanId }
+          });
+        } catch (err) {
+          logger.warn('Falha ao notificar aprovação de empréstimo', { error: err.message, loanId });
+        }
+      });
+      
       return {
         success: true,
         data: { ...loan, id: loanId, status: 'aprovado' }
@@ -380,6 +429,26 @@ const rejectLoan = async (caixinhaId, loanId, adminId, reason = '') => {
 
     const updatedLoan = await Emprestimos.rejeitar(caixinhaId, loanId, adminId, reason);
     
+    // Notificar mutuário sobre rejeição
+    setImmediate(async () => {
+      try {
+        const NotificationDispatcher = require('./NotificationDispatcher');
+        await NotificationDispatcher.dispatch({
+          userId: loan.userId,
+          type: 'loan_rejected',
+          importance: 'high',
+          data: {
+            amount: loan.valorSolicitado || loan.valor,
+            reason: reason,
+            loanId: loanId
+          },
+          metadata: { triggeredBy: adminId, correlationId: loanId }
+        });
+      } catch (err) {
+        logger.warn('Falha ao notificar rejeição de empréstimo', { error: err.message, loanId });
+      }
+    });
+
     return {
       success: true,
       data: updatedLoan

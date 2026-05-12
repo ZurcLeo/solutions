@@ -72,15 +72,26 @@
         <p>Backend de serviços ElosCloud</p>
         
         <div class="links">
+            <a href="/dashboard" class="link dashboard-link">📊 Dashboard QA & Saúde</a>
             <a href="/api-docs" class="link">📚 Documentação</a>
-            <a href="/api/health" class="link">🏥 Health Check</a>
-            <a href="https://eloscloud.com" class="link">🌐 Site Principal</a>
+            <a href="/api/health/public" class="link">🏥 Health Check</a>
         </div>
         
         <div class="info">
             <p>API RESTful para pagamentos, autenticação e gestão de usuários</p>
-            <p><small>Versão 1.0.0 | Ambiente: Produção</small></p>
+            <p><small>Versão 1.0.1 | Ambiente: Produção</small></p>
         </div>
     </div>
+    <style>
+        .dashboard-link {
+            background: linear-gradient(45deg, #4f46e5, #7c3aed) !important;
+            border: none !important;
+            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
+        }
+        .dashboard-link:hover {
+            transform: translateY(-3px) scale(1.05) !important;
+            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.6);
+        }
+    </style>
 </body>
 </html>

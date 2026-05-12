@@ -11,19 +11,16 @@
 const inviteService = require('../../../services/inviteService');
 const Invite = require('../../../models/Invite');
 const User = require('../../../models/User');
-const emailService = require('../../../services/emailService');
-const notificationService = require('../../../services/notificationService');
+const NotificationDispatcher = require('../../../services/NotificationDispatcher');
 
 jest.mock('../../../models/Invite');
 jest.mock('../../../models/User');
-jest.mock('../../../services/emailService', () => ({
-  sendEmail: jest.fn().mockResolvedValue({ success: true })
-}));
-jest.mock('../../../services/notificationService', () => ({
-  createNotification: jest.fn().mockResolvedValue(true)
+jest.mock('../../../services/NotificationDispatcher', () => ({
+  dispatch: jest.fn().mockResolvedValue({ success: true, jobId: 'job_123' })
 }));
 jest.mock('qrcode', () => ({
-  toDataURL: jest.fn().mockResolvedValue('data:image/png;base64,mockqrcode')
+  toDataURL: jest.fn().mockResolvedValue('data:image/png;base64,mockqrcode'),
+  toBuffer: jest.fn().mockResolvedValue(Buffer.from('mockbuffer'))
 }));
 
 jest.mock('../../../firebaseAdmin', () => {
@@ -49,15 +46,34 @@ jest.mock('../../../firebaseAdmin', () => {
     update: jest.fn()
   };
 
+  const mockAuth = {
+    getUserByEmail: jest.fn().mockRejectedValue({ code: 'auth/user-not-found' })
+  };
+
   const mockDb = {
     collection: jest.fn((name) => createMockCollection(name)),
     runTransaction: jest.fn(cb => cb(mockTransaction))
   };
 
+  const mockBucket = {
+    name: 'mock-bucket',
+    file: jest.fn(() => ({
+      save: jest.fn().mockResolvedValue(true),
+      exists: jest.fn().mockResolvedValue([true]),
+      delete: jest.fn().mockResolvedValue(true)
+    }))
+  };
+
+  const mockStorage = () => mockBucket;
+
   return {
     getFirestore: jest.fn(() => mockDb),
+    getAuth: jest.fn(() => mockAuth),
+    getStorage: jest.fn(() => mockStorage()),
     mockDb,
-    mockTransaction
+    mockTransaction,
+    mockAuth,
+    mockBucket
   };
 });
 
@@ -65,7 +81,7 @@ jest.mock('../../../logger', () => ({
   logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() }
 }));
 
-const { mockDb, mockTransaction } = require('../../../firebaseAdmin');
+const { mockDb, mockTransaction, mockAuth } = require('../../../firebaseAdmin');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,8 +112,8 @@ const makeInvite = (overrides = {}) => ({
 describe('inviteService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    emailService.sendEmail.mockResolvedValue({ success: true });
-    notificationService.createNotification.mockResolvedValue(true);
+    NotificationDispatcher.dispatch.mockResolvedValue({ success: true, jobId: 'job_123' });
+    mockAuth.getUserByEmail.mockRejectedValue({ code: 'auth/user-not-found' });
   });
 
   // =========================================================================
@@ -195,7 +211,7 @@ describe('inviteService', () => {
 
   // =========================================================================
   describe('generateAndSendInvite', () => {
-    it('deve criar convite, enviar email e notificar remetente no mesmo batch', async () => {
+    it('deve criar convite, enviar email e notificar remetente no mesmo batch via Dispatcher', async () => {
       User.getById.mockResolvedValue(makeUser());
       Invite.getPendingBySender.mockResolvedValue([]);
       Invite.findByEmail.mockResolvedValue(null);
@@ -204,8 +220,7 @@ describe('inviteService', () => {
 
       expect(mockDb.runTransaction).toHaveBeenCalledTimes(1);
       expect(mockTransaction.set).toHaveBeenCalledTimes(1); // apenas o convite
-      expect(emailService.sendEmail).toHaveBeenCalledTimes(1);
-      expect(notificationService.createNotification).toHaveBeenCalledTimes(1);
+      expect(NotificationDispatcher.dispatch).toHaveBeenCalledTimes(1);
     });
 
     it('deve retornar inviteId, email, friendName e expiresAt', async () => {
@@ -247,7 +262,7 @@ describe('inviteService', () => {
         inviteService.generateAndSendInvite('user-001', 'amigo@example.com', 'Amigo Teste')
       ).rejects.toMatchObject({ statusCode: 400 });
 
-      expect(emailService.sendEmail).not.toHaveBeenCalled();
+      expect(NotificationDispatcher.dispatch).not.toHaveBeenCalled();
     });
   });
 });

@@ -15,6 +15,9 @@ COPY package*.json ./
 # npm install: tolerante a lockfile desatualizado em ambiente de build limpo
 RUN npm install --no-audit --prefer-offline
 
+# Garante que o sharp está compilado para a arquitetura alvo (Alpine/musl)
+RUN npm install --os=linux --libc=musl --cpu=x64 sharp
+
 # Copia o restante do código (. dockerignore exclui o que não deve entrar)
 COPY . .
 

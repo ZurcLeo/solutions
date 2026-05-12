@@ -10,14 +10,7 @@ const ROUTE_NAME = 'openai'
 
 // Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
-    path: req.path,
-    method: req.method,
-    userId: req.user?.uid,
-    params: req.params,
-    body: req.body,
-    query: req.query,
-  });
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, { sreContext: req.sreContext || 'no-context' });
   next();
 });
 

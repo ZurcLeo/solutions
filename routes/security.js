@@ -13,14 +13,10 @@ const { logger } = require('../logger');
 
 const ROUTE_NAME = 'security';
 
-// Log all requests to this router
+// Log all requests to this router (Sanitizado - Zero Data)
 router.use((req, res, next) => {
   logger.info(`[ROUTE] Request received in ${ROUTE_NAME}`, {
-    path: req.path,
-    method: req.method,
-    userId: req.user?.uid,
-    params: req.params,
-    query: req.query,
+    sreContext: req.sreContext || 'no-context'
   });
   next();
 });

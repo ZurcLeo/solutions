@@ -15,6 +15,7 @@ const securityHeaders = require('./config/headers/securityHeadersConfig');
 const setupRoutes = require('./config/routes/routesConfig');
 const gracefulShutdown = require('./config/shutdown/gracefulShutdownConfig');
 const {initializeLocalStorage} = require('./config/scripts/initializeLocalData');
+const { startSreWorker } = require('./sreWorker');
 
 const app = express();
 
@@ -51,24 +52,35 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html');
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development',
-    uptime: process.uptime()
-  });
+// Dashboard de Monitoramento e QA
+app.get('/dashboard', (req, res) => {
+  res.sendFile(__dirname + '/public/dashboard.html');
 });
 
 // Rotas
 setupRoutes(app);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
+const { calculateSeverity } = require('./utils/severityCalculator');
+
+// ... (setupMiddlewares, etc)
+
 // Error handling
 app.use((err, req, res, next) => {
-  logger.error('Unhandled Error:', { error: err.stack });
+  const severity = calculateSeverity(req.sreContext || {}, {
+    status: 500,
+    durationMs: 0 // Simplificado para o erro
+  }, err);
+
+  if (req.sreContext) {
+    req.sreContext.severity = severity.level;
+    req.sreContext.severity_reason = severity.reason;
+  }
+
+  logger.error(`${severity.level} Error: ${err.message}`, { 
+    error: err.stack,
+    sreContext: req.sreContext || 'no-context'
+  });
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
@@ -84,6 +96,9 @@ Promise.all([
     server.listen(PORT, '0.0.0.0', () => {
       const protocol = process.env.NODE_ENV === 'production' ? 'HTTP' : 'HTTPS';
       console.log(`Servidor ${protocol} rodando na porta ${PORT}`);
+      
+      // Inicia o Worker de SRE (Diagnósticos IA)
+      startSreWorker();
     });
   })
   .catch(err => {

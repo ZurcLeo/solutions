@@ -544,12 +544,12 @@ const generateAndSendInvite = async (userId, email, friendName) => {
     
     // ALTERAÇÃO AQUI: Usando o novo sistema de email
     // ----------------------------------------
-    // Enviar email usando o novo serviço de email com template
-    const emailService = require('../services/emailService');
-    const emailResult = await emailService.sendEmail({
-      to: email,
-      subject: 'Seu convite para a ElosCloud chegou',
-      templateType: 'convite',
+    // Enviar email usando o novo NotificationDispatcher
+    const NotificationDispatcher = require('../services/NotificationDispatcher');
+    const dispatchResult = await NotificationDispatcher.dispatch({
+      userId,
+      type: 'convite',
+      importance: 'high',
       data: {
         inviteId,
         qrCodeBuffer,
@@ -557,34 +557,27 @@ const generateAndSendInvite = async (userId, email, friendName) => {
         senderName: user.nome,
         senderPhotoURL: user.fotoDoPerfil || '',
         friendName,
-        expiresAt: expiresAt.format('DD/MM/YYYY')
+        expiresAt: expiresAt.format('DD/MM/YYYY'),
+        url: '/invites'
       },
-      userId,
-      reference: inviteId,
-      referenceType: 'invite'
+      metadata: {
+        triggeredBy: userId,
+        correlationId: inviteId
+      }
     });
     // ----------------------------------------
 
-    if (emailResult.success) {
+    if (dispatchResult.success) {
       await inviteRef.update({ lastSentAt: new Date() });
     } else {
-      logger.warn('Erro ao enviar email de convite — lastSentAt não atualizado, reenvio liberado', {
-        error: emailResult.error,
+      logger.warn('Erro ao despachar convite — lastSentAt não atualizado, reenvio liberado', {
+        error: dispatchResult.error,
         inviteId,
         email
       });
     }
-    const notificationData = {
-      type: 'convite',
-      content: `Convite enviado com sucesso para ${friendName}`,
-      url: '/invites',
-      inviteId
-    }
-
-    // Criar notificação para o remetente
-    await notificationService.createNotification(userId, notificationData);
     
-    logger.info('Convite criado e enviado com sucesso', {
+    logger.info('Convite criado e despachado com sucesso', {
       service: 'inviteService',
       function: 'generateAndSendInvite',
       inviteId,
@@ -692,11 +685,12 @@ const resendInvite = async (inviteId, userId) => {
     const createdAt = moment(invite.createdAt.toDate());
     const expiresAt = createdAt.clone().add(INVITE_EXPIRATION_DAYS, 'days');
 
-    // Enviar email de lembrete usando o novo sistema de templates
-    await emailService.sendEmail({
-      to: invite.email,
-      subject: 'Lembrete: você tem um convite pendente na ElosCloud',
-      templateType: 'convite_lembrete',
+    // Enviar email de lembrete usando o novo NotificationDispatcher
+    const NotificationDispatcher = require('../services/NotificationDispatcher');
+    await NotificationDispatcher.dispatch({
+      userId,
+      type: 'convite_lembrete',
+      importance: 'high',
       data: {
         inviteId,
         qrCodeBuffer,
@@ -704,22 +698,16 @@ const resendInvite = async (inviteId, userId) => {
         senderName: sender.nome,
         senderPhotoURL: sender.fotoDoPerfil || '',
         friendName: invite.friendName,
-        expiresAt: expiresAt.format('DD/MM/YYYY')
+        expiresAt: expiresAt.format('DD/MM/YYYY'),
+        url: '/invites'
       },
-      userId,
-      reference: inviteId,
-      referenceType: 'invite'
+      metadata: {
+        triggeredBy: userId,
+        correlationId: inviteId
+      }
     });
     
-    // Criar notificação
-    await notificationService.createNotification(userId, {
-      type: 'convite_lembrete',
-      conteudo: `Lembrete de convite enviado para ${invite.friendName}`,
-      url: '/invites',
-      inviteId
-    });
-    
-    logger.info('Convite reenviado com sucesso', {
+    logger.info('Convite reenviado e notificação despachada com sucesso', {
       service: 'inviteService',
       function: 'resendInvite',
       inviteId,
@@ -969,16 +957,18 @@ const createInviteForCaixinha = async ({
     caixinhaId
   });
 
-  // Enviar email com template de caixinha mas link correto da plataforma
+  // Enviar email usando o NotificationDispatcher
   const inviteLink = `${process.env.FRONTEND_URL}/invite/validate/${inviteId}`;
   const expirationDate = new Date(Date.now() + INVITE_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
 
-  await emailService.sendEmail({
-    to: email,
-    subject: `${senderName} convidou você para a ElosCloud`,
-    templateType: 'caixinha_invite',
+  const NotificationDispatcher = require('../services/NotificationDispatcher');
+  await NotificationDispatcher.dispatch({
+    userId: senderId, // This might need review in the future as the invitee isn't registered yet, but we dispatch via sender for now.
+    type: 'caixinha_invite',
+    importance: 'high',
     data: {
       caixinhaNome: caixinha.nome,
+      caixinhaName: caixinha.nome, // For backwards compatibility with older templates if any
       caixinhaDescricao: caixinha.descricao,
       contribuicaoMensal: caixinha.contribuicaoMensal,
       senderName,
@@ -986,11 +976,14 @@ const createInviteForCaixinha = async ({
       recipientName: '',
       message,
       inviteLink,
-      expirationDate: expirationDate.toLocaleDateString('pt-BR')
+      expirationDate: expirationDate.toLocaleDateString('pt-BR'),
+      emailSubject: `${senderName} convidou você para a ElosCloud`, // Custom subject
+      emailContent: message // Custom content
     },
-    userId: senderId,
-    reference: inviteId,
-    referenceType: 'invite'
+    metadata: {
+      triggeredBy: senderId,
+      correlationId: inviteId
+    }
   });
 
   return { inviteId };

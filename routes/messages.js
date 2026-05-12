@@ -12,14 +12,10 @@ const ROUTE_NAME = 'messages';
 // Aplicar middleware de health check a todas as rotas
 router.use(healthCheck(ROUTE_NAME));
 
-// Middleware de log para todas as requisições
+// Middleware de log para todas as requisições (Sanitizado - Zero Data)
 router.use((req, res, next) => {
   logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
-    path: req.path,
-    method: req.method,
-    userId: req.user?.uid,
-    params: req.params,
-    query: req.query
+    sreContext: req.sreContext || 'no-context'
   });
   next();
 });

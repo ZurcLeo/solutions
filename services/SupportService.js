@@ -710,40 +710,32 @@ class SupportService {
    */
     async _sendTicketCreatedEmail(ticket, user) {
     try {
-      if (!user.email) {
-        logger.warn('User has no email for ticket creation notification', { 
-          userId: ticket.userId, 
-          ticketId: ticket.id 
-        });
-        return;
-      }
-
-      const emailData = {
-        userName: user.nome || user.displayName || 'Usuário',
-        ticketId: ticket.id,
-        ticketTitle: ticket.title,
-        priority: ticket.priority,
-        category: ticket.category,
-        description: ticket.description
-      };
-
-      await emailService.sendEmail({
-        to: user.email,
-        subject: `Ticket de Suporte Criado - #${ticket.id}`,
-        templateType: 'support_ticket_created',
-        data: emailData,
+      const NotificationDispatcher = require('./NotificationDispatcher');
+      
+      await NotificationDispatcher.dispatch({
         userId: ticket.userId,
-        reference: ticket.id,
-        referenceType: 'support_ticket'
+        type: 'support_ticket_created',
+        importance: 'high',
+        data: {
+          userName: user.nome || user.displayName || 'Usuário',
+          ticketId: ticket.id,
+          ticketTitle: ticket.title,
+          priority: ticket.priority,
+          category: ticket.category,
+          description: ticket.description
+        },
+        metadata: {
+          triggeredBy: 'system',
+          correlationId: ticket.id
+        }
       });
 
-      logger.info('Ticket creation email sent', {
+      logger.info('Ticket creation notification dispatched', {
         ticketId: ticket.id,
-        userId: ticket.userId,
-        email: user.email
+        userId: ticket.userId
       });
     } catch (error) {
-      logger.error('Failed to send ticket creation email', {
+      logger.error('Failed to dispatch ticket creation notification', {
         error: error.message,
         ticketId: ticket.id,
         userId: ticket.userId
@@ -762,44 +754,47 @@ class SupportService {
    * @returns {Promise<void>}
    * @description Prepara e envia um e-mail para o usuário informando sobre uma mudança de status ou outra atualização em seu ticket.
    */
+  /**
+   * Envia um e-mail de notificação para o usuário quando há uma atualização em seu ticket.
+   * @private
+   * @async
+   * @function _sendTicketUpdateEmail
+   * @param {Object} ticket - O objeto do ticket de suporte.
+   * @param {Object} user - O objeto do usuário proprietário do ticket.
+   * @param {Object} updateData - Dados da atualização (status anterior, novo status, nome do agente, nota).
+   * @returns {Promise<void>}
+   * @description Prepara e envia um e-mail para o usuário informando sobre uma mudança de status ou outra atualização em seu ticket.
+   */
   async _sendTicketUpdateEmail(ticket, user, updateData) {
     try {
-      if (!user.email) {
-        logger.warn('User has no email for ticket update notification', { 
-          userId: ticket.userId, 
-          ticketId: ticket.id 
-        });
-        return;
-      }
-
-      const emailData = {
-        userName: user.nome || user.displayName || 'Usuário',
-        ticketId: ticket.id,
-        ticketTitle: ticket.title,
-        previousStatus: updateData.previousStatus,
-        newStatus: updateData.newStatus,
-        agentName: updateData.agentName || 'Nossa Equipe',
-        updateNote: updateData.note || ''
-      };
-
-      await emailService.sendEmail({
-        to: user.email,
-        subject: `Atualização do Ticket #${ticket.id} - ${ticket.title}`,
-        templateType: 'support_ticket_update',
-        data: emailData,
+      const NotificationDispatcher = require('./NotificationDispatcher');
+      
+      await NotificationDispatcher.dispatch({
         userId: ticket.userId,
-        reference: ticket.id,
-        referenceType: 'support_ticket'
+        type: 'support_ticket_update',
+        importance: 'high',
+        data: {
+          userName: user.nome || user.displayName || 'Usuário',
+          ticketId: ticket.id,
+          ticketTitle: ticket.title,
+          previousStatus: updateData.previousStatus,
+          newStatus: updateData.newStatus,
+          agentName: updateData.agentName || 'Nossa Equipe',
+          updateNote: updateData.note || ''
+        },
+        metadata: {
+          triggeredBy: 'system',
+          correlationId: ticket.id
+        }
       });
 
-      logger.info('Ticket update email sent', {
+      logger.info('Ticket update notification dispatched', {
         ticketId: ticket.id,
         userId: ticket.userId,
-        email: user.email,
         newStatus: updateData.newStatus
       });
     } catch (error) {
-      logger.error('Failed to send ticket update email', {
+      logger.error('Failed to dispatch ticket update notification', {
         error: error.message,
         ticketId: ticket.id,
         userId: ticket.userId
@@ -820,40 +815,32 @@ class SupportService {
    */
   async _sendTicketResolvedEmail(ticket, user, resolutionData) {
     try {
-      if (!user.email) {
-        logger.warn('User has no email for ticket resolution notification', { 
-          userId: ticket.userId, 
-          ticketId: ticket.id 
-        });
-        return;
-      }
-
-      const emailData = {
-        userName: user.nome || user.displayName || 'Usuário',
-        ticketId: ticket.id,
-        ticketTitle: ticket.title,
-        agentName: resolutionData.agentName || 'Nossa Equipe',
-        resolutionSummary: resolutionData.resolutionSummary || 'Seu ticket foi resolvido com sucesso.',
-        resolutionDate: new Date().toLocaleString('pt-BR')
-      };
-
-      await emailService.sendEmail({
-        to: user.email,
-        subject: `Ticket Resolvido - #${ticket.id}`,
-        templateType: 'support_ticket_resolved',
-        data: emailData,
+      const NotificationDispatcher = require('./NotificationDispatcher');
+      
+      await NotificationDispatcher.dispatch({
         userId: ticket.userId,
-        reference: ticket.id,
-        referenceType: 'support_ticket'
+        type: 'support_ticket_resolved',
+        importance: 'high',
+        data: {
+          userName: user.nome || user.displayName || 'Usuário',
+          ticketId: ticket.id,
+          ticketTitle: ticket.title,
+          agentName: resolutionData.agentName || 'Nossa Equipe',
+          resolutionSummary: resolutionData.resolutionSummary || 'Seu ticket foi resolvido com sucesso.',
+          resolutionDate: new Date().toLocaleString('pt-BR')
+        },
+        metadata: {
+          triggeredBy: 'system',
+          correlationId: ticket.id
+        }
       });
 
-      logger.info('Ticket resolution email sent', {
+      logger.info('Ticket resolution notification dispatched', {
         ticketId: ticket.id,
-        userId: ticket.userId,
-        email: user.email
+        userId: ticket.userId
       });
     } catch (error) {
-      logger.error('Failed to send ticket resolution email', {
+      logger.error('Failed to dispatch ticket resolution notification', {
         error: error.message,
         ticketId: ticket.id,
         userId: ticket.userId

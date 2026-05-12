@@ -5,7 +5,8 @@ const {
   publicHealthCheck,
   serviceHealthCheck,
   dependenciesHealthCheck,
-  fullSystemHealthCheck 
+  fullSystemHealthCheck,
+  fastHealthCheck 
 } = require('../controllers/healthController');
 const verifyToken = require('../middlewares/auth');
 const optionalAuth = require('../middlewares/optionalAuth');
@@ -15,14 +16,7 @@ const ROUTE_NAME = 'health'
 
 // Middleware de log para todas as requisições
 router.use((req, res, next) => {
-  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, {
-    path: req.path,
-    method: req.method,
-    userId: req.user?.uid,
-    params: req.params,
-    body: req.body,
-    query: req.query,
-  });
+  logger.info(`[ROUTE] Requisição recebida em ${ROUTE_NAME}`, { sreContext: req.sreContext || 'no-context' });
   next();
 });
 
@@ -39,6 +33,6 @@ router.get('/dependencies', optionalAuth, dependenciesHealthCheck);
 router.get('/full', verifyToken, fullSystemHealthCheck);
 
 // Legacy route for backward compatibility
-router.get('/', optionalAuth, publicHealthCheck);
+router.get('/', fastHealthCheck);
 
 module.exports = router;

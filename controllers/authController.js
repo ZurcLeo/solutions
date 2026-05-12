@@ -507,7 +507,7 @@ exports.getCurrentUser = async (req, res) => {
 
     // O código abaixo verifica se a rota é '/me', mas isso não é necessário, pois já sabemos que é o usuário autenticado
     logger.info('Requisição para obter usuário autenticado', { service: 'userController', function: 'getCurrentUser', userId });
-    const user = await authService.getUserById(userId); // Ou diretamente usar UserModel.getById
+    const user = await authService.getCurrentUser(userId);
     if (user) {
       return res.status(200).json(user);
     } else {

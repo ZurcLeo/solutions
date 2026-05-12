@@ -365,9 +365,28 @@ const fullSystemHealthCheck = async (req, res) => {
   }
 };
 
+/**
+ * @swagger
+ * /api/health:
+ *   get:
+ *     summary: Fast health check for infrastructure
+ *     description: Returns basic status without checking dependencies. Used for load balancers.
+ *     tags: [Health]
+ */
+const fastHealthCheck = (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: process.env.APP_VERSION || '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    uptime: `${Math.floor(process.uptime())}s`
+  });
+};
+
 module.exports = {
   publicHealthCheck,
   serviceHealthCheck,
   dependenciesHealthCheck,
-  fullSystemHealthCheck
+  fullSystemHealthCheck,
+  fastHealthCheck
 };

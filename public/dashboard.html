@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ElosCloud | Dashboard de Saúde & QA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .status-healthy { color: #22c55e; }
+        .bg-healthy { background-color: #22c55e; }
+        
+        .status-degraded { color: #eab308; }
+        .bg-degraded { background-color: #eab308; }
+        
+        .status-critical { color: #ef4444; }
+        .bg-critical { background-color: #ef4444; }
+
+        .pulse { animation: pulse-animation 2s infinite; }
+        @keyframes pulse-animation {
+            0% { box-shadow: 0 0 0 0px rgba(34, 197, 94, 0.4); }
+            100% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        .modal-enter { animation: modal-fade-in 0.3s ease-out; }
+        @keyframes modal-fade-in {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div>
+                <h1 class="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-fill-color-transparent">
+                    ElosCloud <span class="text-slate-400 font-light">QA Control Center</span>
+                </h1>
+                <p class="text-slate-400 mt-1">Monitoramento, IA e Autofix de Qualidade</p>
+            </div>
+            <div class="flex gap-3">
+                <button id="btn-run-qa" class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-indigo-500/20">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                    <span>Executar QA</span>
+                </button>
+                <button id="btn-token" class="glass px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-800 transition-all">
+                    <i data-lucide="key" class="w-4 h-4"></i>
+                    <span>Token</span>
+                </button>
+                <button id="btn-refresh" class="glass px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-800 transition-all">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Top Row: Main Gauge & Trend Chart -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Health Score Gauge -->
+            <div class="glass p-6 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span class="text-slate-400 text-sm font-medium mb-2 uppercase tracking-wider">Health Score Atual</span>
+                <div class="relative flex items-center justify-center">
+                    <svg class="w-32 h-32">
+                        <circle class="text-slate-800" stroke-width="8" stroke="currentColor" fill="transparent" r="58" cx="64" cy="64" />
+                        <circle id="score-circle" class="status-healthy transition-all duration-1000" stroke-width="8" stroke-dasharray="364.4" stroke-dashoffset="364.4" stroke-linecap="round" stroke="currentColor" fill="transparent" r="58" cx="64" cy="64" transform="rotate(-90 64 64)" />
+                    </svg>
+                    <span id="health-score" class="absolute text-3xl font-bold">--</span>
+                </div>
+                <p id="health-status" class="mt-2 font-semibold">Carregando...</p>
+                <div class="flex gap-4 mt-4 text-xs text-slate-500">
+                    <div><span id="total-flows" class="font-bold text-slate-300">--</span> Flows</div>
+                    <div><span id="passed-flows" class="font-bold text-green-400">--</span> Passou</div>
+                </div>
+            </div>
+
+            <!-- Trend Chart -->
+            <div class="lg:col-span-2 glass p-6 rounded-2xl">
+                <div class="flex justify-between items-center mb-4">
+                    <span class="text-slate-400 text-sm font-medium uppercase tracking-wider">Tendência de Qualidade</span>
+                    <span id="api-uptime" class="text-xs text-slate-500">Uptime: --</span>
+                </div>
+                <div class="h-40 w-full">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Services Status (Left) -->
+            <div class="lg:col-span-2 space-y-8">
+                <div>
+                    <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                        <i data-lucide="activity" class="w-5 h-5 text-indigo-400"></i>
+                        Saúde da Infraestrutura
+                    </h2>
+                    <div id="services-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Service cards -->
+                    </div>
+                </div>
+
+                <!-- Autofix Pending Section -->
+                <div id="autofix-section" class="hidden">
+                    <h2 class="text-xl font-semibold mb-4 flex items-center gap-2 text-amber-400">
+                        <i data-lucide="shield-alert" class="w-5 h-5"></i>
+                        Aguardando Revisão Humana (Autofix)
+                    </h2>
+                    <div id="autofix-list" class="space-y-4">
+                        <!-- Pending fixes will be injected here -->
+                    </div>
+                </div>
+
+                <!-- Notification Dispatcher Jobs Section -->
+                <div>
+                    <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                        <i data-lucide="send" class="w-5 h-5 text-indigo-400"></i>
+                        Dispatcher: Histórico de Notificações
+                    </h2>
+                    <div class="glass rounded-2xl overflow-hidden mb-8">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-800/50 text-slate-500">
+                                    <tr>
+                                        <th class="p-3">Status</th>
+                                        <th class="p-3">Tipo</th>
+                                        <th class="p-3">Canais</th>
+                                        <th class="p-3">Criado em</th>
+                                        <th class="p-3">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="jobs-list">
+                                    <tr><td colspan="5" class="p-8 text-center text-slate-500 italic">Configure o token para ver os jobs</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SRE Telemetry & Self-Healing Section -->
+                <div>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold flex items-center gap-2">
+                            <i data-lucide="shield-check" class="w-5 h-5 text-indigo-400"></i>
+                            SRE: Telemetria & Self-Healing
+                        </h2>
+                        <span class="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded-full border border-indigo-500/30">Protocolo Zero-Data Ativo</span>
+                    </div>
+                    <div class="glass rounded-2xl overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-800/50 text-slate-500">
+                                    <tr>
+                                        <th class="p-3">Severidade</th>
+                                        <th class="p-3">Endpoint</th>
+                                        <th class="p-3">Status</th>
+                                        <th class="p-3">Latência</th>
+                                        <th class="p-3">IA Diagnóstico</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sre-logs-list">
+                                    <tr><td colspan="5" class="p-8 text-center text-slate-500 italic">Aguardando telemetria...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent QA Runs (Right) -->
+            <div class="lg:col-span-2 space-y-4">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-semibold flex items-center gap-2">
+                        <i data-lucide="history" class="w-5 h-5 text-indigo-400"></i>
+                        Histórico de Runs & IA Reports
+                    </h2>
+                </div>
+                <div id="runs-list" class="space-y-3">
+                    <!-- Runs list -->
+                    <div class="text-center py-8 text-slate-500 italic">Carregando histórico...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Token Modal -->
+    <div id="modal-token" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center z-[100]">
+        <div class="glass p-8 rounded-2xl w-full max-w-md mx-4 modal-enter">
+            <h3 class="text-2xl font-bold mb-4">Configurar Token QA</h3>
+            <p class="text-slate-400 mb-6 text-sm">Insira seu <code class="bg-slate-800 px-1 rounded text-pink-400">x-qa-token</code> para controle total.</p>
+            <input type="password" id="input-token" placeholder="Insira o token aqui..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-6">
+            <div class="flex gap-3">
+                <button id="btn-save-token" class="flex-1 bg-indigo-600 hover:bg-indigo-700 py-3 rounded-xl font-semibold transition-all">Salvar</button>
+                <button id="btn-close-modal" class="flex-1 glass hover:bg-slate-800 py-3 rounded-xl font-semibold transition-all">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Run Detail Modal -->
+    <div id="modal-run-detail" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center z-[100] p-4">
+        <div class="glass rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col modal-enter">
+            <div class="p-6 border-b border-slate-700 flex justify-between items-center sticky top-0 bg-slate-900/50">
+                <div>
+                    <h3 id="detail-run-id" class="text-xl font-bold text-indigo-400 font-mono">Run ID: --</h3>
+                    <p id="detail-run-date" class="text-xs text-slate-500 mt-1">Data: --</p>
+                </div>
+                <button onclick="closeRunDetail()" class="p-2 hover:bg-slate-800 rounded-full transition-all">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto space-y-8">
+                <!-- AI Summary -->
+                <div class="bg-indigo-500/10 border border-indigo-500/20 p-5 rounded-2xl">
+                    <h4 class="text-sm font-bold text-indigo-300 uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <i data-lucide="bot" class="w-4 h-4"></i> Relatório da IA (Claude)
+                    </h4>
+                    <p id="detail-summary" class="text-lg leading-relaxed italic">--</p>
+                </div>
+
+                <!-- Critical Bugs -->
+                <div>
+                    <h4 class="text-sm font-bold text-red-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <i data-lucide="bug" class="w-4 h-4"></i> Bugs Críticos Detectados
+                    </h4>
+                    <div id="detail-bugs-list" class="space-y-4">
+                        <!-- Bugs items -->
+                    </div>
+                </div>
+
+                <!-- All Steps -->
+                <div>
+                    <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <i data-lucide="list" class="w-4 h-4"></i> Rastro de Execução (Steps)
+                    </h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="text-slate-500 border-b border-slate-800">
+                                <tr>
+                                    <th class="py-2">Status</th>
+                                    <th>Flow / Step</th>
+                                    <th>Duração</th>
+                                    <th>Correlation ID</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detail-steps-table">
+                                <!-- Step rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Lucide
+        lucide.createIcons();
+
+        // State
+        let qaToken = localStorage.getItem('x-qa-token') || '';
+        let trendChart = null;
+
+        // Elements
+        const elements = {
+            healthScore: document.getElementById('health-score'),
+            healthStatus: document.getElementById('health-status'),
+            scoreCircle: document.getElementById('score-circle'),
+            totalFlows: document.getElementById('total-flows'),
+            passedFlows: document.getElementById('passed-flows'),
+            apiUptime: document.getElementById('api-uptime'),
+            servicesGrid: document.getElementById('services-grid'),
+            runsList: document.getElementById('runs-list'),
+            autofixSection: document.getElementById('autofix-section'),
+            autofixList: document.getElementById('autofix-list'),
+            modalToken: document.getElementById('modal-token'),
+            inputToken: document.getElementById('input-token'),
+            btnToken: document.getElementById('btn-token'),
+            btnRunQA: document.getElementById('btn-run-qa'),
+            btnRefresh: document.getElementById('btn-refresh'),
+            modalRunDetail: document.getElementById('modal-run-detail'),
+            jobsList: document.getElementById('jobs-list'),
+            sreLogsList: document.getElementById('sre-logs-list'),
+            btnCloseModal: document.getElementById('btn-close-modal')
+        };
+
+        // UI Helpers
+        function setScore(score) {
+            elements.healthScore.innerText = score || '--';
+            const circumference = 364.4;
+            const offset = circumference - ((score || 0) / 100) * circumference;
+            elements.scoreCircle.style.strokeDashoffset = offset;
+
+            let status = 'HEALTHY'; let color = 'status-healthy';
+            if (score < 70) { status = 'CRITICAL'; color = 'status-critical'; }
+            else if (score < 90) { status = 'DEGRADED'; color = 'status-degraded'; }
+
+            elements.healthStatus.innerText = score ? status : 'NO DATA';
+            elements.healthStatus.className = `mt-2 font-semibold ${color}`;
+            elements.scoreCircle.className.baseVal = `transition-all duration-1000 ${color}`;
+        }
+
+        function createServiceCard(name, data) {
+            const card = document.createElement('div');
+            card.className = 'glass p-4 rounded-xl flex items-center gap-4 hover:border-slate-500 transition-all';
+            const isError = data.status === 'error';
+            const isDegraded = data.status === 'degraded' || data.status === 'warning';
+            let icon = 'check-circle'; let color = 'text-green-400'; let bg = 'bg-green-400/10';
+            if (isError) { icon = 'alert-octagon'; color = 'text-red-400'; bg = 'bg-red-400/10'; }
+            else if (isDegraded) { icon = 'alert-triangle'; color = 'text-yellow-400'; bg = 'bg-yellow-400/10'; }
+
+            card.innerHTML = `
+                <div class="w-10 h-10 rounded-full ${bg} flex items-center justify-center ${isError ? 'pulse' : ''}">
+                    <i data-lucide="${icon}" class="${color} w-5 h-5"></i>
+                </div>
+                <div class="flex-1 overflow-hidden">
+                    <div class="flex justify-between items-center">
+                        <h4 class="font-semibold text-sm truncate capitalize">${name}</h4>
+                        <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${bg} ${color}">${data.status}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1 truncate">${data.responseTime || data.error || data.message || 'Operational'}</p>
+                </div>
+            `;
+            return card;
+        }
+
+        // Charts
+        function initTrendChart(runs) {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            const data = [...runs].reverse();
+            const labels = data.map(r => new Date(r.completedAt?._seconds * 1000 || r.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const scores = data.map(r => r.healthScore);
+
+            if (trendChart) trendChart.destroy();
+            trendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Health Score',
+                        data: scores,
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointBackgroundColor: '#6366f1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b', font: { size: 10 } } },
+                        x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        // Modals Management
+        async function openRunDetail(runId) {
+            elements.modalRunDetail.classList.remove('hidden');
+            const res = await fetch(`/api/qa/runs/${runId}`, { headers: { 'x-qa-token': qaToken } });
+            const run = await res.json();
+
+            document.getElementById('detail-run-id').innerText = run.runId;
+            document.getElementById('detail-run-date').innerText = `Finalizado em: ${new Date(run.completedAt?._seconds * 1000 || run.completedAt).toLocaleString()}`;
+            document.getElementById('detail-summary').innerText = run.summary || 'Nenhuma interpretação de IA disponível.';
+
+            const bugsList = document.getElementById('detail-bugs-list');
+            bugsList.innerHTML = (run.bugs || []).length ? '' : '<p class="text-slate-500 italic text-sm">Nenhum bug reportado.</p>';
+            (run.bugs || []).forEach(bug => {
+                const item = document.createElement('div');
+                item.className = `glass p-4 rounded-xl border-l-4 ${bug.severity === 'critical' ? 'border-red-500 bg-red-500/5' : 'border-yellow-500 bg-yellow-500/5'}`;
+                item.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-slate-800">${bug.severity}</span>
+                        <span class="text-xs text-slate-500 font-mono">${bug.flow} / ${bug.step}</span>
+                    </div>
+                    <p class="font-semibold text-sm">Erro: <code class="text-pink-400 bg-slate-900 px-1 rounded">${bug.error}</code></p>
+                    ${bug.suggestedFix ? `
+                        <div class="mt-4">
+                            <span class="text-xs text-indigo-400 font-bold">💡 CORREÇÃO SUGERIDA (IA):</span>
+                            <pre class="mt-2 bg-slate-950 p-3 rounded-lg text-xs font-mono text-indigo-300 border border-indigo-500/20 overflow-x-auto">${bug.suggestedFix}</pre>
+                        </div>
+                    ` : ''}
+                `;
+                bugsList.appendChild(item);
+            });
+
+            const stepsTable = document.getElementById('detail-steps-table');
+            stepsTable.innerHTML = '';
+            (run.steps || []).forEach(step => {
+                const row = document.createElement('tr');
+                row.className = 'border-b border-slate-800/50 hover:bg-white/5 transition-all';
+                row.innerHTML = `
+                    <td class="py-3 px-1">
+                        <i data-lucide="${step.success ? 'check-circle' : 'x-circle'}" class="w-4 h-4 ${step.success ? 'text-green-500' : 'text-red-500'}"></i>
+                    </td>
+                    <td class="font-medium">
+                        <div class="text-[10px] text-slate-500 uppercase">${step.flowId}</div>
+                        <div class="text-xs">${step.stepName}</div>
+                    </td>
+                    <td class="text-xs text-slate-400">${step.duration}ms</td>
+                    <td class="text-[10px] font-mono text-slate-500">${step.correlationId || '--'}</td>
+                `;
+                stepsTable.appendChild(row);
+            });
+            lucide.createIcons();
+        }
+
+        function closeRunDetail() { elements.modalRunDetail.classList.add('hidden'); }
+
+        // Data Fetching
+        async function refreshData() {
+            const now = Date.now();
+            try {
+                // System Health
+                const sysRes = await fetch(`/api/health/public?t=${now}`);
+                const sysData = await sysRes.json();
+                if (sysData.server) elements.apiUptime.innerText = `Uptime: ${sysData.server.uptime}`;
+                
+                elements.servicesGrid.innerHTML = '';
+                elements.servicesGrid.appendChild(createServiceCard('API Core', { status: 'healthy', responseTime: sysData.responseTime }));
+                if (sysData.dependencies) {
+                    Object.entries(sysData.dependencies).forEach(([name, data]) => {
+                        elements.servicesGrid.appendChild(createServiceCard(name, data));
+                    });
+                }
+
+                // QA Health & History
+                const healthRes = await fetch(`/api/qa/health?t=${now}`);
+                const healthData = await healthRes.json();
+                setScore(healthData.healthScore);
+                elements.totalFlows.innerText = healthData.totalFlows || '--';
+                elements.passedFlows.innerText = healthData.passedFlows || '--';
+
+                if (qaToken) {
+                    // 1. QA Runs
+                    const runsRes = await fetch(`/api/qa/runs?limit=20&t=${now}`, { headers: { 'x-qa-token': qaToken } });
+                    const runsData = await runsRes.json();
+                    const runs = runsData.runs || [];
+                    
+                    elements.runsList.innerHTML = runs.length ? '' : '<div class="text-center py-4 text-slate-500">Nenhum run encontrado</div>';
+                    runs.forEach(run => {
+                        const score = run.healthScore || 0;
+                        const date = new Date(run.completedAt?._seconds * 1000 || run.completedAt).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        const item = document.createElement('div');
+                        item.className = `glass p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-indigo-500/10 transition-all border-l-4 ${score >= 90 ? 'border-green-500' : (score >= 70 ? 'border-yellow-500' : 'border-red-500')}`;
+                        item.onclick = () => openRunDetail(run.runId);
+                        item.innerHTML = `
+                            <div class="flex flex-col">
+                                <span class="text-[10px] text-slate-500 font-mono">${run.runId.substring(0, 16)}...</span>
+                                <span class="text-xs font-semibold mt-1">${date}</span>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-lg font-bold ${score >= 90 ? 'text-green-400' : (score >= 70 ? 'text-yellow-400' : 'text-red-400')}">${score}%</div>
+                                <div class="text-[9px] text-slate-500">${run.passedFlows}/${run.totalFlows} Passou</div>
+                            </div>
+                        `;
+                        elements.runsList.appendChild(item);
+                    });
+
+                    if (runs.length) initTrendChart(runs);
+
+                    // 2. Autofix Pending
+                    const afRes = await fetch(`/api/qa/autofix-pending?t=${now}`, { headers: { 'x-qa-token': qaToken } });
+                    const afData = await afRes.json();
+                    if (afData.length > 0) {
+                        elements.autofixSection.classList.remove('hidden');
+                        elements.autofixList.innerHTML = '';
+                        afData.forEach(fix => {
+                            const card = document.createElement('div');
+                            card.className = 'glass p-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 mb-4';
+                            card.innerHTML = `
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="font-bold text-amber-200">Ref: ${fix.bug.flow} / ${fix.bug.step}</h4>
+                                    <span class="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-1 rounded">Aguardando Revisão</span>
+                                </div>
+                                <p class="text-sm text-slate-400 mb-4">${fix.reason}</p>
+                                <div class="bg-black/40 p-3 rounded-lg mb-4">
+                                    <span class="text-[10px] text-slate-500 font-bold uppercase">Fix sugerido pela IA:</span>
+                                    <pre class="text-xs text-indigo-300 mt-2 whitespace-pre-wrap">${fix.bug.suggestedFix}</pre>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button onclick="processAutofix('${fix.id}', 'approve')" class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-2 rounded-lg font-bold transition-all">Aprovar & Aplicar</button>
+                                    <button onclick="processAutofix('${fix.id}', 'reject')" class="flex-1 glass hover:bg-red-500/20 text-red-400 text-xs py-2 rounded-lg font-bold transition-all">Rejeitar</button>
+                                </div>
+                            `;
+                            elements.autofixList.appendChild(card);
+                        });
+                    } else {
+                        elements.autofixSection.classList.add('hidden');
+                    }
+
+                    // 3. Notification Jobs
+                    const jobsRes = await fetch(`/api/qa/notification-jobs?limit=10&t=${now}`, { headers: { 'x-qa-token': qaToken } });
+                    const jobsData = await jobsRes.json();
+                    
+                    elements.jobsList.innerHTML = jobsData.length ? '' : '<tr><td colspan="5" class="p-4 text-center text-slate-500 italic">Nenhum job encontrado</td></tr>';
+                    jobsData.forEach(job => {
+                        const statusColors = {
+                            completed: 'text-green-400 bg-green-400/10',
+                            pending: 'text-blue-400 bg-blue-400/10',
+                            failed: 'text-red-400 bg-red-400/10',
+                            processing: 'text-yellow-400 bg-yellow-400/10 pulse'
+                        };
+                        const date = new Date(job.createdAt?._seconds * 1000 || job.createdAt).toLocaleString([], { hour: '2-digit', minute: '2-digit' });
+                        
+                        const row = document.createElement('tr');
+                        row.className = 'border-b border-slate-800/50 hover:bg-white/5 transition-all';
+                        row.innerHTML = `
+                            <td class="p-3">
+                                <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded ${statusColors[job.status] || 'bg-slate-700'}">${job.status}</span>
+                            </td>
+                            <td class="p-3 font-medium text-slate-300 capitalize">${job.type.replace(/_/g, ' ')}</td>
+                            <td class="p-3">
+                                <div class="flex gap-1">
+                                    ${(job.channels || []).map(c => `<span class="text-[8px] bg-slate-800 px-1 rounded border border-slate-700">${c}</span>`).join('')}
+                                </div>
+                            </td>
+                            <td class="p-3 text-slate-500 font-mono">${date}</td>
+                            <td class="p-3">
+                                <button class="p-1 hover:text-indigo-400 transition-all"><i data-lucide="info" class="w-4 h-4"></i></button>
+                            </td>
+                        `;
+                        elements.jobsList.appendChild(row);
+                    });
+
+                    // 4. SRE Logs
+                    const sreRes = await fetch(`/api/qa/sre-logs?limit=15&t=${now}`, { headers: { 'x-qa-token': qaToken } });
+                    const sreData = await sreRes.json();
+
+                    elements.sreLogsList.innerHTML = sreData.length ? '' : '<tr><td colspan="5" class="p-4 text-center text-slate-500 italic">Nenhum log técnico recente</td></tr>';
+                    sreData.forEach(log => {
+                        const sevColors = {
+                            CRITICAL: 'text-red-500 bg-red-500/20 border-red-500/30',
+                            HIGH: 'text-orange-400 bg-orange-400/20 border-orange-400/30',
+                            MEDIUM: 'text-yellow-400 bg-yellow-400/20 border-yellow-400/30',
+                            LOW: 'text-green-400 bg-green-400/20 border-green-400/30'
+                        };
+                        const statusColor = log.status_code >= 500 ? 'text-red-400' : (log.status_code >= 400 ? 'text-yellow-400' : 'text-green-400');
+                        
+                        const row = document.createElement('tr');
+                        row.className = 'border-b border-slate-800/50 hover:bg-white/5 transition-all';
+                        row.innerHTML = `
+                            <td class="p-3">
+                                <span class="text-[9px] font-bold px-2 py-0.5 rounded border ${sevColors[log.severity] || 'bg-slate-700'}">${log.severity}</span>
+                            </td>
+                            <td class="p-3">
+                                <div class="flex flex-col">
+                                    <span class="text-xs font-mono text-slate-300">${log.method} ${log.path}</span>
+                                    <span class="text-[9px] text-slate-500 mt-0.5">Correlation: ${log.correlation_id.substring(0,8)}...</span>
+                                </div>
+                            </td>
+                            <td class="p-3 font-bold ${statusColor}">${log.status_code}</td>
+                            <td class="p-3 text-slate-400 text-xs">${log.duration_ms}ms</td>
+                            <td class="p-3">
+                                ${log.ai_diagnosis ? `
+                                    <div class="flex flex-col gap-1">
+                                        <span class="text-[10px] text-indigo-300 font-bold">RCA: ${log.ai_diagnosis.classification || 'Analisado'}</span>
+                                        ${log.ai_diagnosis.pr_url ? `<a href="${log.ai_diagnosis.pr_url}" target="_blank" class="text-[9px] text-green-400 flex items-center gap-1 hover:underline"><i data-lucide="git-pull-request" class="w-3 h-3"></i> Patch Aberto</a>` : ''}
+                                    </div>
+                                ` : `<span class="text-[10px] text-slate-600 italic">Aguardando IA...</span>`}
+                            </td>
+                        `;
+                        elements.sreLogsList.appendChild(row);
+                    });
+                }
+                lucide.createIcons();
+            } catch (err) {
+                console.error('Refresh Error:', err);
+            }
+        }
+
+        async function processAutofix(id, action) {
+            const method = action === 'approve' ? 'POST' : 'DELETE';
+            const url = `/api/qa/autofix-pending/${id}${action === 'approve' ? '/approve' : ''}`;
+            try {
+                const res = await fetch(url, { method, headers: { 'x-qa-token': qaToken } });
+                if (res.ok) refreshData();
+                else alert('Erro ao processar fix');
+            } catch (err) { alert('Erro de rede'); }
+        }
+
+        // Event Listeners
+        elements.btnRefresh.addEventListener('click', refreshData);
+        elements.btnToken.addEventListener('click', () => { elements.inputToken.value = qaToken; elements.modalToken.classList.remove('hidden'); });
+        elements.btnCloseModal.addEventListener('click', () => elements.modalToken.classList.add('hidden'));
+        elements.btnSaveToken.addEventListener('click', () => {
+            qaToken = elements.inputToken.value.trim();
+            localStorage.setItem('x-qa-token', qaToken);
+            elements.modalToken.classList.add('hidden');
+            refreshData();
+        });
+        elements.btnRunQA.addEventListener('click', async () => {
+            if (!qaToken) return alert('Token necessário');
+            elements.btnRunQA.disabled = true;
+            try {
+                const res = await fetch('/api/qa/run', { method: 'POST', headers: { 'x-qa-token': qaToken } });
+                if (res.ok) {
+                    refreshData(); // atualiza lista imediatamente (run aparecerá em andamento)
+                    setTimeout(refreshData, 30000); // atualiza novamente após ~30s (run concluído)
+                } else alert('Erro ao iniciar run');
+            } finally { elements.btnRunQA.disabled = false; }
+        });
+
+        // Init
+        refreshData();
+        setInterval(refreshData, 30000);
+    </script>
+</body>
+</html>

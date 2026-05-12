@@ -139,6 +139,23 @@ exports._processPaymentNotification = async (paymentId, requestId) => {
             action: 'AUTO_VALIDATION_SUCCESS'
           });
 
+          // Notificar usuário sobre validação da conta
+          try {
+            const NotificationDispatcher = require('../services/NotificationDispatcher');
+            await NotificationDispatcher.dispatch({
+              userId: account.adminId,
+              type: 'account_validated',
+              importance: 'medium',
+              data: {
+                accountId: account.id,
+                message: 'Sua conta bancária foi validada com sucesso e está pronta para receber saques.'
+              },
+              metadata: { triggeredBy: 'system', correlationId: paymentId }
+            });
+          } catch (err) {
+            logger.warn('Falha ao notificar validação de conta', { error: err.message, userId: account.adminId });
+          }
+
           // Parar no primeiro match válido
           break;
         }

@@ -86,7 +86,7 @@ const verifyAndGenerateNewToken = async (refreshToken) => {
     };
 
     // Gerar novos tokens de acesso e refresh
-    const accessToken = generateToken(userData);
+    const { accessToken } = generateToken(userData);
     const newRefreshToken = generateRefreshToken(userData);
 
     return { 

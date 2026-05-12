@@ -224,6 +224,26 @@ const venderBilhete = async (caixinhaId, rifaId, membroId, numeroBilhete) => {
     // Vender o bilhete
     const bilhete = await rifa.venderBilhete(caixinhaId, rifaId, membroId, numeroBilhete);
     
+    // Notificar comprador
+    setImmediate(async () => {
+      try {
+        const NotificationDispatcher = require('./NotificationDispatcher');
+        await NotificationDispatcher.dispatch({
+          userId: membroId, // Assuming membroId is userId here (common in this app)
+          type: 'rifa_ticket_purchased',
+          importance: 'medium',
+          data: {
+            ticketNumber: numeroBilhete,
+            rifaName: rifa.nome,
+            rifaId: rifaId
+          },
+          metadata: { triggeredBy: 'system', correlationId: `${rifaId}_${numeroBilhete}` }
+        });
+      } catch (err) {
+        logger.warn('Falha ao notificar compra de bilhete', { error: err.message, membroId, rifaId });
+      }
+    });
+
     logger.info('Bilhete vendido com sucesso', {
       service: 'rifaService',
       method: 'venderBilhete',
@@ -304,6 +324,33 @@ const realizarSorteio = async (caixinhaId, rifaId, metodo, referencia) => {
       'sorteioResultado.comprovante': comprovante
     });
     
+    // Notificar participantes e vencedor
+    setImmediate(async () => {
+      try {
+        const NotificationDispatcher = require('./NotificationDispatcher');
+        const participants = [...new Set(rifa.bilhetesVendidos.map(b => b.membroId))];
+        
+        for (const userId of participants) {
+          const isWinner = resultado.bilheteVencedor && resultado.bilheteVencedor.membroId === userId && resultado.bilheteVencedor.numero === numeroSorteado;
+          
+          await NotificationDispatcher.dispatch({
+            userId,
+            type: isWinner ? 'rifa_winner_announced' : 'rifa_draw_held',
+            importance: isWinner ? 'high' : 'medium',
+            data: {
+              rifaName: rifa.nome,
+              winningNumber: numeroSorteado,
+              prize: rifa.premio,
+              rifaId: rifaId
+            },
+            metadata: { triggeredBy: 'system', correlationId: `draw_${rifaId}` }
+          });
+        }
+      } catch (err) {
+        logger.warn('Falha ao notificar resultado do sorteio', { error: err.message, rifaId });
+      }
+    });
+
     logger.info('Sorteio realizado com sucesso', {
       service: 'rifaService',
       method: 'realizarSorteio',
