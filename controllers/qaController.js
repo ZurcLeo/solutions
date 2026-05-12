@@ -1,5 +1,7 @@
 const QAOrchestratorService = require('../services/QAOrchestratorService');
 const BugReporter            = require('../services/BugReporter');
+const AutofixGuard           = require('../services/AutofixGuard');
+const GitHubService          = require('../services/GitHubService');
 const { logger }             = require('../logger');
 
 /**
@@ -138,7 +140,7 @@ async function listAutofixPending(req, res) {
 }
 
 /**
- * Aprova e aplica um autofix pendente.
+ * Aprova e aplica um autofix pendente abrindo um PR no GitHub.
  * POST /api/qa/autofix-pending/:id/approve
  */
 async function approveAutofix(req, res) {
@@ -155,20 +157,153 @@ async function approveAutofix(req, res) {
       .single();
 
     if (fetchError || !data) return res.status(404).json({ error: 'Pendência não encontrada' });
-    
-    if (data.status !== 'awaiting_review') {
+
+    if (!['awaiting_review', 'refined'].includes(data.status)) {
       return res.status(400).json({ error: 'Este fix já foi processado' });
     }
 
+    const bug        = data.bug || {};
+    const proposedFix = bug.proposedFix;
+
+    // Sem patch proposto: marca como "acknowledged" mas não abre PR
+    if (!proposedFix || !proposedFix.filePath || !proposedFix.patch) {
+      await supabase
+        .from('qa_autofix_pending')
+        .update({ status: 'acknowledged', processed_at: new Date().toISOString() })
+        .eq('id', id);
+
+      return res.json({
+        success: true,
+        message: 'Fix reconhecido. Nenhum patch disponível para PR automático — correção deve ser feita manualmente.',
+        prUrl: null,
+      });
+    }
+
+    // Com patch: valida e abre PR
+    if (!GitHubService._isConfigured()) {
+      return res.status(503).json({ error: 'GitHub não configurado — não é possível abrir PR' });
+    }
+
+    const fix = {
+      flowId:      proposedFix.flowId || bug.flow,
+      stepId:      proposedFix.stepId || bug.step,
+      filePath:    proposedFix.filePath,
+      description: proposedFix.description || `Fix: ${bug.step} em ${bug.flow}`,
+      explanation: proposedFix.explanation || bug.suggestedFix || '',
+      patch:       proposedFix.patch,
+    };
+
+    const patchValid = await AutofixGuard.validatePatch(fix.filePath, fix.patch.oldCode, fix.patch.newCode);
+    if (!patchValid) {
+      await supabase
+        .from('qa_autofix_pending')
+        .update({ status: 'patch_invalid', processed_at: new Date().toISOString() })
+        .eq('id', id);
+      return res.status(422).json({ error: 'Patch inválido ou não aplicável ao arquivo atual' });
+    }
+
+    const branchName = await GitHubService.createBranchWithFix(fix);
+    const prUrl      = await GitHubService.openPR(branchName, fix);
+
+    await AutofixGuard.recordPROpened(fix.filePath, prUrl, fix);
+
     await supabase
       .from('qa_autofix_pending')
-      .update({ status: 'approved', processed_at: new Date().toISOString() })
+      .update({ status: 'pr_opened', processed_at: new Date().toISOString() })
       .eq('id', id);
-    
-    res.json({ success: true, message: 'Fix aprovado. Integração com GitHubService em andamento.' });
+
+    logger.info('qaController.approveAutofix: PR aberto com sucesso', {
+      service: 'qaController', id, prUrl, branchName,
+    });
+
+    res.json({ success: true, prUrl, branchName });
   } catch (err) {
     logger.error('qaController.approveAutofix', { service: 'qaController', error: err.message });
-    res.status(500).json({ error: 'Falha ao aprovar fix' });
+    res.status(500).json({ error: 'Falha ao aprovar fix', detail: err.message });
+  }
+}
+
+/**
+ * Re-gera proposta de fix com direção explícita do desenvolvedor.
+ * POST /api/qa/autofix-pending/:id/refine
+ * Body: { guidance: string }
+ *
+ * Retorna o patch gerado para preview antes do PR ser aberto.
+ * Persiste o refinamento em bug.proposedFix e em refinements[].
+ */
+async function refineAutofix(req, res) {
+  try {
+    const { id }      = req.params;
+    const { guidance } = req.body || {};
+
+    if (!guidance || !guidance.trim()) {
+      return res.status(400).json({ error: 'Forneça uma direção (guidance) para o refinamento' });
+    }
+
+    const { getSupabaseClient } = require('../config/supabase');
+    const supabase = getSupabaseClient();
+    if (!supabase) return res.status(500).json({ error: 'Supabase não disponível' });
+
+    const { data, error: fetchError } = await supabase
+      .from('qa_autofix_pending')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !data) return res.status(404).json({ error: 'Pendência não encontrada' });
+    if (!['awaiting_review', 'refined'].includes(data.status)) {
+      return res.status(400).json({ error: 'Este fix não está disponível para refinamento' });
+    }
+
+    const QAOrchestratorService = require('../services/QAOrchestratorService');
+    const orchestrator = new QAOrchestratorService();
+
+    let fix;
+    try {
+      fix = await orchestrator._generateFixWithGuidance(data.bug, guidance.trim());
+    } catch (err) {
+      logger.warn('qaController.refineAutofix: geração falhou', {
+        service: 'qaController', id, error: err.message,
+      });
+      return res.status(422).json({
+        error: 'Não foi possível gerar patch com essa direção',
+        detail: err.message,
+      });
+    }
+
+    // Persiste: atualiza proposedFix + appenda ao histórico de refinamentos
+    const refinement = {
+      at:          new Date().toISOString(),
+      guidance:    guidance.trim(),
+      filePath:    fix.filePath,
+      description: fix.description,
+      patch:       fix.patch,
+    };
+
+    const updatedBug      = { ...data.bug, proposedFix: fix };
+    const updatedHistory  = [...(data.refinements || []), refinement];
+
+    await supabase
+      .from('qa_autofix_pending')
+      .update({
+        bug:         updatedBug,
+        refinements: updatedHistory,
+        status:      'refined',
+      })
+      .eq('id', id);
+
+    logger.info('qaController.refineAutofix: patch gerado com sucesso', {
+      service: 'qaController', id, filePath: fix.filePath,
+    });
+
+    res.json({
+      success:    true,
+      fix,
+      refinements: updatedHistory.length,
+    });
+  } catch (err) {
+    logger.error('qaController.refineAutofix', { service: 'qaController', error: err.message });
+    res.status(500).json({ error: 'Falha no refinamento', detail: err.message });
   }
 }
 
@@ -293,14 +428,15 @@ async function seedBalance(req, res) {
   }
 }
 
-module.exports = { 
-  triggerRun, 
-  listRuns, 
-  getRunDetail, 
-  getHealth, 
+module.exports = {
+  triggerRun,
+  listRuns,
+  getRunDetail,
+  getHealth,
   seedBalance,
   listAutofixPending,
   approveAutofix,
+  refineAutofix,
   rejectAutofix,
   getInterpretationCache,
   listNotificationJobs,

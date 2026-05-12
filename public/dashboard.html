@@ -304,7 +304,8 @@
             modalRunDetail: document.getElementById('modal-run-detail'),
             jobsList: document.getElementById('jobs-list'),
             sreLogsList: document.getElementById('sre-logs-list'),
-            btnCloseModal: document.getElementById('btn-close-modal')
+            btnCloseModal: document.getElementById('btn-close-modal'),
+            btnSaveToken: document.getElementById('btn-save-token')
         };
 
         // UI Helpers
@@ -447,9 +448,15 @@
                 
                 elements.servicesGrid.innerHTML = '';
                 elements.servicesGrid.appendChild(createServiceCard('API Core', { status: 'healthy', responseTime: sysData.responseTime }));
-                if (sysData.dependencies) {
-                    Object.entries(sysData.dependencies).forEach(([name, data]) => {
-                        elements.servicesGrid.appendChild(createServiceCard(name, data));
+                if (sysData.categories) {
+                    sysData.categories.forEach(category => {
+                        category.services.forEach(svc => {
+                            elements.servicesGrid.appendChild(createServiceCard(svc.name, {
+                                status: svc.status,
+                                responseTime: svc.latency ? `${Math.round(svc.latency)}ms` : null,
+                                message: typeof svc.details === 'string' ? svc.details : svc.details?.message
+                            }));
+                        });
                     });
                 }
 
@@ -493,29 +500,26 @@
                     const afData = await afRes.json();
                     if (afData.length > 0) {
                         elements.autofixSection.classList.remove('hidden');
-                        elements.autofixList.innerHTML = '';
+                        // Só re-renderiza cards que não estão em edição ativa (preserva textarea)
                         afData.forEach(fix => {
-                            const card = document.createElement('div');
-                            card.className = 'glass p-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 mb-4';
-                            card.innerHTML = `
-                                <div class="flex justify-between items-start mb-3">
-                                    <h4 class="font-bold text-amber-200">Ref: ${fix.bug.flow} / ${fix.bug.step}</h4>
-                                    <span class="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-1 rounded">Aguardando Revisão</span>
-                                </div>
-                                <p class="text-sm text-slate-400 mb-4">${fix.reason}</p>
-                                <div class="bg-black/40 p-3 rounded-lg mb-4">
-                                    <span class="text-[10px] text-slate-500 font-bold uppercase">Fix sugerido pela IA:</span>
-                                    <pre class="text-xs text-indigo-300 mt-2 whitespace-pre-wrap">${fix.bug.suggestedFix}</pre>
-                                </div>
-                                <div class="flex gap-2">
-                                    <button onclick="processAutofix('${fix.id}', 'approve')" class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-2 rounded-lg font-bold transition-all">Aprovar & Aplicar</button>
-                                    <button onclick="processAutofix('${fix.id}', 'reject')" class="flex-1 glass hover:bg-red-500/20 text-red-400 text-xs py-2 rounded-lg font-bold transition-all">Rejeitar</button>
-                                </div>
-                            `;
-                            elements.autofixList.appendChild(card);
+                            const existingCard = document.getElementById(`fix-card-${fix.id}`);
+                            const state = fixCardStates.get(fix.id) || 'idle';
+                            if (existingCard && state !== 'idle') return; // preserva estado ativo
+                            const card = buildAutofixCard(fix);
+                            if (existingCard) {
+                                existingCard.replaceWith(card);
+                            } else {
+                                elements.autofixList.appendChild(card);
+                            }
+                        });
+                        // Remove cards que não estão mais na lista
+                        [...elements.autofixList.children].forEach(el => {
+                            const id = el.id?.replace('fix-card-', '');
+                            if (id && !afData.find(f => f.id === id)) el.remove();
                         });
                     } else {
                         elements.autofixSection.classList.add('hidden');
+                        elements.autofixList.innerHTML = '';
                     }
 
                     // 3. Notification Jobs
@@ -598,14 +602,215 @@
             }
         }
 
+        // ─── Autofix card state machine ───────────────────────────────────────
+        // States per fix.id: 'idle' | 'refining' | 'loading' | 'preview'
+        const fixCardStates = new Map();
+
+        function escHtml(s) {
+            return String(s || '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderDiff(oldCode, newCode) {
+            const oldLines = (oldCode || '').split('\n')
+                .map(l => `<div class="py-0.5"><span class="text-red-400 select-none mr-1">-</span>${escHtml(l)}</div>`)
+                .join('');
+            const newLines = (newCode || '').split('\n')
+                .map(l => `<div class="py-0.5"><span class="text-green-400 select-none mr-1">+</span>${escHtml(l)}</div>`)
+                .join('');
+            return `
+                <div class="font-mono text-xs rounded-lg overflow-hidden border border-slate-700 mt-2">
+                    <div class="bg-red-900/20 px-3 py-2 border-b border-red-900/30">${oldLines}</div>
+                    <div class="bg-green-900/20 px-3 py-2">${newLines}</div>
+                </div>`;
+        }
+
+        function buildAutofixCard(fix) {
+            const card = document.createElement('div');
+            card.id = `fix-card-${fix.id}`;
+            card.className = 'glass p-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 mb-4';
+            const statusLabel = fix.status === 'refined'
+                ? '<span class="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded">Refinado — Aguarda PR</span>'
+                : '<span class="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-1 rounded">Aguardando Revisão</span>';
+            const refinedBadge = (fix.refinements?.length > 0)
+                ? `<span class="text-[9px] text-slate-500 ml-2">${fix.refinements.length} refinamento(s)</span>` : '';
+            const hasPatch = fix.bug?.proposedFix?.patch;
+            const patchSection = hasPatch ? `
+                <div class="mb-4">
+                    <span class="text-[10px] text-slate-500 font-bold uppercase">Patch disponível · ${escHtml(fix.bug.proposedFix.filePath)}</span>
+                    ${renderDiff(fix.bug.proposedFix.patch.oldCode, fix.bug.proposedFix.patch.newCode)}
+                </div>` : '';
+
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <h4 class="font-bold text-amber-200">Ref: ${escHtml(fix.bug?.flow)} / ${escHtml(fix.bug?.step)}</h4>
+                        ${refinedBadge}
+                    </div>
+                    ${statusLabel}
+                </div>
+                <p class="text-sm text-slate-400 mb-3">${escHtml(fix.reason)}</p>
+                <div class="bg-black/40 p-3 rounded-lg mb-4">
+                    <span class="text-[10px] text-slate-500 font-bold uppercase">Fix sugerido pela IA:</span>
+                    <pre class="text-xs text-indigo-300 mt-2 whitespace-pre-wrap">${escHtml(fix.bug?.suggestedFix)}</pre>
+                </div>
+                ${patchSection}
+                <div id="fix-body-${fix.id}">
+                    ${buildIdleButtons(fix)}
+                </div>`;
+            return card;
+        }
+
+        function buildIdleButtons(fix) {
+            const approveLabel = fix.bug?.proposedFix?.patch ? 'Aprovar & Abrir PR' : 'Reconhecer';
+            return `
+                <div class="flex gap-2">
+                    <button onclick="processAutofix('${fix.id}','approve')"
+                        class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-2 rounded-lg font-bold transition-all">
+                        ${approveLabel}
+                    </button>
+                    <button onclick="openRefinePanel('${fix.id}')"
+                        class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-2 rounded-lg font-bold transition-all">
+                        Aprovar com Ressalvas
+                    </button>
+                    <button onclick="processAutofix('${fix.id}','reject')"
+                        class="flex-1 glass hover:bg-red-500/20 text-red-400 text-xs py-2 rounded-lg font-bold transition-all">
+                        Rejeitar
+                    </button>
+                </div>`;
+        }
+
+        function openRefinePanel(id) {
+            fixCardStates.set(id, 'refining');
+            const body = document.getElementById(`fix-body-${id}`);
+            if (!body) return;
+            const card = document.getElementById(`fix-card-${id}`);
+            const suggestedFix = card?.querySelector('pre')?.textContent || '';
+            body.innerHTML = `
+                <div class="border-t border-slate-700 pt-4 mt-2">
+                    <p class="text-xs text-indigo-300 mb-2 font-semibold">Sua direção para a IA <span class="text-slate-500 font-normal">(edite abaixo)</span>:</p>
+                    <textarea id="fix-guidance-${id}"
+                        class="w-full bg-slate-900 border border-indigo-500/40 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:border-indigo-400 resize-none"
+                        rows="4"
+                        placeholder="Ex: Manter o campo obrigatório, mas gerá-lo automaticamente no backend se não fornecido pelo caller..."
+                    >${escHtml(suggestedFix)}</textarea>
+                    <p class="text-[10px] text-slate-500 mt-1 mb-3">A IA irá gerar um patch seguindo exatamente sua direção. Você verá o diff antes de abrir o PR.</p>
+                    <div class="flex gap-2">
+                        <button onclick="submitRefinement('${id}')"
+                            class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-2 rounded-lg font-bold transition-all">
+                            Gerar Fix com Esta Direção
+                        </button>
+                        <button onclick="cancelRefine('${id}')"
+                            class="glass hover:bg-slate-700 text-slate-400 text-xs px-4 py-2 rounded-lg transition-all">
+                            Cancelar
+                        </button>
+                    </div>
+                </div>`;
+        }
+
+        function cancelRefine(id) {
+            fixCardStates.delete(id);
+            refreshData();
+        }
+
+        function showToast(msg, type = 'error') {
+            const colors = { error: 'bg-red-900/90 border-red-500/50 text-red-200', success: 'bg-green-900/90 border-green-500/50 text-green-200', info: 'bg-slate-800/90 border-slate-600/50 text-slate-200' };
+            const t = document.createElement('div');
+            t.className = `fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl border text-sm font-medium shadow-xl transition-all duration-300 opacity-0 ${colors[type] || colors.error}`;
+            t.textContent = msg;
+            document.body.appendChild(t);
+            requestAnimationFrame(() => { t.style.opacity = '1'; });
+            setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3500);
+        }
+
+        async function submitRefinement(id) {
+            const textarea = document.getElementById(`fix-guidance-${id}`);
+            const guidance = textarea?.value?.trim();
+            if (!guidance) { showToast('Escreva uma direção antes de gerar o fix.'); return; }
+
+            fixCardStates.set(id, 'loading');
+            const body = document.getElementById(`fix-body-${id}`);
+            if (body) body.innerHTML = `
+                <div class="flex items-center gap-3 py-4 text-slate-400 text-sm">
+                    <div class="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+                    IA gerando patch com sua direção…
+                </div>`;
+
+            try {
+                const res = await fetch(`/api/qa/autofix-pending/${id}/refine`, {
+                    method: 'POST',
+                    headers: { 'x-qa-token': qaToken, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ guidance }),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    fixCardStates.set(id, 'refining');
+                    if (body) body.innerHTML = `
+                        <div class="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-xs text-red-300 mb-3">
+                            ${escHtml(data.error)} — ${escHtml(data.detail || '')}
+                        </div>
+                        ${buildIdleButtons({ id, bug: {}, refinements: [] })}`;
+                    return;
+                }
+
+                fixCardStates.set(id, 'preview');
+                const fix = data.fix;
+                if (body) body.innerHTML = `
+                    <div class="border-t border-slate-700 pt-4 mt-2">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="text-[10px] text-green-400 font-bold uppercase bg-green-900/30 px-2 py-1 rounded">Patch gerado</span>
+                            <span class="text-[10px] text-slate-400 font-mono">${escHtml(fix.filePath)}</span>
+                        </div>
+                        <p class="text-xs text-slate-300 mb-2 font-semibold">${escHtml(fix.description)}</p>
+                        ${renderDiff(fix.patch?.oldCode, fix.patch?.newCode)}
+                        <p class="text-[10px] text-slate-500 mt-3 mb-3 italic">${escHtml(fix.explanation || '')}</p>
+                        <div class="flex gap-2 mt-3">
+                            <button onclick="processAutofix('${id}','approve')"
+                                class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-2 rounded-lg font-bold transition-all">
+                                Confirmar e Abrir PR
+                            </button>
+                            <button onclick="openRefinePanel('${id}')"
+                                class="flex-1 bg-indigo-600/70 hover:bg-indigo-700 text-white text-xs py-2 rounded-lg font-bold transition-all">
+                                Refinar Novamente
+                            </button>
+                            <button onclick="processAutofix('${id}','reject')"
+                                class="glass hover:bg-red-500/20 text-red-400 text-xs px-4 py-2 rounded-lg transition-all">
+                                Rejeitar
+                            </button>
+                        </div>
+                    </div>`;
+            } catch (err) {
+                fixCardStates.set(id, 'idle');
+                if (body) body.innerHTML = buildIdleButtons({ id, bug: {}, refinements: [] });
+                showToast('Erro de rede ao gerar fix');
+            }
+        }
+
         async function processAutofix(id, action) {
+            fixCardStates.delete(id); // limpa estado ao aprovar/rejeitar
             const method = action === 'approve' ? 'POST' : 'DELETE';
             const url = `/api/qa/autofix-pending/${id}${action === 'approve' ? '/approve' : ''}`;
             try {
                 const res = await fetch(url, { method, headers: { 'x-qa-token': qaToken } });
-                if (res.ok) refreshData();
-                else alert('Erro ao processar fix');
-            } catch (err) { alert('Erro de rede'); }
+                const data = await res.json();
+                if (res.ok) {
+                    if (data.prUrl) {
+                        const card = document.getElementById(`fix-card-${id}`);
+                        if (card) card.innerHTML += `
+                            <div class="mt-3 p-3 bg-green-900/20 border border-green-500/30 rounded-lg text-xs">
+                                PR aberto: <a href="${escHtml(data.prUrl)}" target="_blank"
+                                    class="text-green-400 underline">${escHtml(data.prUrl)}</a>
+                            </div>`;
+                        setTimeout(refreshData, 2000);
+                    } else {
+                        refreshData();
+                    }
+                } else {
+                    showToast(data.error || 'Erro ao processar fix');
+                }
+            } catch (err) { showToast('Erro de rede ao processar fix'); }
         }
 
         // Event Listeners
@@ -619,14 +824,14 @@
             refreshData();
         });
         elements.btnRunQA.addEventListener('click', async () => {
-            if (!qaToken) return alert('Token necessário');
+            if (!qaToken) return showToast('Token necessário');
             elements.btnRunQA.disabled = true;
             try {
                 const res = await fetch('/api/qa/run', { method: 'POST', headers: { 'x-qa-token': qaToken } });
                 if (res.ok) {
                     refreshData(); // atualiza lista imediatamente (run aparecerá em andamento)
                     setTimeout(refreshData, 30000); // atualiza novamente após ~30s (run concluído)
-                } else alert('Erro ao iniciar run');
+                } else showToast('Erro ao iniciar run');
             } finally { elements.btnRunQA.disabled = false; }
         });
 

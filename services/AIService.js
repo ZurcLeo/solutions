@@ -2,7 +2,7 @@
 const { logger } = require('../logger');
 const SupportService = require('./SupportService');
 
-const AI_MODEL_NAME = process.env.AI_MODEL_NAME || 'gpt-3.5-turbo';
+const AI_MODEL_NAME = process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001';
 const AI_ENABLED = process.env.AI_ENABLED !== 'false'; // Default to true unless explicitly disabled
 
 let openai = null;
