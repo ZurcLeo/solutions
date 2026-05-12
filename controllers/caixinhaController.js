@@ -7,6 +7,75 @@ const MembrosService = require('../services/membrosService');
 const TransactionService = require('../services/transactionService');
 
 /**
+ * Busca dados do usuário atual em uma caixinha específica
+ */
+const getMeusDadosCaixinha = async (req, res) => {
+  const { id: caixinhaId } = req.params;
+  const userId = req.user.uid;
+
+  logger.info('Buscando dados do usuário na caixinha', {
+    controller: 'CaixinhaController',
+    method: 'getMeusDadosCaixinha',
+    caixinhaId,
+    userId
+  });
+
+  try {
+    if (!req.user) {
+      logger.warn('Tentativa de acesso sem autenticação', {
+        controller: 'CaixinhaController',
+        method: 'getMeusDadosCaixinha'
+      });
+      return res.status(401).json({
+        message: 'Usuário não autenticado'
+      });
+    }
+
+    const membro = await MembrosService.getMembroByCaixinha(caixinhaId, userId);
+    
+    if (!membro) {
+      logger.warn('Usuário não é membro da caixinha', {
+        controller: 'CaixinhaController',
+        method: 'getMeusDadosCaixinha',
+        caixinhaId,
+        userId
+      });
+      return res.status(404).json({
+        success: false,
+        message: 'Usuário não é membro desta caixinha'
+      });
+    }
+
+    logger.info('Dados do usuário recuperados com sucesso', {
+      controller: 'CaixinhaController',
+      method: 'getMeusDadosCaixinha',
+      caixinhaId,
+      userId
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: membro
+    });
+  } catch (error) {
+    logger.error('Erro ao buscar dados do usuário', {
+      controller: 'CaixinhaController',
+      method: 'getMeusDadosCaixinha',
+      caixinhaId,
+      userId,
+      error: error.message,
+      stack: error.stack
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao buscar dados do usuário',
+      error: error.message
+    });
+  }
+}
+
+/**
  * Busca todas as caixinhas para o usuário atual
  */
 
