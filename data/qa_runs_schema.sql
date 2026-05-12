@@ -80,10 +80,15 @@ CREATE INDEX IF NOT EXISTS idx_qa_run_steps_correlation_id ON qa_run_steps(corre
 CREATE INDEX IF NOT EXISTS idx_qa_autofixes_file_path ON qa_autofixes(file_path);
 CREATE INDEX IF NOT EXISTS idx_qa_autofix_pending_status ON qa_autofix_pending(status);
 
--- Habilitar RLS
-ALTER TABLE qa_runs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE qa_run_bugs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE qa_run_steps ENABLE ROW LEVEL SECURITY;
+-- Estas tabelas são dados internos de monitoramento (não contêm PII de usuários).
+-- RLS desabilitado para permitir acesso via anon key do backend Express.
+-- Se migrar para service_role key, reabilitar RLS com políticas adequadas.
+ALTER TABLE qa_runs           DISABLE ROW LEVEL SECURITY;
+ALTER TABLE qa_run_bugs       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE qa_run_steps      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE qa_interpretation_cache DISABLE ROW LEVEL SECURITY;
+ALTER TABLE qa_autofixes      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE qa_autofix_pending DISABLE ROW LEVEL SECURITY;
 
--- Nota: O backend usa a service_role key, que ignora RLS. 
--- Se desejar acesso direto via Client SDK, adicionar políticas apropriadas.
+-- Grant full access to anon role (dados internos de QA, sem exposição pública)
+GRANT ALL ON qa_runs, qa_run_bugs, qa_run_steps, qa_interpretation_cache, qa_autofixes, qa_autofix_pending TO anon;

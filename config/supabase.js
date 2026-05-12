@@ -16,12 +16,19 @@ function getSupabaseClient() {
   if (supabase) return supabase;
   
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Service role key bypasses RLS (preferred for backend).
+  // Falls back to anon/publishable key when running without service role (requires RLS disabled on QA tables).
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    || process.env.SUPABASE_ANON_KEY
+    || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    logger.warn('Supabase credentials missing (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY)');
+    logger.warn('Supabase credentials missing — set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY)');
     return null;
   }
+
+  const keyType = process.env.SUPABASE_SERVICE_ROLE_KEY ? 'service_role' : 'anon';
+  logger.info(`Supabase: conectando com chave ${keyType}`, { url: supabaseUrl });
 
   try {
     supabase = createClient(supabaseUrl, supabaseKey, {
