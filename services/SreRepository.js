@@ -102,9 +102,35 @@ async function getPendingDiagnostics(limit = 5) {
 }
 
 /**
+ * Busca logs LOW/200 sem diagnóstico (health checks, polls de sistema).
+ * Esses logs nunca entram no fluxo normal de IA e precisam ser marcados automaticamente.
+ * @param {number} limit
+ */
+async function getSystemPendingLogs(limit = 20) {
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  const { data, error } = await client
+    .from('deposit_context_logs')
+    .select('*')
+    .eq('severity', 'LOW')
+    .lt('status_code', 400)
+    .is('ai_diagnosis', null)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    logger.error('Error fetching system pending logs', { service: 'SreRepository', error: error.message });
+    return [];
+  }
+
+  return data;
+}
+
+/**
 * Atualiza um log com o diagnóstico gerado pela IA.
- * @param {string} correlation_id 
- * @param {Object} diagnosisResult 
+ * @param {string} correlation_id
+ * @param {Object} diagnosisResult
  */
 async function updateDiagnosis(correlation_id, diagnosisResult) {
   const client = getSupabaseClient();
@@ -156,6 +182,7 @@ module.exports = {
   saveContextLog,
   getRecentLogs,
   getPendingDiagnostics,
+  getSystemPendingLogs,
   updateDiagnosis,
   saveFeedback
 };

@@ -255,7 +255,7 @@ class QAOrchestratorService {
 
   async _callClaude(rawResults) {
     const message = await anthropicClient.messages.create({
-      model:      'claude-3-haiku-20240307',
+      model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
       max_tokens: 1500,
       system: `Você é um engenheiro de QA sênior analisando resultados de testes automatizados
 da plataforma ElosCloud (aplicação financeira colaborativa brasileira — "caixinhas").
@@ -379,8 +379,9 @@ Critérios de severidade:
   }
 
   async _proposeFixesForRecurringBugs(claudeReport) {
-    if (!GitHubService._isConfigured()) {
-      logger.info('QAOrchestrator: GitHubService não configurado — autofix desabilitado', {
+    // Precisa de IA para gerar propostas de fix; GitHub é necessário apenas para PRs automáticos.
+    if (!anthropicClient) {
+      logger.info('QAOrchestrator: anthropicClient não disponível — propostas de fix desabilitadas', {
         service: 'QAOrchestratorService',
       });
       return;
@@ -396,20 +397,73 @@ Critérios de severidade:
         b => b.flow === bug.flow && b.step === bug.step
       );
 
-      if (occurrences.length < 2) continue;
+      const isRecurring = occurrences.length >= 2;
 
-      logger.info('QAOrchestrator: bug recorrente detectado — iniciando análise de autofix', {
-        service: 'QAOrchestratorService', flow: bug.flow, step: bug.step,
-        occurrences: occurrences.length,
-      });
-
-      await this._handleAutofixForBug(bug).catch(err =>
-        logger.error('QAOrchestrator: _handleAutofixForBug falhou', {
+      if (isRecurring && GitHubService._isConfigured()) {
+        // Bug recorrente + GitHub configurado → tenta PR automático
+        logger.info('QAOrchestrator: bug recorrente detectado — iniciando análise de autofix', {
           service: 'QAOrchestratorService', flow: bug.flow, step: bug.step,
-          error: err.message,
-        })
-      );
+          occurrences: occurrences.length,
+        });
+        await this._handleAutofixForBug(bug).catch(err =>
+          logger.error('QAOrchestrator: _handleAutofixForBug falhou', {
+            service: 'QAOrchestratorService', flow: bug.flow, step: bug.step,
+            error: err.message,
+          })
+        );
+      } else {
+        // Primeira ocorrência OU GitHub não configurado:
+        // gera proposta de fix e registra em qa_autofix_pending para revisão humana.
+        logger.info('QAOrchestrator: bug crítico detectado — gerando proposta para revisão humana', {
+          service: 'QAOrchestratorService', flow: bug.flow, step: bug.step,
+          isRecurring, githubConfigured: GitHubService._isConfigured(),
+        });
+        await this._proposeAndRecordForReview(bug).catch(err =>
+          logger.warn('QAOrchestrator: _proposeAndRecordForReview falhou', {
+            service: 'QAOrchestratorService', flow: bug.flow, step: bug.step,
+            error: err.message,
+          })
+        );
+      }
     }
+  }
+
+  /**
+   * Gera uma proposta de fix via IA e registra em qa_autofix_pending para revisão humana.
+   * Chamado na primeira ocorrência de um bug crítico (antes de tentar PR automático).
+   */
+  async _proposeAndRecordForReview(bug) {
+    let fix = null;
+
+    try {
+      fix = await this._generateFixProposal(bug);
+      logger.info('QAOrchestrator: proposta de fix gerada com sucesso', {
+        service: 'QAOrchestratorService',
+        flow: bug.flow, step: bug.step, filePath: fix.filePath,
+      });
+    } catch (err) {
+      logger.warn('QAOrchestrator: não foi possível gerar proposta de fix — registrando bug sem patch', {
+        service: 'QAOrchestratorService', flow: bug.flow, step: bug.step,
+        error: err.message,
+      });
+    }
+
+    const reason = fix
+      ? `Bug crítico em ${bug.flow}/${bug.step}. Patch proposto pela IA aguarda revisão.`
+      : `Bug crítico em ${bug.flow}/${bug.step}. Geração de patch indisponível — registrado para acompanhamento.`;
+
+    await AutofixGuard.recordHumanApprovalNeeded(
+      { ...bug, proposedFix: fix || null },
+      reason
+    );
+
+    logger.info('QAOrchestrator: proposta registrada em qa_autofix_pending', {
+      service:   'QAOrchestratorService',
+      flow:      bug.flow,
+      step:      bug.step,
+      hasPatch:  !!fix,
+      filePath:  fix?.filePath || null,
+    });
   }
 
   async _handleAutofixForBug(bug) {
@@ -427,10 +481,14 @@ Critérios de severidade:
     try {
       fix = await this._generateFixProposal(bug);
     } catch (err) {
-      logger.warn('QAOrchestrator: não foi possível gerar proposta de fix', {
+      logger.warn('QAOrchestrator: geração de fix falhou — registrando para revisão humana', {
         service: 'QAOrchestratorService', flow: bug.flow, step: bug.step,
         error: err.message,
       });
+      await AutofixGuard.recordHumanApprovalNeeded(
+        { ...bug, proposedFix: null },
+        `Bug recorrente em ${bug.flow}/${bug.step}. Patch automático indisponível: ${err.message}`
+      );
       return;
     }
 
@@ -461,19 +519,155 @@ Critérios de severidade:
     }
   }
 
+  /**
+   * Re-gera proposta de fix com a direção explícita do desenvolvedor.
+   * Idêntico a _generateFixProposal mas injeta o `developerGuidance` nos prompts
+   * como instrução de prioridade máxima — sobrepondo a sugestão original da IA.
+   *
+   * @param {object} bug               — bug object do qa_autofix_pending
+   * @param {string} developerGuidance — instrução do desenvolvedor
+   * @returns {Promise<object>} fix { flowId, stepId, filePath, description, explanation, patch }
+   */
+  async _generateFixWithGuidance(bug, developerGuidance) {
+    if (!anthropicClient) throw new Error('Anthropic client não disponível');
+
+    const step1 = await anthropicClient.messages.create({
+      model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      system: `Você é um engenheiro sênior do projeto ElosCloud (Node.js/Express + Firebase).
+O repositório GitHub é ZurcLeo/solutions. Os arquivos estão na RAIZ do repositório (sem prefixo de pasta).
+Exemplos de paths corretos: "services/contribuicaoService.js", "models/Membro.js", "controllers/caixinhaController.js"
+NÃO use prefixos como "backend/", "eloscloudapp/", "src/" — o arquivo deve estar acessível em:
+https://github.com/ZurcLeo/solutions/blob/main/{filePath}
+
+DIREÇÃO DO DESENVOLVEDOR (prioridade máxima): "${developerGuidance}"
+Use essa direção específica para identificar o arquivo EXATO que precisa ser modificado para implementá-la.
+
+Dado o bug e a direção, retorne APENAS JSON válido, sem markdown:
+{
+  "filePath": "services/NomeDoService.js",
+  "confidence": "high|medium|low",
+  "reason": "1 frase explicando por que esse arquivo"
+}`,
+      messages: [{
+        role:    'user',
+        content: `Bug recorrente:
+Flow: ${bug.flow}
+Step: ${bug.step}
+Erro: ${bug.error}
+IA sugeriu: ${bug.suggestedFix}
+
+O DESENVOLVEDOR QUER (implementar exatamente isso): ${developerGuidance}
+
+Qual arquivo do repositório ZurcLeo/solutions contém o código que precisa ser modificado?`,
+      }],
+    });
+
+    let fileIdentification;
+    try {
+      const raw1 = step1.content[0].text.trim();
+      const txt1 = raw1.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      fileIdentification = JSON.parse(txt1);
+    } catch {
+      throw new Error('Claude retornou JSON inválido na etapa 1 (guided)');
+    }
+
+    if (fileIdentification.confidence === 'low') {
+      throw new Error(`Confiança baixa: ${fileIdentification.reason}`);
+    }
+
+    const rawPath = fileIdentification.filePath || '';
+    fileIdentification.filePath = rawPath
+      .replace(/^backend\/eloscloudapp\//, '')
+      .replace(/^eloscloudapp\//, '')
+      .replace(/^backend\//, '')
+      .replace(/^\.\//, '');
+
+    let fileContent;
+    try {
+      const result = await GitHubService.getFileContent(fileIdentification.filePath);
+      fileContent  = result.content;
+    } catch (err) {
+      throw new Error(`Arquivo não encontrado no repo ZurcLeo/solutions: ${fileIdentification.filePath}`);
+    }
+
+    const step2 = await anthropicClient.messages.create({
+      model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
+      max_tokens: 1000,
+      system: `Você é um engenheiro sênior do projeto ElosCloud.
+Receba um bug, a direção do desenvolvedor e o conteúdo do arquivo onde ele ocorre.
+Retorne APENAS JSON válido, sem markdown:
+{
+  "description": "título curto do fix (max 60 chars)",
+  "explanation": "explicação detalhada para o PR body (2-3 parágrafos)",
+  "patch": {
+    "oldCode": "string exata que EXISTE no arquivo e deve ser substituída",
+    "newCode": "string de substituição"
+  }
+}
+
+DIREÇÃO OBRIGATÓRIA DO DESENVOLVEDOR (implementar EXATAMENTE isso, NÃO a sugestão da IA):
+"${developerGuidance}"
+
+IMPORTANTE:
+- oldCode deve ser uma string EXATA encontrada no arquivo
+- O patch DEVE implementar a direção do desenvolvedor, não a sugestão automática
+- Se não houver implementação segura possível, retorne {"error": "motivo"}`,
+      messages: [{
+        role:    'user',
+        content: `Bug: ${bug.error}
+IA sugeriu originalmente: ${bug.suggestedFix}
+O DESENVOLVEDOR QUER: ${developerGuidance}
+
+Conteúdo atual do arquivo ${fileIdentification.filePath}:
+\`\`\`javascript
+${fileContent.slice(0, 4000)}${fileContent.length > 4000 ? '\n... (truncado)' : ''}
+\`\`\`
+
+Crie um patch que implementa EXATAMENTE a direção do desenvolvedor.`,
+      }],
+    });
+
+    let patchResult;
+    try {
+      const raw2 = step2.content[0].text.trim();
+      const txt2 = raw2.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      patchResult = JSON.parse(txt2);
+    } catch {
+      throw new Error('Claude retornou JSON inválido na etapa 2 (guided)');
+    }
+
+    if (patchResult.error) {
+      throw new Error(`Claude recusou gerar patch: ${patchResult.error}`);
+    }
+
+    return {
+      flowId:      bug.flow,
+      stepId:      bug.step,
+      filePath:    fileIdentification.filePath,
+      description: patchResult.description,
+      explanation: patchResult.explanation,
+      patch:       patchResult.patch,
+    };
+  }
+
   async _generateFixProposal(bug) {
     if (!anthropicClient) {
       throw new Error('Anthropic client não disponível para geração de fix');
     }
 
     const step1 = await anthropicClient.messages.create({
-      model:      'claude-3-haiku-20240307',
+      model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
       max_tokens: 300,
       system: `Você é um engenheiro sênior do projeto ElosCloud (Node.js/Express + Firebase).
-O projeto está em: backend/eloscloudapp/
+O repositório GitHub é ZurcLeo/solutions. Os arquivos estão na RAIZ do repositório (sem prefixo de pasta).
+Exemplos de paths corretos: "services/contribuicaoService.js", "models/Membro.js", "controllers/caixinhaController.js"
+NÃO use prefixos como "backend/", "eloscloudapp/", "src/" — o arquivo deve estar acessível em:
+https://github.com/ZurcLeo/solutions/blob/main/{filePath}
+
 Dado um bug, retorne APENAS JSON válido, sem markdown:
 {
-  "filePath": "backend/eloscloudapp/models/NomeDoArquivo.js",
+  "filePath": "services/NomeDoService.js",
   "confidence": "high|medium|low",
   "reason": "1 frase explicando por que esse arquivo"
 }`,
@@ -503,16 +697,25 @@ Qual arquivo do repositório contém o código que precisa ser modificado?`,
       throw new Error(`Confiança baixa: ${fileIdentification.reason}`);
     }
 
+    // Normaliza o path: remove prefixos locais que não existem no GitHub repo
+    const rawPath = fileIdentification.filePath || '';
+    const normalizedPath = rawPath
+      .replace(/^backend\/eloscloudapp\//, '')
+      .replace(/^eloscloudapp\//, '')
+      .replace(/^backend\//, '')
+      .replace(/^\.\//, '');
+    fileIdentification.filePath = normalizedPath;
+
     let fileContent;
     try {
       const result = await GitHubService.getFileContent(fileIdentification.filePath);
       fileContent  = result.content;
     } catch (err) {
-      throw new Error(`Arquivo não encontrado: ${fileIdentification.filePath}`);
+      throw new Error(`Arquivo não encontrado no repo ZurcLeo/solutions: ${fileIdentification.filePath}`);
     }
 
     const step2 = await anthropicClient.messages.create({
-      model:      'claude-3-haiku-20240307',
+      model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
       max_tokens: 1000,
       system: `Você é um engenheiro sênior do projeto ElosCloud.
 Receba um bug e o conteúdo do arquivo onde ele ocorre.

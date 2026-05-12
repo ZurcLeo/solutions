@@ -10,7 +10,10 @@ const {
     evaluateThreshold,
     determineOverallStatus,
     logServiceStatus,
-    sendAlertsIfNeeded
+    sendAlertsIfNeeded,
+    calculateWeightedScore,
+    mapScoreToStatus,
+    computeConfidence,
 } = require('../utils/healthUtils');
 
 // Firebase admin is imported conditionally to avoid initialization issues
@@ -68,26 +71,25 @@ const checkPublicServices = async () => {
     // NEW: Real dependency pings (basic)
     const dependencies = {
       database: await checkDatabaseConnection({ depth: 'basic' }),
-      openai: await checkOpenAIService({ depth: 'basic' }),
-      asaas: await checkAsaasService({ depth: 'basic' }),
+      api_core: { status: 'healthy', responseTime: '0ms' },
+      authentication: await checkAuthService({ depth: 'basic' }),
+      caixinha: await checkCaixinhaService({ depth: 'basic' }),
+      invites: await checkInvitesService({ depth: 'basic' }),
       notifications: await checkNotificationsService({ depth: 'basic' }),
+      asaas: await checkAsaasService({ depth: 'basic' }),
+      openai: await checkOpenAIService({ depth: 'basic' }),
+      user: await checkUserService({ depth: 'basic' }),
       connections: await checkConnectionsService({ depth: 'basic' }),
-      posts: await checkPostsService({ depth: 'basic' })
+      posts: await checkPostsService({ depth: 'basic' }),
+      messages: await checkMessagesService({ depth: 'basic' }),
+      interests: await checkInterestsService({ depth: 'basic' })
     };
 
-    // If any critical dependency is down, degrade the public status
-    if (dependencies.database.status === 'error') {
-      status = 'error';
-      message = 'Critical dependency failure: Database';
-    } else if (Object.values(dependencies).some(d => d.status === 'error')) {
-      status = 'degraded';
-      message = 'API is operational but some services are failing';
-    }
+    // Calculate advanced health status using utils
+    const healthReport = determineOverallStatus(dependencies);
 
     return {
-      status,
-      message,
-      dependencies,
+      ...healthReport,
       server: {
         memoryUsage: {
           total: `${Math.round(totalMemory / (1024 * 1024 * 1024))} GB`,

@@ -3,29 +3,61 @@ const SreRepository = require('./SreRepository');
 const AutofixGuard = require('./AutofixGuard');
 const GitHubService = require('./GitHubService');
 const anthropicClient = require('../config/anthropic/anthropicClient');
+const healthHistoryService = require('./healthHistoryService');
+const { minConfidenceForAutoDiagnosis } = require('../config/health/serviceWeights');
 
 /**
  * SreAgentService - Especializado em análise de incidentes e diagnósticos de sistema via IA.
  */
 class SreAgentService {
+  constructor() {
+    this.anthropic = anthropicClient;
+    
+    // Fallback para OpenAI se necessário
+    if (!this.anthropic) {
+      try {
+        const OpenAI = require('openai');
+        this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      } catch (e) {
+        logger.debug('SreAgentService: OpenAI fallback not available');
+      }
+    }
+  }
+
   /**
    * Analisa um incidente específico baseado no seu log de contexto.
    */
   async diagnoseIncident(logEntry) {
-    if (!anthropicClient) {
-      logger.warn('SreAgentService: AI diagnostics skipped (Anthropic not available)');
+    if (!this.anthropic && !this.openai) {
+      logger.warn('SreAgentService: No AI client available (Anthropic/OpenAI missing)');
       return null;
     }
 
+    // Confidence check
+    try {
+      const { history } = await healthHistoryService.getTrend(5);
+      if (history && history.length > 0) {
+        const latestConfidence = history[0].confidence_level;
+        if (latestConfidence < (minConfidenceForAutoDiagnosis || 0.7)) {
+          logger.warn('SreAgentService: Auto-diagnosis skipped — health confidence too low', {
+            correlation_id: logEntry.correlation_id,
+            confidence: latestConfidence
+          });
+          return null;
+        }
+      }
+    } catch (e) {
+      logger.debug('SreAgentService: Health check skipped');
+    }
+
     const { correlation_id, metadata_snapshot, severity, severity_reason, method, path, status_code } = logEntry;
-    logger.info('SreAgentService: Starting diagnosis via Claude', { correlation_id });
-
+    
     const systemPrompt = `Você é o Engenheiro de Confiabilidade de Site (SRE) Sênior da ElosCloud.
-Sua tarefa é analisar logs técnicos de erro (Node.js/Express) e fornecer um diagnóstico preciso.
+Sua tarefa é analisar logs técnicos de erro (Node.js/Express) e fornecer um diagnóstico preciso em JSON.
 
-Responda APENAS com um objeto JSON válido, seguindo esta estrutura:
+Estrutura JSON esperada:
 {
-  "classification": "Categoria (ex: INFRA, AUTH, DATABASE, EXTERNAL_API)",
+  "classification": "INFRA | AUTH | DATABASE | VALIDATION | EXTERNAL_API",
   "rca": "Causa Raiz detalhada",
   "suggested_fix": "Sugestão objetiva de correção",
   "proposed_patch": {
@@ -36,8 +68,8 @@ Responda APENAS com um objeto JSON válido, seguindo esta estrutura:
 }`;
 
     const userPrompt = `Analise este incidente:
-Endpoint: ${method} ${path}
-Status: ${status_code}
+Endpoint: ${method || 'N/A'} ${path || 'N/A'}
+Status: ${status_code || 'N/A'}
 Severidade: ${severity}
 Motivo: ${severity_reason}
 Snapshot técnico: ${JSON.stringify(metadata_snapshot)}
@@ -45,25 +77,37 @@ Snapshot técnico: ${JSON.stringify(metadata_snapshot)}
 Forneça o diagnóstico técnico em JSON.`;
 
     try {
-      const response = await anthropicClient.messages.create({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }]
-      });
+      let diagnosis;
 
-      const rawContent = response.content[0].text.trim();
-      const jsonContent = rawContent.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-      const diagnosis = JSON.parse(jsonContent);
-
-      logger.info('SreAgentService: Diagnosis complete', { correlation_id, classification: diagnosis.classification });
+      if (this.anthropic) {
+        logger.info('SreAgentService: Diagnosing via Claude (Anthropic)', { correlation_id });
+        const response = await this.anthropic.messages.create({
+          model: process.env.AI_MODEL_NAME || 'claude-3-5-sonnet-20240620',
+          max_tokens: 1500,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }]
+        });
+        
+        const rawContent = response.content[0].text.trim();
+        diagnosis = JSON.parse(rawContent.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim());
+      } else {
+        logger.info('SreAgentService: Diagnosing via GPT (OpenAI Fallback)', { correlation_id });
+        const response = await this.openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          response_format: { type: 'json_object' }
+        });
+        diagnosis = JSON.parse(response.choices[0].message.content);
+      }
 
       const diagnosisResult = {
         ai_diagnosis: diagnosis,
         diagnosed_at: new Date().toISOString()
       };
 
-      // Se houver um patch proposto, tentamos o Shadow PR (HITL)
       if (diagnosis.proposed_patch && diagnosis.proposed_patch.filePath) {
         await this.handleShadowPR(correlation_id, diagnosis.proposed_patch, diagnosis);
       }
@@ -82,20 +126,15 @@ Forneça o diagnóstico técnico em JSON.`;
     const { filePath, oldCode, newCode } = patch;
 
     try {
-      // 1. Verifica segurança via AutofixGuard
       const canOpen = await AutofixGuard.canOpenPR(filePath);
       if (!canOpen) return;
 
-      // 2. Valida o patch (sintaxe e aplicabilidade)
       const isValid = await AutofixGuard.validatePatch(filePath, oldCode, newCode);
       if (!isValid) return;
 
-      // 3. Verifica se exige aprovação humana (HITL)
-      // Extraímos o "flow" do path ou do diagnóstico se possível
       const flowId = filePath.includes('payment') ? 'payment' : (filePath.includes('auth') ? 'auth' : 'general');
       
       if (AutofixGuard.requiresHumanApproval(flowId)) {
-        logger.info('SreAgentService: Shadow PR requires human approval', { correlation_id, flowId });
         await AutofixGuard.recordHumanApprovalNeeded({
           correlation_id,
           filePath,
@@ -105,7 +144,6 @@ Forneça o diagnóstico técnico em JSON.`;
         return;
       }
 
-      // 4. Executa a criação do PR no GitHub
       if (GitHubService._isConfigured()) {
         const fix = {
           flowId,
@@ -119,15 +157,12 @@ Forneça o diagnóstico técnico em JSON.`;
         const branchName = await GitHubService.createBranchWithFix(fix);
         const prUrl = await GitHubService.openPR(branchName, fix);
 
-        // 5. Registra o sucesso
         await AutofixGuard.recordPROpened(filePath, prUrl, fix);
-        
-        // Atualiza o log no SRE Repository com o link do PR
         await SreRepository.updateDiagnosis(correlation_id, {
           ai_diagnosis: { ...diagnosis, pr_url: prUrl }
         });
         
-        logger.info('SreAgentService: Shadow PR created successfully', { correlation_id, prUrl });
+        logger.info('SreAgentService: Shadow PR created', { correlation_id, prUrl });
       }
     } catch (error) {
       logger.error('SreAgentService: Failed to handle Shadow PR', { correlation_id, error: error.message });
@@ -135,77 +170,19 @@ Forneça o diagnóstico técnico em JSON.`;
   }
 
   /**
-   * Processa um lote de incidentes pendentes de diagnóstico com deduplicação.
+   * Processa um lote de incidentes pendentes de diagnóstico.
    */
   async processPendingIncidents(limit = 5) {
     const pendingLogs = await SreRepository.getPendingDiagnostics(limit);
-    if (pendingLogs.length === 0) {
-      logger.debug('SreAgentService: No pending incidents found for diagnosis');
-      return 0;
-    }
+    if (pendingLogs.length === 0) return 0;
 
-    logger.info(`SreAgentService: Processing ${pendingLogs.length} pending incidents`, { limit });
-
-    // Buscar diagnósticos recentes para deduplicação
-    const recentLogs = await SreRepository.getRecentLogs({ limit: 100 });
-    const analyzedFingerprints = new Set(
-      recentLogs
-        .filter(l => l.ai_diagnosis && l.ai_diagnosis.classification !== 'DUPLICATE')
-        .map(l => `${l.method}:${l.path}:${l.status_code}`)
-    );
-
-    let processed = 0;
     for (const log of pendingLogs) {
-      const fingerprint = `${log.method}:${log.path}:${log.status_code}`;
-      
-      // 1. Ignorar 429 (Rate Limits) para evitar loops de diagnóstico
-      if (log.status_code === 429) {
-        await SreRepository.updateDiagnosis(log.correlation_id, {
-          ai_diagnosis: { classification: 'RATE_LIMIT', rca: 'Requisição bloqueada por excesso de tráfego.' },
-          diagnosed_at: new Date().toISOString()
-        });
-        continue;
-      }
-
-      // 2. Ignorar endpoints de telemetria/SRE para evitar recursão
-      if (log.path.includes('/api/qa') || log.path.includes('/api/sre')) {
-        await SreRepository.updateDiagnosis(log.correlation_id, {
-          ai_diagnosis: { classification: 'SYSTEM', rca: 'Log de sistema ignorado para evitar recursão.' },
-          diagnosed_at: new Date().toISOString()
-        });
-        continue;
-      }
-      
-      if (analyzedFingerprints.has(fingerprint)) {
-        logger.info('SreAgentService: Incident skipped (fingerprint recently analyzed)', { 
-          correlation_id: log.correlation_id, 
-          fingerprint 
-        });
-        
-        await SreRepository.updateDiagnosis(log.correlation_id, {
-          ai_diagnosis: { 
-            classification: 'DUPLICATE', 
-            rca: 'Este incidente é uma recorrência de um erro já analisado. Verifique os diagnósticos anteriores para este endpoint.' 
-          },
-          diagnosed_at: new Date().toISOString()
-        });
-        continue;
-      }
-
-      logger.info('SreAgentService: Diagnosing unique incident', { correlation_id: log.correlation_id, fingerprint });
       const diagnosisResult = await this.diagnoseIncident(log);
-      
       if (diagnosisResult) {
         await SreRepository.updateDiagnosis(log.correlation_id, diagnosisResult);
-        analyzedFingerprints.add(fingerprint);
-        processed++;
       }
     }
-    
-    if (processed > 0) {
-        logger.info(`SreAgentService: Successfully diagnosed ${processed} unique incidents`);
-    }
-    return processed;
+    return pendingLogs.length;
   }
 }
 

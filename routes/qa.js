@@ -25,9 +25,10 @@ router.get('/runs',          qaAuth, qaCtrl.listRuns);
 router.get('/runs/:runId',   qaAuth, qaCtrl.getRunDetail);
 
 // Autofix management
-router.get('/autofix-pending',      qaAuth, qaCtrl.listAutofixPending);
-router.post('/autofix-pending/:id/approve', qaAuth, qaCtrl.approveAutofix);
-router.delete('/autofix-pending/:id', qaAuth, qaCtrl.rejectAutofix);
+router.get('/autofix-pending',                    qaAuth, qaCtrl.listAutofixPending);
+router.post('/autofix-pending/:id/approve',       qaAuth, qaCtrl.approveAutofix);
+router.post('/autofix-pending/:id/refine',        qaAuth, qaCtrl.refineAutofix);
+router.delete('/autofix-pending/:id',             qaAuth, qaCtrl.rejectAutofix);
 
 // IA Cache
 router.get('/interpretation-cache/:hash', qaAuth, qaCtrl.getInterpretationCache);
