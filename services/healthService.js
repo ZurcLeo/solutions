@@ -88,6 +88,14 @@ const checkPublicServices = async () => {
     // Calculate advanced health status using utils
     const healthReport = determineOverallStatus(dependencies);
 
+    // Ensure healthReport structure is valid before returning
+    const safeHealthReport = {
+      status: healthReport?.status || 'unknown',
+      categories: Array.isArray(healthReport?.categories) ? healthReport.categories : [],
+      timestamp: healthReport?.timestamp || new Date().toISOString(),
+      confidence: healthReport?.confidence || 0
+    };
+
     return {
       ...healthReport,
       server: {
