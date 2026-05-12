@@ -89,19 +89,7 @@ exports._processPaymentNotification = async (paymentId, requestId) => {
     // 1. Buscar detalhes do pagamento no Mercado Pago
     const paymentData = await paymentService.checkPaymentStatus(paymentId);
 
-    // 2. Verificar se é um micropagamento de validação (R$ 0,01)
-    if (paymentData.transaction_amount !== 0.01) {
-      logger.info('Pagamento não é um micropagamento de validação', {
-        controller: 'WebhookController',
-        method: '_processPaymentNotification',
-        paymentId,
-        amount: paymentData.transaction_amount,
-        action: 'NOT_VALIDATION_PAYMENT'
-      });
-      return;
-    }
-
-    // 3. Verificar se o pagamento foi aprovado
+    // 2. Verificar se o pagamento foi aprovado
     if (paymentData.status !== 'approved') {
       logger.info('Pagamento não aprovado', {
         controller: 'WebhookController',
