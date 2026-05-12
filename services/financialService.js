@@ -27,13 +27,18 @@ class FinancialService {
         const walletRef = db.collection('wallets').doc(userId);
         const wallet = await walletRef.get();
         
-        if (type === 'debit' && wallet.data().balance < amount) {
+        if (!wallet.exists) {
+          throw new Error(`Wallet not found for user: ${userId}`);
+        }
+        
+        const currentBalance = wallet.data().balance;
+        if (type === 'debit' && currentBalance < amount) {
           throw new Error('Insufficient funds');
         }
   
         const newBalance = type === 'credit' 
-          ? wallet.data().balance + amount 
-          : wallet.data().balance - amount;
+          ? currentBalance + amount 
+          : currentBalance - amount;
   
         batch.update(walletRef, { balance: newBalance });
   
