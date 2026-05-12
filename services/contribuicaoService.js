@@ -25,8 +25,9 @@ const verificarMembroAtivo = async (caixinhaId, membroId) => {
   }
 
   const { status } = snapshot.docs[0].data();
-  if (status !== 'ativo') {
-    throw new Error(`Membro com status '${status}' não pode realizar contribuições.`);
+  const statusValidos = ['ativo', 'active'];
+  if (!status || !statusValidos.includes(status)) {
+    throw new Error(`Membro com status '${status || 'undefined'}' não pode realizar contribuições.`);
   }
 };
 
