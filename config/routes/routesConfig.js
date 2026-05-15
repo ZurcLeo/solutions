@@ -25,7 +25,8 @@ module.exports = (app) => {
     { path: '/api/webhook', handler: require('../../routes/webhook') },
     { path: '/api/security', handler: require('../../routes/security') },
     { path: '/api/qa',       handler: require('../../routes/qa') },
-    { path: '/api/sre',      handler: require('../../routes/sre') }
+    { path: '/api/sre',          handler: require('../../routes/sre') },
+    { path: '/api/gamification', handler: require('../../routes/gamification') }
     // Adicione todas as outras rotas aqui
   ];
 
