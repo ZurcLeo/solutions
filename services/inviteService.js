@@ -23,7 +23,7 @@ const { logger } = require('../logger');
 const Invite = require('../models/Invite');
 const User = require('../models/User');
 const emailService = require('./emailService');
-const notificationService = require('./notificationService');
+// notificationService removido — todas as notificações roteadas via NotificationDispatcher
 const { HttpError } = require('../utils/errors');
 const { getFirestore, getStorage } = require('../firebaseAdmin');
 const { userExistsByEmail } = require('../utils/firebaseAuthUtils');
@@ -69,9 +69,22 @@ const deleteQRCodeFromStorage = async (inviteId) => {
     });
   }
 };
-const BASE_URL = process.env.NODE_ENV === 'development' 
+
+const BASE_URL = process.env.NODE_ENV === 'development'
   ? 'https://localhost:3000'
   : 'https://eloscloud.com';
+
+/**
+ * Normaliza um campo de data que pode ser Firestore Timestamp, JS Date ou string ISO.
+ * @param {*} v - Valor de data a ser normalizado
+ * @returns {Date|null}
+ */
+const toDate = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v.toDate === 'function') return v.toDate(); // Firestore Timestamp
+  return new Date(v); // ISO string ou número
+};
 
 /**
  * Verifica a existência, o status e a validade temporal de um convite.
@@ -84,36 +97,38 @@ const BASE_URL = process.env.NODE_ENV === 'development'
  * @description Confere se um convite existe, está pendente, não expirou e, opcionalmente, corresponde a um email específico.
  */
 const checkInvite = async (inviteId, email = null) => {
-  logger.info('Verificando convite', { 
-    service: 'inviteService', 
-    function: 'checkInvite', 
-    inviteId 
+  logger.info('Verificando convite', {
+    service: 'inviteService',
+    function: 'checkInvite',
+    inviteId
   });
 
   try {
     const { invite } = await Invite.getById(inviteId);
-    
+
     if (!invite) {
       return { valid: false, message: 'Convite não encontrado' };
     }
-    
-    if (invite.status !== 'pending') {
+
+    // 'validated' é estado intermediário válido — permite re-entrada durante registro
+    const validStatuses = ['pending', 'validated'];
+    if (!validStatuses.includes(invite.status)) {
       return { valid: false, message: 'Convite já utilizado ou cancelado' };
     }
-    
-    // Verificar expiração
-    const createdAt = moment(invite.createdAt.toDate());
-    const expiresAt = createdAt.add(INVITE_EXPIRATION_DAYS, 'days');
-    
+
+    // Verificar expiração — usa clone() para não mutar createdAt
+    const createdAt = moment(toDate(invite.createdAt));
+    const expiresAt = createdAt.clone().add(INVITE_EXPIRATION_DAYS, 'days');
+
     if (moment().isAfter(expiresAt)) {
       return { valid: false, message: 'Convite expirado' };
     }
-    
+
     // Verificar email se fornecido
     if (email && invite.email.toLowerCase() !== email.toLowerCase()) {
       return { valid: false, message: 'Email não corresponde ao convite' };
     }
-    
+
     // Convite válido
     return {
       valid: true,
@@ -132,7 +147,7 @@ const checkInvite = async (inviteId, email = null) => {
       inviteId,
       error: error.message
     });
-    
+
     throw new HttpError('Erro ao verificar convite', 500);
   }
 };
@@ -155,41 +170,36 @@ const validateInvite = async (inviteId, email, nome) => {
     inviteId,
     email
   });
-  
+
   try {
     // Verificar existência e validade do convite
     const checkResult = await checkInvite(inviteId, email);
-    
+
     if (!checkResult.valid) {
       throw new HttpError(checkResult.message, 400);
     }
-    
-    const { invite, inviteRef } = await Invite.getById(inviteId);
-    
-    // Verificar nome do amigo (skip se friendName estiver vazio — convites originados de caixinha)
-    if (invite.friendName && invite.friendName.toLowerCase() !== nome.toLowerCase()) {
-      throw new HttpError('Nome não corresponde ao convite', 400);
-    }
-    
-    // Atualizar status do convite para 'validated' (etapa intermediária)
-    await inviteRef.update({
+
+    const { invite } = await Invite.getById(inviteId);
+
+    // Buscar dados do remetente ANTES de mudar o status (se falhar, não corrompe o convite)
+    const sender = await User.getById(invite.senderId).catch(() => null);
+
+    const inviter = {
+      id: invite.senderId,
+      nome: sender?.nome || invite.senderName || 'Usuário',
+      email: sender?.email || '',
+      foto: sender?.fotoDoPerfil || '',
+    };
+
+    // Atualizar status do convite para 'validated' apenas após obter todos os dados
+    await Invite.updateByInviteId(inviteId, {
       status: 'validated',
       validatedAt: new Date()
     });
-    
-    // Buscar dados do remetente para conexão
-    const sender = await User.getById(invite.senderId);
-    
-    const inviter = {
-      id: invite.senderId,
-      nome: sender.nome,
-      email: sender.email,
-      foto: sender.fotoDoPerfil
-    };
-    
+
     // Gerar token de registro temporário
     const registrationToken = generateRegistrationToken(inviteId, email);
-    
+
     return {
       inviteId,
       inviter,
@@ -199,7 +209,7 @@ const validateInvite = async (inviteId, email, nome) => {
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     logger.error('Erro ao validar convite', {
       service: 'inviteService',
       function: 'validateInvite',
@@ -207,7 +217,7 @@ const validateInvite = async (inviteId, email, nome) => {
       email,
       error: error.message
     });
-    
+
     throw new HttpError('Erro ao validar convite', 500);
   }
 };
@@ -224,39 +234,32 @@ const validateInvite = async (inviteId, email, nome) => {
  */
 const invalidateInvite = async (inviteId, newUserId) => {
   const db = getFirestore();
-  
+
   logger.info('Invalidando convite após uso', {
     service: 'inviteService',
     function: 'invalidateInvite',
     inviteId,
     newUserId
   });
-  
+
   try {
     // Carregar dados do convite
-    const { invite, inviteRef } = await Invite.getById(inviteId);
-    
+    const { invite } = await Invite.getById(inviteId);
+
     if (!invite) {
       throw new HttpError('Convite não encontrado', 404);
     }
-    
+
     if (invite.status === 'used') {
       throw new HttpError('Convite já utilizado', 400);
     }
-    
-    // Usar transação para garantir atomicidade das operações
+
+    // Transação Firestore para registrar ancestralidade, descendência e boas-vindas
     await db.runTransaction(async (transaction) => {
-      // 1. Marcar convite como usado
-      transaction.update(inviteRef, {
-        status: 'used',
-        usedAt: new Date(),
-        usedBy: newUserId
-      });
-      
-      // 2. Configurar relacionamento de ancestralidade
       const newUserRef = db.collection('usuario').doc(newUserId);
+
+      // 1. Configurar relacionamento de ancestralidade
       const ancestralidadeRef = newUserRef.collection('ancestralidade').doc();
-      
       transaction.set(ancestralidadeRef, {
         inviteId: inviteId,
         senderId: invite.senderId,
@@ -264,39 +267,41 @@ const invalidateInvite = async (inviteId, newUserId) => {
         senderName: invite.senderName,
         senderPhotoURL: invite.senderPhotoURL
       });
-      
-      // 3. Adicionar à lista de descendentes do remetente
+
+      // 2. Adicionar à lista de descendentes do remetente
       const senderRef = db.collection('usuario').doc(invite.senderId);
       const descendentesRef = senderRef.collection('descendentes').doc();
-      
       transaction.set(descendentesRef, {
         userId: newUserId,
         nome: invite.friendName,
         email: invite.email,
         dataAceite: new Date()
       });
-      
-      // 4. Adicionar moedas de boas-vindas
+
+      // 3. Adicionar moedas de boas-vindas
       const comprasRef = newUserRef.collection('compras').doc();
-      
       transaction.set(comprasRef, {
         quantidade: 5000,
         valorPago: 0,
         dataCompra: new Date(),
         meioPagamento: 'oferta-boas-vindas'
       });
-      
-      // 5. Atualizar saldo do usuário
+
+      // 4. Atualizar saldo do usuário
       transaction.update(newUserRef, {
         saldoElosCoins: 5000
       });
     });
-    
+
+    // Marcar convite como usado no Supabase (após Firestore ter sucedido)
+    await Invite.updateByInviteId(inviteId, {
+      status: 'used',
+      usedAt: new Date(),
+      usedBy: newUserId
+    });
+
     // Remover QR Code do Storage (convite consumido, arquivo não é mais necessário)
     deleteQRCodeFromStorage(inviteId);
-
-    // Enviar email de boas-vindas
-    // await sendWelcomeEmail(invite.email, invite.friendName);
 
     await emailService.sendEmail({
       to: invite.email,
@@ -310,17 +315,28 @@ const invalidateInvite = async (inviteId, newUserId) => {
       referenceType: 'invite'
     });
 
-const notificationData = {
-  type: 'convite',
-  content: `${invite.friendName} aceitou seu convite e criou uma conta`,
-  url: `/profile/${newUserId}`
-}
+    const userId = invite.senderId;
 
-const userId = invite.senderId;
+    // MAINT-1: notificar remetente via Dispatcher (orquestrador único)
+    const NotificationDispatcher = require('../services/NotificationDispatcher');
+    setImmediate(() => {
+      NotificationDispatcher.dispatch({
+        userId,
+        type: 'convite_aceito',
+        importance: 'high',
+        data: {
+          friendName: invite.friendName,
+          newUserId,
+          url: `/profile/${newUserId}`
+        },
+        metadata: { triggeredBy: 'system', correlationId: inviteId }
+      }).catch(err =>
+        logger.error('Falha ao despachar notificação de aceite de convite', {
+          service: 'inviteService', inviteId, error: err.message
+        })
+      );
+    });
 
-    // Notificar remetente
-    await notificationService.createNotification(userId, notificationData);
-    
     return {
       success: true,
       caxinhaInviteId: invite.caxinhaInviteId || null,
@@ -334,11 +350,11 @@ const userId = invite.senderId;
       newUserId,
       error: error.message
     });
-    
+
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     throw new HttpError('Erro ao processar registro com convite', 500);
   }
 };
@@ -360,15 +376,15 @@ const canSendInvite = async (userId, email) => {
     userId,
     email
   });
-  
+
   try {
     // 1. Verificar se o usuário existe
     const user = await User.getById(userId);
-    
+
     if (!user) {
       throw new HttpError('Usuário não encontrado', 404);
     }
-    
+
     // 2. Verificar se o email do destinatário já está cadastrado no Firebase Auth
     const alreadyRegistered = await userExistsByEmail(email);
     if (alreadyRegistered) {
@@ -415,6 +431,16 @@ const canSendInvite = async (userId, email) => {
     }
 
     if (existingInvite.status === 'pending') {
+      // Verificar se o convite pendente já expirou — se sim, tratar como inexistente
+      const existingCreatedAt = toDate(existingInvite.createdAt);
+      if (existingCreatedAt) {
+        const existingExpiresAt = moment(existingCreatedAt).add(INVITE_EXPIRATION_DAYS, 'days');
+        if (moment().isAfter(existingExpiresAt)) {
+          // Expirado: permite criar novo convite sem reenviar o antigo link expirado
+          return { canSend: true, user };
+        }
+      }
+
       // Verificar se é do mesmo remetente
       if (existingInvite.senderId !== userId) {
         return {
@@ -422,17 +448,19 @@ const canSendInvite = async (userId, email) => {
           message: 'Já existe um convite pendente para este email enviado por outro usuário'
         };
       }
-      
+
       // Verificar tempo desde último reenvio
-      const lastSentAt = existingInvite.lastSentAt ? moment(existingInvite.lastSentAt.toDate()) : null;
-      
+      const lastSentAt = existingInvite.lastSentAt
+        ? moment(toDate(existingInvite.lastSentAt))
+        : null;
+
       if (lastSentAt && moment().diff(lastSentAt, 'hours') < RESEND_COOLDOWN_HOURS) {
         return {
           canSend: false,
           message: `Você já enviou um convite para este email recentemente. Aguarde ${RESEND_COOLDOWN_HOURS} hora(s) para reenviar.`
         };
       }
-      
+
       // Pode reenviar
       return {
         canSend: true,
@@ -440,7 +468,7 @@ const canSendInvite = async (userId, email) => {
         existingInvite
       };
     }
-    
+
     // Convite cancelado ou expirado, pode enviar novo
     return {
       canSend: true,
@@ -454,11 +482,11 @@ const canSendInvite = async (userId, email) => {
       email,
       error: error.message
     });
-    
+
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     throw new HttpError('Erro ao verificar permissão para enviar convite', 500);
   }
 };
@@ -474,9 +502,7 @@ const canSendInvite = async (userId, email) => {
  * @throws {HttpError} Se o envio não for permitido, ou ocorrer um erro na criação/envio.
  * @description Utiliza `canSendInvite` para verificar permissões. Se um convite pendente já existir, ele o reenvia; caso contrário, cria um novo convite, gera um QR Code, envia um e-mail com template e notifica o remetente.
  */
-const generateAndSendInvite = async (userId, email, friendName) => {
-  const db = getFirestore();
-  
+const generateAndSendInvite = async (userId, email, friendName, preValidated = null) => {
   logger.info('Gerando novo convite', {
     service: 'inviteService',
     function: 'generateAndSendInvite',
@@ -484,38 +510,23 @@ const generateAndSendInvite = async (userId, email, friendName) => {
     email,
     friendName
   });
-  
+
   try {
-    // Verificar permissão de envio
-    const { canSend, user, existingInvite } = await canSendInvite(userId, email);
-    
+    // Verificar permissão de envio (pular se já validado pelo controller)
+    const { canSend, user, existingInvite } = preValidated || await canSendInvite(userId, email);
+
     if (!canSend) {
       throw new HttpError('Não é possível enviar convite para este email no momento', 400);
     }
-    
-    // Se já existe um convite pendente, apenas reenviar
+
+    // Se já existe um convite pendente e válido, apenas reenviar
     if (existingInvite) {
       return await resendInvite(existingInvite.inviteId, userId);
     }
-    
+
     // Gerar novo convite
     const inviteId = uuidv4();
-    const inviteData = {
-      inviteId,
-      email: email.toLowerCase(),
-      friendName,
-      senderId: userId,
-      senderName: user.nome,
-      senderPhotoURL: user.fotoDoPerfil || '',
-      status: 'pending',
-      createdAt: new Date(),
-      lastSentAt: null,
-      resendCount: 0
-    };
-    
-    // Criar documento do convite
-    const inviteRef = db.collection('convites').doc();
-    
+
     // Gerar QR Code e armazenar no Storage
     const qrCodeUrl = `${BASE_URL}/invite/validate/${inviteId}`;
     const qrCodeBuffer = await uploadQRCodeToStorage(inviteId, qrCodeUrl);
@@ -525,65 +536,77 @@ const generateAndSendInvite = async (userId, email, friendName) => {
       .createHash('sha256')
       .update(inviteId)
       .digest('hex');
-    
-    const maskedHashedInviteId = hashedInviteId.substring(0, 4) + 
-      '******' + 
+
+    const maskedHashedInviteId = hashedInviteId.substring(0, 4) +
+      '******' +
       hashedInviteId.substring(hashedInviteId.length - 4);
-    
+
     // Definir prazo de expiração
     const expiresAt = moment().add(INVITE_EXPIRATION_DAYS, 'days');
-    
-    // Usar transação para criar convite e registrar no sistema de emails
-    await db.runTransaction(async (transaction) => {
-      // 1. Salvar o convite
-      transaction.set(inviteRef, {
-        ...inviteData,
-        expiresAt: expiresAt.toDate()
-      });
-    });
-    
-    // ALTERAÇÃO AQUI: Usando o novo sistema de email
-    // ----------------------------------------
-    // Enviar email usando o novo NotificationDispatcher
-    const NotificationDispatcher = require('../services/NotificationDispatcher');
-    const dispatchResult = await NotificationDispatcher.dispatch({
-      userId,
-      type: 'convite',
-      importance: 'high',
-      data: {
-        inviteId,
-        qrCodeBuffer,
-        maskedHashedInviteId,
-        senderName: user.nome,
-        senderPhotoURL: user.fotoDoPerfil || '',
-        friendName,
-        expiresAt: expiresAt.format('DD/MM/YYYY'),
-        url: '/invites'
-      },
-      metadata: {
-        triggeredBy: userId,
-        correlationId: inviteId
-      }
-    });
-    // ----------------------------------------
 
-    if (dispatchResult.success) {
-      await inviteRef.update({ lastSentAt: new Date() });
-    } else {
-      logger.warn('Erro ao despachar convite — lastSentAt não atualizado, reenvio liberado', {
-        error: dispatchResult.error,
-        inviteId,
-        email
-      });
-    }
-    
-    logger.info('Convite criado e despachado com sucesso', {
+    // Salvar convite no banco — deve ocorrer ANTES de retornar a resposta
+    await Invite.create({
+      inviteId,
+      email: email.toLowerCase(),
+      friendName,
+      senderId: userId,
+      senderName: user.nome,
+      senderPhotoURL: user.fotoDoPerfil || '',
+      status: 'pending',
+      createdAt: new Date(),
+      expiresAt: expiresAt.toDate(),
+      lastSentAt: null,
+      resendCount: 0
+    });
+
+    // PERF-1: dispatch de email/notificação em fire-and-forget (não bloqueia a resposta)
+    const NotificationDispatcher = require('../services/NotificationDispatcher');
+    setImmediate(() => {
+      NotificationDispatcher.dispatch({
+        userId,
+        type: 'convite',
+        importance: 'high',
+        recipientEmail: email,
+        data: {
+          inviteId,
+          qrCodeBuffer,
+          maskedHashedInviteId,
+          senderName: user.nome,
+          senderPhotoURL: user.fotoDoPerfil || '',
+          friendName,
+          expiresAt: expiresAt.format('DD/MM/YYYY'),
+          url: '/invites'
+        },
+        metadata: {
+          triggeredBy: userId,
+          correlationId: inviteId
+        }
+      }).then(dispatchResult => {
+        if (dispatchResult.success) {
+          Invite.updateByInviteId(inviteId, { lastSentAt: new Date() }).catch(err =>
+            logger.error('Falha ao atualizar lastSentAt', {
+              service: 'inviteService', inviteId, error: err.message
+            })
+          );
+        } else {
+          logger.warn('Erro ao despachar convite — lastSentAt não atualizado, reenvio liberado', {
+            error: dispatchResult.error, inviteId
+          });
+        }
+      }).catch(err =>
+        logger.error('Falha no dispatch pós-invite', {
+          service: 'inviteService', inviteId, error: err.message
+        })
+      );
+    });
+
+    logger.info('Convite criado com sucesso (dispatch em background)', {
       service: 'inviteService',
       function: 'generateAndSendInvite',
       inviteId,
       email
     });
-    
+
     return {
       inviteId,
       email,
@@ -598,11 +621,11 @@ const generateAndSendInvite = async (userId, email, friendName) => {
       email,
       error: error.message
     });
-    
+
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     throw new HttpError('Erro ao gerar e enviar convite', 500);
   }
 };
@@ -624,38 +647,47 @@ const resendInvite = async (inviteId, userId) => {
     inviteId,
     userId
   });
-  
+
   try {
     // Carregar o convite
-    const { invite, inviteRef } = await Invite.getById(inviteId);
-    
+    const { invite } = await Invite.getById(inviteId);
+
     if (!invite) {
       throw new HttpError('Convite não encontrado', 404);
     }
-    
+
     // Verificar propriedade
     if (invite.senderId !== userId) {
       throw new HttpError('Você não tem permissão para reenviar este convite', 403);
     }
-    
+
     // Verificar status
     if (invite.status !== 'pending') {
       throw new HttpError(`Convite não pode ser reenviado: ${invite.status}`, 400);
     }
-    
+
+    // Verificar se o convite já expirou
+    const inviteCreatedAt = toDate(invite.createdAt);
+    const inviteExpiresAt = moment(inviteCreatedAt).clone().add(INVITE_EXPIRATION_DAYS, 'days');
+    if (moment().isAfter(inviteExpiresAt)) {
+      throw new HttpError('Este convite já expirou e não pode ser reenviado', 400);
+    }
+
     // Verificar tempo desde último envio
-    const lastSentAt = invite.lastSentAt ? moment(invite.lastSentAt.toDate()) : null;
-    
+    const lastSentAt = invite.lastSentAt
+      ? moment(toDate(invite.lastSentAt))
+      : null;
+
     if (lastSentAt && moment().diff(lastSentAt, 'hours') < RESEND_COOLDOWN_HOURS) {
       throw new HttpError(
         `Aguarde ${RESEND_COOLDOWN_HOURS} hora(s) antes de reenviar este convite`,
         429
       );
     }
-    
+
     // Carregar dados do remetente
     const sender = await User.getById(userId);
-    
+
     // Reutilizar QR Code já armazenado ou regenerar se não encontrado
     const qrCodeTargetUrl = `${BASE_URL}/invite/validate/${inviteId}`;
     const bucket = getStorage();
@@ -670,20 +702,16 @@ const resendInvite = async (inviteId, userId) => {
       .createHash('sha256')
       .update(inviteId)
       .digest('hex');
-    
-    const maskedHashedInviteId = hashedInviteId.substring(0, 4) + 
-      '******' + 
+
+    const maskedHashedInviteId = hashedInviteId.substring(0, 4) +
+      '******' +
       hashedInviteId.substring(hashedInviteId.length - 4);
-    
+
     // Atualizar o convite
-    await inviteRef.update({
+    await Invite.updateByInviteId(inviteId, {
       lastSentAt: new Date(),
       resendCount: (invite.resendCount || 0) + 1
     });
-
-    // Calcular data de expiração
-    const createdAt = moment(invite.createdAt.toDate());
-    const expiresAt = createdAt.clone().add(INVITE_EXPIRATION_DAYS, 'days');
 
     // Enviar email de lembrete usando o novo NotificationDispatcher
     const NotificationDispatcher = require('../services/NotificationDispatcher');
@@ -691,6 +719,7 @@ const resendInvite = async (inviteId, userId) => {
       userId,
       type: 'convite_lembrete',
       importance: 'high',
+      recipientEmail: invite.email, // email do convidado (externo, não-cadastrado)
       data: {
         inviteId,
         qrCodeBuffer,
@@ -698,7 +727,7 @@ const resendInvite = async (inviteId, userId) => {
         senderName: sender.nome,
         senderPhotoURL: sender.fotoDoPerfil || '',
         friendName: invite.friendName,
-        expiresAt: expiresAt.format('DD/MM/YYYY'),
+        expiresAt: inviteExpiresAt.format('DD/MM/YYYY'),
         url: '/invites'
       },
       metadata: {
@@ -706,14 +735,14 @@ const resendInvite = async (inviteId, userId) => {
         correlationId: inviteId
       }
     });
-    
+
     logger.info('Convite reenviado e notificação despachada com sucesso', {
       service: 'inviteService',
       function: 'resendInvite',
       inviteId,
       email: invite.email
     });
-    
+
     return {
       inviteId,
       email: invite.email,
@@ -728,11 +757,11 @@ const resendInvite = async (inviteId, userId) => {
       userId,
       error: error.message
     });
-    
+
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     throw new HttpError('Erro ao reenviar convite', 500);
   }
 };
@@ -752,20 +781,20 @@ const getSentInvites = async (userId) => {
     function: 'getSentInvites',
     userId
   });
-  
+
   if (!userId) {
     throw new HttpError('ID do usuário é obrigatório', 400);
   }
-  
+
   try {
     const invites = await Invite.getBySenderId(userId);
-    
+
     // Processar convites para adicionar metadados úteis
     return invites.map(invite => {
-      const createdAt = moment(invite.createdAt.toDate());
+      const createdAt = moment(toDate(invite.createdAt));
       const expiresAt = createdAt.clone().add(INVITE_EXPIRATION_DAYS, 'days');
       const isExpired = invite.status === 'pending' && moment().isAfter(expiresAt);
-      
+
       return {
         ...invite,
         expiresAt: expiresAt.format('DD/MM/YYYY'),
@@ -775,7 +804,8 @@ const getSentInvites = async (userId) => {
         canResend:
           invite.status === 'pending' &&
           !isExpired &&
-          (!invite.lastSentAt || moment().diff(moment(invite.lastSentAt.toDate()), 'hours') >= RESEND_COOLDOWN_HOURS)
+          (!invite.lastSentAt ||
+            moment().diff(moment(toDate(invite.lastSentAt)), 'hours') >= RESEND_COOLDOWN_HOURS)
       };
     });
   } catch (error) {
@@ -785,11 +815,11 @@ const getSentInvites = async (userId) => {
       userId,
       error: error.message
     });
-    
+
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     throw new HttpError('Erro ao buscar convites enviados', 500);
   }
 };
@@ -811,27 +841,27 @@ const cancelInvite = async (inviteId, userId) => {
     inviteId,
     userId
   });
-  
+
   try {
     // Carregar o convite
-    const { invite, inviteRef } = await Invite.getById(inviteId);
-    
+    const { invite } = await Invite.getById(inviteId);
+
     if (!invite) {
       throw new HttpError('Convite não encontrado', 404);
     }
-    
+
     // Verificar propriedade
     if (invite.senderId !== userId) {
       throw new HttpError('Você não tem permissão para cancelar este convite', 403);
     }
-    
+
     // Verificar status
     if (invite.status !== 'pending') {
       throw new HttpError(`Convite não pode ser cancelado: ${invite.status}`, 400);
     }
-    
+
     // Cancelar o convite
-    await inviteRef.update({
+    await Invite.updateByInviteId(inviteId, {
       status: 'canceled',
       canceledAt: new Date(),
       canceledBy: userId
@@ -845,7 +875,7 @@ const cancelInvite = async (inviteId, userId) => {
       function: 'cancelInvite',
       inviteId
     });
-    
+
     return { success: true };
   } catch (error) {
     logger.error('Erro ao cancelar convite', {
@@ -855,11 +885,11 @@ const cancelInvite = async (inviteId, userId) => {
       userId,
       error: error.message
     });
-    
+
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     throw new HttpError('Erro ao cancelar convite', 500);
   }
 };
@@ -879,19 +909,19 @@ const getInviteById = async (inviteId) => {
     function: 'getInviteById',
     inviteId
   });
-  
+
   try {
     const { invite } = await Invite.getById(inviteId);
-    
+
     if (!invite) {
       throw new HttpError('Convite não encontrado', 404);
     }
-    
+
     // Formatar datas para exibição
-    const createdAt = moment(invite.createdAt.toDate());
+    const createdAt = moment(toDate(invite.createdAt));
     const expiresAt = createdAt.clone().add(INVITE_EXPIRATION_DAYS, 'days');
-    const lastSentAt = invite.lastSentAt ? moment(invite.lastSentAt.toDate()) : null;
-    
+    const lastSentAt = invite.lastSentAt ? moment(toDate(invite.lastSentAt)) : null;
+
     return {
       ...invite,
       createdAt: createdAt.format('DD/MM/YYYY HH:mm'),
@@ -906,11 +936,11 @@ const getInviteById = async (inviteId) => {
       inviteId,
       error: error.message
     });
-    
+
     if (error instanceof HttpError) {
       throw error;
     }
-    
+
     throw new HttpError('Erro ao buscar convite', 500);
   }
 };
@@ -924,13 +954,11 @@ const createInviteForCaixinha = async ({
   senderId, senderName, senderPhotoURL,
   email, caxinhaInviteId, caixinhaId, caixinha, message
 }) => {
-  const db = getFirestore();
-
   // Verificar se já existe um convite de plataforma pendente para este email
   const existingInvite = await Invite.findByEmail(email);
   if (existingInvite && existingInvite.status === 'pending') {
     // Apenas injeta os metadados de caixinha no convite existente
-    await db.collection('convites').doc(existingInvite.id).update({
+    await Invite.updateByInviteId(existingInvite.inviteId, {
       caxinhaInviteId,
       caixinhaId
     });
@@ -941,7 +969,7 @@ const createInviteForCaixinha = async ({
   const inviteId = uuidv4();
   const expiresAt = moment().add(INVITE_EXPIRATION_DAYS, 'days').toDate();
 
-  await db.collection('convites').add({
+  await Invite.create({
     inviteId,
     email: email.toLowerCase(),
     friendName: '',
@@ -963,12 +991,12 @@ const createInviteForCaixinha = async ({
 
   const NotificationDispatcher = require('../services/NotificationDispatcher');
   await NotificationDispatcher.dispatch({
-    userId: senderId, // This might need review in the future as the invitee isn't registered yet, but we dispatch via sender for now.
+    userId: senderId,
     type: 'caixinha_invite',
     importance: 'high',
     data: {
       caixinhaNome: caixinha.nome,
-      caixinhaName: caixinha.nome, // For backwards compatibility with older templates if any
+      caixinhaName: caixinha.nome,
       caixinhaDescricao: caixinha.descricao,
       contribuicaoMensal: caixinha.contribuicaoMensal,
       senderName,
@@ -977,8 +1005,8 @@ const createInviteForCaixinha = async ({
       message,
       inviteLink,
       expirationDate: expirationDate.toLocaleDateString('pt-BR'),
-      emailSubject: `${senderName} convidou você para a ElosCloud`, // Custom subject
-      emailContent: message // Custom content
+      emailSubject: `${senderName} convidou você para a ElosCloud`,
+      emailContent: message
     },
     metadata: {
       triggeredBy: senderId,
@@ -1003,7 +1031,7 @@ const createInviteForCaixinha = async ({
 const generateRegistrationToken = (inviteId, email) => {
   // Usar um secret diferente do JWT de autenticação principal
   const secret = process.env.JWT_INVITE_SECRET || process.env.JWT_SECRET;
-  
+
   return jwt.sign(
     {
       inviteId,

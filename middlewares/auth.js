@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
-const {isTokenBlacklisted} = require('../services/blacklistService');
+const NodeCache = require('node-cache');
+const {isTokenBlacklisted, addToBlacklist} = require('../services/blacklistService');
 const {verifyAndGenerateNewToken} = require('../services/authService');
+const { logger } = require('../logger');
+
+// Cache JA3 por userId — TTL 60s para detectar troca rápida de fingerprint
+const ja3Cache = new NodeCache({ stdTTL: 60, checkperiod: 30 });
 
 // authMiddleware.js - Verifica apenas autenticação
 const verifyToken = async (req, res, next) => {
@@ -49,18 +54,33 @@ const verifyToken = async (req, res, next) => {
     
     // Verificar token
     const decoded = jwt.verify(accessToken, process.env.JWT_SECRET);
-    
+    const userId = decoded.uid;
+
+    // MAINT-2: Regra JA3 — troca de fingerprint em < 60s invalida o token
+    const ja3Hash = req.headers['x-ja3-hash'];
+    if (ja3Hash && userId) {
+      const lastJa3 = ja3Cache.get(userId);
+      if (lastJa3 && lastJa3 !== ja3Hash) {
+        await addToBlacklist(accessToken);
+        logger.warn('Token invalidado por mudança de JA3 em intervalo suspeito', {
+          service: 'auth', userId, ja3Hash
+        });
+        return res.status(401).json({ error: 'SESSION_ANOMALY', requiresLogin: true });
+      }
+      ja3Cache.set(userId, ja3Hash);
+    }
+
     // Passar informações do usuário para o próximo middleware
     req.isFirstAccess = false;
     req.user = decoded;
-    req.uid = decoded.uid;
+    req.uid = userId;
     req.auth = { decoded };
-    
+
     next();
   } catch (error) {
     // Tratamento específico por tipo de erro
     if (error.name === 'TokenExpiredError' && refreshToken) {
-      handleRefreshToken(req, res, next, refreshToken);
+      return handleRefreshToken(req, res, next, refreshToken);
     } else if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({ 
         isAuthenticated: false, 

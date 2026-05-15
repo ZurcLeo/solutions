@@ -9,7 +9,9 @@ const PII_KEYS = [
   'email', 'name', 'firstName', 'lastName', 'first_name', 'last_name',
   'cpf', 'cnpj', 'cpfCnpj', 'identificationNumber', 'number',
   'phone', 'telephone', 'address', 'street', 'complement', 'neighborhood',
-  'password', 'token', 'accessToken', 'secret', 'key'
+  'password', 'token', 'accessToken', 'refreshToken', 'idToken',
+  'firebaseToken', 'customToken', 'authorization', 'secret', 'key',
+  'friendName', 'ja3Data', 'ja3'
 ];
 
 /**

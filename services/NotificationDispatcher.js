@@ -9,17 +9,19 @@ const COLLECTION_NAME = 'notification_jobs';
 class NotificationDispatcher {
   /**
    * Despacha uma notificação, enfileirando-a para processamento atômico e com retentativas.
-   * 
+   *
    * @param {Object} params
-   * @param {string} params.userId - O ID do usuário destinatário.
+   * @param {string} params.userId - O ID do usuário destinatário (in-app + rate limiting).
    * @param {string} params.type - O tipo de notificação (ex: 'loan_approved', 'caixinha_invite').
    * @param {string} params.importance - 'high' ou 'low'.
    * @param {Object} params.data - Dados dinâmicos para a notificação.
    * @param {Object} params.metadata - Metadados da chamada (ex: correlationId).
    * @param {string} [params.dedupKey] - Chave única para evitar notificações duplicadas (idempotência).
+   * @param {string} [params.recipientEmail] - Email do destinatário externo (ex: convite para não-cadastrado).
+   *   Quando fornecido, substitui o email resolvido via userId para o canal de email.
    * @returns {Promise<Object>} Resultado contendo o jobId.
    */
-  async dispatch({ userId, type, importance, data, metadata, dedupKey }) {
+  async dispatch({ userId, type, importance, data, metadata, dedupKey, recipientEmail }) {
     logger.info('Dispatcher: Recebendo solicitação de notificação', {
       service: 'NotificationDispatcher',
       userId,
@@ -70,6 +72,7 @@ class NotificationDispatcher {
         channels,
         content,
         dedupKey: dedupKey || null,
+        recipientEmail: recipientEmail || null,
         status: 'pending',
         attempts: [],
         triggeredBy,
@@ -261,6 +264,28 @@ class NotificationDispatcher {
           ...data
         }
       };
+    } else if (type === 'convite') {
+      baseContent.in_app.content = `Convite enviado para ${data.friendName}`;
+      baseContent.email = {
+        templateType: 'convite',
+        subject: `Você recebeu um convite de ${data.senderName} para a ElosCloud`,
+        data: {
+          ...data
+        }
+      };
+    } else if (type === 'convite_aceito') {
+      baseContent.in_app.content = `${data.friendName} aceitou seu convite e criou uma conta`;
+      baseContent.in_app.url = data.url || `/profile/${data.newUserId}`;
+      // sem email — notificação apenas in_app para o remetente
+    } else if (type === 'convite_lembrete') {
+      baseContent.in_app.content = `Lembrete de convite enviado para ${data.friendName}`;
+      baseContent.email = {
+        templateType: 'convite_lembrete',
+        subject: 'Lembrete: você tem um convite pendente na ElosCloud',
+        data: {
+          ...data
+        }
+      };
     } else {
         // Fallback genérico para e-mail se necessário
         if (data.emailSubject && data.emailContent) {
@@ -316,9 +341,9 @@ class NotificationDispatcher {
           
           results[channel] = { success: true };
         } 
-        else if (channel === 'email' && job.content.email && user.email) {
+        else if (channel === 'email' && job.content.email && (job.recipientEmail || user.email)) {
           const res = await emailService.sendEmail({
-            to: user.email,
+            to: job.recipientEmail || user.email,
             subject: job.content.email.subject,
             templateType: job.content.email.templateType,
             data: job.content.email.data,

@@ -17,9 +17,12 @@ const authService = require('../services/authService');
 const inviteService = require('../services/inviteService');
 const caixinhaInviteService = require('../services/CaixinhaInviteService');
 const userService = require('../services/userService');
+const userRoleService = require('../services/userRoleService');
+const supabaseSyncService = require('../services/supabaseSyncService');
 const { generateToken, generateRefreshToken } = require('../services/authService');
 const { logger } = require('../logger');
 const User = require('../models/User');
+const { isLocallyBlacklisted } = require('../utils/securityUtils');
 
 /**
  * Verifica o estado atual da sessão do usuário
@@ -78,6 +81,10 @@ exports.checkSession = async (req, res) => {
         message: 'Usuário não encontrado'
       });
     }
+
+    // BUG FIX: Anexar as roles ao usuário para o frontend
+    const roles = await userRoleService.getUserRoles(userId);
+    user.roles = roles;
     
     // Verificar se o registro está completo
     const isFirstAccess = !user.registrationStage || user.registrationStage === 'initial';
@@ -93,7 +100,8 @@ exports.checkSession = async (req, res) => {
     if (shouldRefresh) {
       tokens = authService.generateToken({
         uid: userId,
-        email: user.email
+        email: user.email,
+        roles: roles
       });
       
       // Atualizar cookies com novos tokens
@@ -200,7 +208,15 @@ exports.getToken = async (req, res) => {
     const auth = getAuth();
     const decodedToken = await auth.verifyIdToken(firebaseToken);
     const userId = decodedToken.uid;
-    
+
+    // SEC-2: Bloquear usuários na blacklist local antes de emitir JWT
+    if (isLocallyBlacklisted(userId)) {
+      logger.warn('Login bloqueado: userId na blacklist local', {
+        service: 'authController', function: 'getToken', userId
+      });
+      return res.status(401).json({ error: 'TOKEN_REVOKED' });
+    }
+
     // Verificar se é o primeiro acesso (usando flag definida pelo middleware)
     const isFirstAccess = req.isFirstAccess || false;
     
@@ -219,21 +235,20 @@ exports.getToken = async (req, res) => {
       user = await User.getById(userId);
     }
     
+    // Buscar roles do usuário
+    const roles = await userRoleService.getUserRoles(userId);
+
     // Gerar tokens JWT
     const tokens = authService.generateToken({
       uid: userId,
-      email: decodedToken.email
+      email: decodedToken.email,
+      roles: roles
     });
-    
-    // Salvar tokens (usando AuthTokenService se disponível)
-    // const authTokenService = serviceLocator.get('authToken');
-    // if (authTokenService && authTokenService.isInitialized) {
-    //   authTokenService.setTokens(
-    //     tokens.accessToken,
-    //     tokens.refreshToken,
-    //     tokens.expiresIn || 3600
-    //   );
-    // }
+
+    // Sincronizar silenciosamente com Supabase (Migração)
+    supabaseSyncService.syncUserToSupabase(user).catch(err => 
+      logger.error('Erro na sincronização pós-login', { userId, error: err.message })
+    );
     
     // Configurar cookies
     res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
@@ -285,9 +300,16 @@ exports.getToken = async (req, res) => {
 exports.register = async (req, res) => {
   const auth = getAuth();
   const ja3Hash = req.ja3Hash;
-  const { firebaseToken, inviteId, profileData } = req.body;
-  
+  const { firebaseToken: bodyToken, inviteId, profileData } = req.body;
+  // Frontend envia o ID token no header Authorization; fallback para o body
+  const firebaseToken = bodyToken
+    || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+
   try {
+    if (!firebaseToken) {
+      return res.status(401).json({ success: false, message: 'Token de autenticação não fornecido' });
+    }
+
     // 1. Verificar o token do Firebase
     const decodedToken = await auth.verifyIdToken(firebaseToken);
     const userId = decodedToken.uid;
@@ -305,6 +327,11 @@ exports.register = async (req, res) => {
     
     const user = await userService.addUser(userData);
     
+    // Sincronizar silenciosamente com Supabase (Migração)
+    supabaseSyncService.syncUserToSupabase(user).catch(err => 
+      logger.error('Erro na sincronização pós-registro', { userId, error: err.message })
+    );
+
     // 2. Verificar e invalidar o convite (se fornecido)
     if (inviteId) {
       const inviteResult = await inviteService.invalidateInvite(inviteId, userId);
@@ -319,10 +346,15 @@ exports.register = async (req, res) => {
       }
     }
 
+    // Buscar roles do usuário
+    const roles = await userRoleService.getUserRoles(userId);
+    user.roles = roles; // BUG FIX: Anexar roles ao usuário para o frontend
+
     // 4. Gerar token JWT da aplicação
     const tokens = authService.generateToken({
       uid: userId,
-      email: decodedToken.email
+      email: decodedToken.email,
+      roles: roles
     });
     
     // 5. Definir cookies de autenticação
@@ -678,33 +710,6 @@ exports.handleAuthCallback = async (req, res) => {
       success: false,
       error: error.message
     });
-  }
-};
-
-// Verificar validade da sessão
-exports.checkSession = async (req, res) => {
-  const userId = req.user?.uid;
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ valid: false, message: 'No token provided' });
-  }
-
-  try {
-    if (!userId) {
-      return res.status(400).json({ message: 'ID do usuário não fornecido 1' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    if (!decoded || decoded.uid !== userId) {
-      return res.status(401).json({ message: 'Sessão inválida ou expirada' });
-    }
-
-    res.status(200).json({ message: 'Sessão válida' });
-  } catch (error) {
-    logger.error('Erro ao verificar sessão', { service: 'authController', function: 'checkSession', error: error.message });
-    res.status(500).json({ message: 'Erro ao verificar sessão', error: error.message });
   }
 };
 

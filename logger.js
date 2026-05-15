@@ -23,6 +23,50 @@ const safeStringify = (obj) => {
   });
 };
 
+// Campos que devem ser omitidos completamente dos logs
+const LOG_MASK_FULL = new Set([
+  'password', 'senha', 'secret', 'friendname', 'friendName'
+]);
+
+// Campos de token: manter apenas os primeiros 8 chars
+const LOG_MASK_TRUNCATE = new Set([
+  'token', 'accesstoken', 'accessToken', 'refreshtoken', 'refreshToken',
+  'idtoken', 'idToken', 'firebasetoken', 'firebaseToken', 'customtoken',
+  'customToken', 'authorization'
+]);
+
+const _maskEmail = (email) => {
+  if (typeof email !== 'string') return email;
+  const at = email.indexOf('@');
+  if (at <= 0) return '[MASKED]';
+  return email[0] + '***' + email.substring(at);
+};
+
+const maskLogMetadata = (obj, depth = 0) => {
+  if (depth > 6 || obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(item => maskLogMetadata(item, depth + 1));
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const lk = key.toLowerCase();
+    if (LOG_MASK_FULL.has(lk) || LOG_MASK_FULL.has(key)) {
+      result[key] = '[MASKED]';
+    } else if (LOG_MASK_TRUNCATE.has(lk) || LOG_MASK_TRUNCATE.has(key)) {
+      result[key] = typeof value === 'string' ? `${value.substring(0, 8)}[...]` : '[MASKED]';
+    } else if (lk === 'email') {
+      result[key] = _maskEmail(value);
+    } else if (lk === 'ja3data' || lk === 'ja3') {
+      result[key] = typeof value === 'object' && value !== null
+        ? { hash: value.hash || value.ja3Hash || '[omitted]' }
+        : value;
+    } else if (typeof value === 'object') {
+      result[key] = maskLogMetadata(value, depth + 1);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+};
+
 const customLevels = {
   levels: {
     error: 0,
@@ -86,7 +130,7 @@ const logger = createLogger({
       msg = colorizeMessage(level, msg);
 
       if (metadata) {
-        msg += ` ${safeStringify(metadata)}`;
+        msg += ` ${safeStringify(maskLogMetadata(metadata))}`;
       }
 
       return msg;

@@ -243,16 +243,16 @@ exports.sendInvite = async (req, res) => {
   try {
     // Verificar limitações e permissões
     const canSendResult = await inviteService.canSendInvite(userId, email);
-    
+
     if (!canSendResult.canSend) {
       return res.status(400).json({
         success: false,
         message: canSendResult.message
       });
     }
-    
-    // Gerar e enviar o convite
-    const result = await inviteService.generateAndSendInvite(userId, email, friendName);
+
+    // PERF-2: passar resultado pré-validado para evitar dupla chamada canSendInvite
+    const result = await inviteService.generateAndSendInvite(userId, email, friendName, canSendResult);
     
     return res.status(200).json({
       success: true,
