@@ -71,24 +71,6 @@ async function getUserGamification(userId) {
 
     if (selosErr) throw selosErr;
 
-    // Tarefas do usuário com dados do catálogo
-    const { data: userTasks, error: tasksErr } = await sb()
-      .from('user_tasks')
-      .select(`
-        id, status, progress, completions,
-        last_completed_at, xp_granted_total, coins_granted_total,
-        gamification_tasks (
-          id, slug, name, description, category,
-          xp_reward, coin_reward, is_repeatable,
-          repeat_interval_days, max_completions,
-          target_count, sort_order, icon_url
-        )
-      `)
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false });
-
-    if (tasksErr) throw tasksErr;
-
     // Normaliza selos
     const selos = (userSelos || []).map(us => ({
       ...us.selos,
@@ -100,17 +82,8 @@ async function getUserGamification(userId) {
       earned: true,
     }));
 
-    // Normaliza tarefas
-    const tasks = (userTasks || []).map(ut => ({
-      ...ut.gamification_tasks,
-      user_task_id: ut.id,
-      status: ut.status,
-      progress: ut.progress,
-      completions: ut.completions,
-      last_completed_at: ut.last_completed_at,
-      xp_granted_total: ut.xp_granted_total,
-      coins_granted_total: ut.coins_granted_total,
-    }));
+    // Tarefas: catálogo completo com progresso do usuário mesclado
+    const { tasks } = await getAllTasksWithProgress(userId);
 
     return {
       success: true,
@@ -501,9 +474,9 @@ async function triggerEvent(event, userId, metadata = {}) {
     'profile_completed':       ['complete_profile'],
     'avatar_uploaded':         ['upload_avatar'],
     'email_verified':          ['verify_email'],
-    'first_post_created':      ['first_post'],
+    'first_post_created':      ['first_post', 'post_10_times'],
     'invite_sent':             ['first_invite'],
-    'invite_accepted':         ['first_invite'],
+    'invite_accepted':         ['first_invite', 'invite_5_friends'],
     'caixinha_created':        ['create_first_caixinha'],
     'caixinha_joined':         ['join_caixinha'],
     'contribution_paid':       ['first_contribution'],
@@ -520,10 +493,23 @@ async function triggerEvent(event, userId, metadata = {}) {
 
   for (const slug of slugs) {
     try {
-      const result = await completeTask(userId, slug);
-      results.push({ slug, ...result });
-    } catch {
-      // Tarefa já completa ou inválida — ignora silenciosamente
+      // Usamos incrementTaskProgress para suportar tanto tarefas de passo único
+      // quanto tarefas progressivas (ex: make_5_connections).
+      const result = await incrementTaskProgress(userId, slug, metadata.amount || 1);
+      
+      if (result.success) {
+        results.push({
+          slug,
+          success: true,
+          completed: result.completed,
+          progress: result.progress,
+          target: result.target,
+          ...(result.xpResult || {})
+        });
+      }
+    } catch (err) {
+      // Ignora falhas individuais (ex: tarefa já completa ou cooldown)
+      log('triggerEvent', `Aviso: slug '${slug}' não processado: ${err.message}`, { userId });
     }
   }
 
