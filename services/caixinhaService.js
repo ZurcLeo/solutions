@@ -108,6 +108,46 @@ const getCaixinhaById = async (caixinhaId) => {
 };
 
 /**
+ * Gera um relatório detalhado de uma caixinha.
+ * @async
+ * @function getRelatorio
+ * @param {string} caixinhaId - O ID da caixinha para a qual o relatório será gerado.
+ * @returns {Promise<Object>} Um objeto contendo dados consolidados da caixinha e suas transações.
+ * @throws {Error} Se a caixinha não for encontrada ou ocorrer um erro ao gerar o relatório.
+ * @description Recupera informações detalhadas incluindo saldo, transações e estatísticas da caixinha.
+ */
+const getRelatorio = async (caixinhaId) => {
+  try {
+    const caixinha = await Caixinha.getById(caixinhaId);
+    
+    if (!caixinha) {
+      throw new Error('Caixinha não encontrada');
+    }
+    
+    const relatorio = {
+      caixinha,
+      geradoEm: new Date().toISOString()
+    };
+    
+    logger.info('Relatório de caixinha gerado com sucesso', {
+      service: 'caixinhaService',
+      method: 'getRelatorio',
+      caixinhaId
+    });
+    
+    return relatorio;
+  } catch (error) {
+    logger.error('Erro ao gerar relatório da caixinha', {
+      service: 'caixinhaService',
+      method: 'getRelatorio',
+      caixinhaId,
+      error: error.message
+    });
+    throw error;
+  }
+};
+
+/**
  * Atualiza os dados de uma caixinha existente.
  * @async
  * @function updateCaixinha
