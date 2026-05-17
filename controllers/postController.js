@@ -7,6 +7,7 @@ const Post = require('../models/Post');
 const Comment = require('../models/Comment');
 const Reaction = require('../models/Reaction');
 const Gift = require('../models/Gift');
+const gamificationService = require('../services/gamificationService');
 
 /**
  * Busca um post específico com seus comentários, reações e presentes
@@ -117,6 +118,14 @@ exports.addReaction = async (req, res) => {
   try {
     const reaction = await Reaction.create(req.params.postId, req.body);
     res.status(201).json(reaction);
+
+    // Fire-and-forget: notifica o autor do post sobre a reação recebida
+    Post.getById(req.params.postId).then(post => {
+      const authorId = post.usuarioId;
+      if (authorId) {
+        gamificationService.triggerEvent('reaction_received', authorId, { amount: 1 }).catch(() => {});
+      }
+    }).catch(() => {});
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

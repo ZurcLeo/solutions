@@ -84,6 +84,17 @@ const CONNECTION_EVENTS = {
     SYNC_FAILED: 'sync_failed'                    // Falha na sincronização
   };
   
+  // Eventos de gamificação (progresso, XP, selos, streak)
+  const GAMIFICATION_EVENTS = {
+    XP_GAINED:      'gamification:xp_gained',       // XP concedido ao usuário
+    TASK_PROGRESS:  'gamification:task_progress',   // Progresso parcial em tarefa multi-etapa
+    TASK_COMPLETED: 'gamification:task_completed',  // Tarefa concluída
+    LEVEL_UP:       'gamification:level_up',        // Usuário subiu de nível
+    SELO_GRANTED:   'gamification:selo_granted',    // Novo selo conquistado
+    COINS_GAINED:   'gamification:coins_gained',    // EloCoins ganhos
+    STREAK_UPDATED: 'gamification:streak_updated',  // Streak diário atualizado
+  };
+
   // Exportar todos os grupos de eventos
   module.exports = {
     CONNECTION_EVENTS,
@@ -94,7 +105,8 @@ const CONNECTION_EVENTS = {
     PRESENCE_EVENTS,
     SYSTEM_EVENTS,
     SYNC_EVENTS,
-    
+    GAMIFICATION_EVENTS,
+
     // Para acessar todos os eventos de forma plana
     ALL_EVENTS: {
       ...CONNECTION_EVENTS,
@@ -104,6 +116,7 @@ const CONNECTION_EVENTS = {
       ...NOTIFICATION_EVENTS,
       ...PRESENCE_EVENTS,
       ...SYSTEM_EVENTS,
-      ...SYNC_EVENTS
+      ...SYNC_EVENTS,
+      ...GAMIFICATION_EVENTS,
     }
   };

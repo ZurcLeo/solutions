@@ -7,6 +7,7 @@
 
 const { getSupabaseClient } = require('../config/supabase');
 const { logger } = require('../logger');
+const { GAMIFICATION_EVENTS } = require('../config/socket/socketEvents');
 
 const SERVICE = 'gamificationService';
 
@@ -26,6 +27,16 @@ function log(fn, msg, extra = {}) {
 
 function logError(fn, err, extra = {}) {
   logger.error(`Erro em ${fn}: ${err.message}`, { service: SERVICE, function: fn, error: err.message, ...extra });
+}
+
+// Emite evento de gamificação via Socket.IO para o usuário (fire-and-forget)
+function emitGamification(userId, event, data) {
+  try {
+    const { socketManager } = require('../config/socket/socketManager');
+    socketManager.emitToUser(userId, event, data);
+  } catch (_) {
+    // Socket não bloqueia fluxo principal
+  }
 }
 
 // ──────────────────────────────────────────────────────
@@ -168,6 +179,26 @@ async function completeTask(userId, taskSlug) {
     const result = data?.[0] || {};
     log('completeTask', 'Tarefa processada', { userId, taskSlug, result });
 
+    if (result.success) {
+      emitGamification(userId, GAMIFICATION_EVENTS.TASK_COMPLETED, {
+        taskSlug,
+        xpGranted: result.xp_granted,
+        coinsGranted: result.coins_granted,
+        message: result.message,
+      });
+      if (result.xp_granted > 0) {
+        emitGamification(userId, GAMIFICATION_EVENTS.XP_GAINED, { xp: result.xp_granted });
+      }
+      if (result.coins_granted > 0) {
+        emitGamification(userId, GAMIFICATION_EVENTS.COINS_GAINED, { coins: result.coins_granted });
+      }
+      if (result.leveled_up) {
+        emitGamification(userId, GAMIFICATION_EVENTS.LEVEL_UP, {
+          newLevel: result.new_level,
+        });
+      }
+    }
+
     return {
       success: result.success,
       message: result.message,
@@ -226,6 +257,16 @@ async function incrementTaskProgress(userId, taskSlug, amount = 1) {
       });
     }
 
+    // Emite progresso parcial (tarefas multi-etapa, antes de completar)
+    if (!isComplete && task.target_count > 1) {
+      emitGamification(userId, GAMIFICATION_EVENTS.TASK_PROGRESS, {
+        taskSlug,
+        taskName: task.name,
+        progress: newProgress,
+        target: task.target_count,
+      });
+    }
+
     // Se completou, dispara o RPC para conceder XP
     let xpResult = null;
     if (isComplete && (!existing || existing.status !== 'completed')) {
@@ -264,6 +305,14 @@ async function updateDailyStreak(userId) {
     if (error) throw error;
 
     const result = data?.[0] || {};
+
+    emitGamification(userId, GAMIFICATION_EVENTS.STREAK_UPDATED, {
+      streakDays: result.streak_days,
+      longestStreak: result.longest_streak,
+      streakBroken: result.streak_broken,
+      bonusXP: result.bonus_xp,
+    });
+
     return {
       success: true,
       streakDays: result.streak_days,
@@ -299,6 +348,21 @@ async function grantSelo(userId, seloSlug, grantedBy = 'system', reason = null) 
     if (error) throw error;
 
     const result = data?.[0] || {};
+
+    if (result.success) {
+      emitGamification(userId, GAMIFICATION_EVENTS.SELO_GRANTED, {
+        seloSlug,
+        xpBonus: result.xp_bonus,
+        coinBonus: result.coin_bonus,
+      });
+      if (result.xp_bonus > 0) {
+        emitGamification(userId, GAMIFICATION_EVENTS.XP_GAINED, { xp: result.xp_bonus });
+      }
+      if (result.coin_bonus > 0) {
+        emitGamification(userId, GAMIFICATION_EVENTS.COINS_GAINED, { coins: result.coin_bonus });
+      }
+    }
+
     return {
       success: result.success,
       message: result.message,
