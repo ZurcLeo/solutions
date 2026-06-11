@@ -61,6 +61,74 @@ const getCaixinhas = async (req, res) => {
   }
   
   /**
+   * Busca dados do usuário autenticado em uma caixinha específica
+   */
+ const getMeInCaixinha = async (req, res) => {
+    const { id: caixinhaId } = req.params;
+    const userId = req.user.uid;
+
+    try {
+      logger.info('Buscando dados do usuário na caixinha', {
+        controller: 'CaixinhaController',
+        method: 'getMeInCaixinha',
+        caixinhaId,
+        userId
+      });
+
+      if (!req.user) {
+        logger.warn('Tentativa de acesso sem autenticação', {
+          controller: 'CaixinhaController',
+          method: 'getMeInCaixinha'
+        });
+        return res.status(401).json({
+          message: 'Usuário não autenticado'
+        });
+      }
+
+      const membro = await MembrosService.getMembroByCaixinhaAndUserId(caixinhaId, userId);
+      
+      if (!membro) {
+        logger.warn('Membro não encontrado na caixinha', {
+          controller: 'CaixinhaController',
+          method: 'getMeInCaixinha',
+          caixinhaId,
+          userId
+        });
+        return res.status(404).json({
+          message: 'Usuário não é membro desta caixinha'
+        });
+      }
+
+      logger.info('Dados do usuário recuperados com sucesso', {
+        controller: 'CaixinhaController',
+        method: 'getMeInCaixinha',
+        caixinhaId,
+        userId
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: membro
+      });
+    } catch (error) {
+      logger.error('Erro ao buscar dados do usuário na caixinha', {
+        controller: 'CaixinhaController',
+        method: 'getMeInCaixinha',
+        caixinhaId,
+        userId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao buscar dados do usuário',
+        error: error.message
+      });
+    }
+  }
+
+  /**
    * Gerencia empréstimos da caixinha
    */
  const gerenciarEmprestimos = async (req, res) => {
