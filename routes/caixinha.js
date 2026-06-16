@@ -1,4 +1,12 @@
-const express = require('express');
+router.get('/transactions', async (req, res) => {
+  try {
+    const { page, limit } = req.query;
+    // lógica para buscar transações
+    res.json({ transactions: [], page, limit });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth');
 const validate  = require('../middlewares/validate');
