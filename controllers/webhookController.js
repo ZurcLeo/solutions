@@ -74,10 +74,27 @@ exports.mercadoPagoWebhook = async (req, res) => {
 };
 
 /**
- * Processa notificação de pagamento
+ * Processa notificação de pagamento com idempotência
  */
 exports._processPaymentNotification = async (paymentId, requestId) => {
   try {
+    // 0. Verificar idempotência - rejeitar webhooks duplicados
+    const webhookHash = crypto.createHash('sha256').update(`${requestId}:${paymentId}`).digest('hex');
+    const cacheKey = `webhook:processed:${webhookHash}`;
+    
+    const alreadyProcessed = await exports._checkIdempotencyCache(cacheKey);
+    if (alreadyProcessed) {
+      logger.info('Webhook duplicado rejeitado - já foi processado', {
+        controller: 'WebhookController',
+        method: '_processPaymentNotification',
+        paymentId,
+        requestId,
+        webhookHash,
+        action: 'DUPLICATE_WEBHOOK_REJECTED'
+      });
+      return;
+    }
+
     logger.info('Processando notificação de pagamento', {
       controller: 'WebhookController',
       method: '_processPaymentNotification',
