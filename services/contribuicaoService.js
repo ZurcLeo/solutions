@@ -24,7 +24,7 @@ const verificarMembroAtivo = async (caixinhaId, membroId) => {
     throw new Error('Membro não encontrado nesta caixinha.');
   }
 
-  const { status } = snapshot.docs[0].data();
+  const { status = 'ativo' } = snapshot.docs[0].data();
   if (status !== 'ativo') {
     throw new Error(`Membro com status '${status}' não pode realizar contribuições.`);
   }
