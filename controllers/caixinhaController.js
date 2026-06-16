@@ -66,15 +66,29 @@ const getCaixinhas = async (req, res) => {
  const gerenciarEmprestimos = async (req, res) => {
     const { caixinhaId } = req.params;
     const { acao, emprestimoId, dados } = req.body;
+    const correlationId = req.headers['x-correlation-id'] || req.id;
 
     try {
+      if (!caixinhaId) {
+        logger.warn('caixinhaId não fornecido', {
+          controller: 'CaixinhaController',
+          method: 'gerenciarEmprestimos',
+          correlationId,
+          userId: req.user?.uid
+        });
+        return res.status(400).json({
+          message: 'caixinhaId é obrigatório'
+        });
+      }
+
       logger.info('Gerenciando empréstimos', {
         controller: 'CaixinhaController',
         method: 'gerenciarEmprestimos',
         caixinhaId,
         acao,
         emprestimoId,
-        userId: req.user.ucaixinhaId
+        correlationId,
+        userId: req.user.uid
       });
 
       let resultado;
