@@ -7,13 +7,15 @@ const notificationService = {
   /**
    * Fetches notifications for a specific user.
    * @param {string} userId - The ID of the user to fetch notifications for.
+   * @param {string} correlationId - The correlation ID for request tracing.
    * @returns {Promise<Object>} - An object containing private and public notifications.
    */
-  getUserNotifications: async (userId) => {
+  getUserNotifications: async (userId, correlationId) => {
     logger.info('Obtendo notificações do usuário', {
       service: 'notificationService',
       function: 'getUserNotifications',
-      userId
+      userId,
+      correlationId
     });
 
     try {
