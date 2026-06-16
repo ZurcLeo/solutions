@@ -4,6 +4,23 @@ const { logger } = require('../logger');
 
 class MessageService {
   /**
+   * Obtém todas as mensagens de um usuário
+   * @param {string} userId - ID do usuário
+   * @returns {Promise<Array>} - Lista de mensagens
+   */
+  static async getByUserId(userId) {
+    try {
+      logger.info(`Buscando mensagens para usuário: ${userId}`);
+      const messages = await Message.getByUserId(userId);
+      logger.debug(`Encontradas ${messages.length} mensagens para o usuário ${userId}`);
+      return messages;
+    } catch (error) {
+      logger.error(`Erro ao buscar mensagens para usuário ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Obtém todas as conversas de um usuário
    * @param {string} userId - ID do usuário
    * @returns {Promise<Array>} - Lista de conversas
