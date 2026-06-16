@@ -5,6 +5,39 @@ const BankAccount = require('../models/BankAccount');
 const { logger } = require('../logger');
 const crypto = require('crypto');
 
+// Cache de idempotência para webhooks processados (requestId -> timestamp)
+const PROCESSED_WEBHOOKS = new Map();
+const WEBHOOK_TTL = 3600000; // 1 hora em ms
+
+/**
+ * Verifica e marca webhook como processado
+ * Retorna true se já foi processado, false caso contrário
+ */
+const isWebhookAlreadyProcessed = (requestId) => {
+  if (!requestId) return false;
+  
+  if (PROCESSED_WEBHOOKS.has(requestId)) {
+    const timestamp = PROCESSED_WEBHOOKS.get(requestId);
+    // Verificar se não expirou
+    if (Date.now() - timestamp < WEBHOOK_TTL) {
+      return true;
+    } else {
+      // Remover entrada expirada
+      PROCESSED_WEBHOOKS.delete(requestId);
+    }
+  }
+  return false;
+};
+
+/**
+ * Marca webhook como processado
+ */
+const markWebhookAsProcessed = (requestId) => {
+  if (requestId) {
+    PROCESSED_WEBHOOKS.set(requestId, Date.now());
+  }
+};
+
 /**
  * Webhook do Mercado Pago para notificações de pagamento
  * Responde rapidamente com 200 e processa em background
