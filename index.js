@@ -1,37 +1,6 @@
 // INDEX.JS LOADED
 require('dotenv').config();
 
-// ── BOOT-TIME ENVIRONMENT VALIDATION ──────────────────────────
-// Fail fast in production if critical payment secrets are missing or misconfigured.
-// Better a process.exit(1) than silent sandbox charges or phantom billing.
-if (process.env.NODE_ENV === 'production') {
-  const bootErrors = [];
-
-  if (!process.env.ASAAS_API_URL) {
-    bootErrors.push('ASAAS_API_URL is not set (would silently fallback to sandbox)');
-  } else if (process.env.ASAAS_API_URL.includes('sandbox')) {
-    bootErrors.push(`ASAAS_API_URL points to sandbox: ${process.env.ASAAS_API_URL}`);
-  }
-
-  if (!process.env.ASAAS_API_KEY) {
-    bootErrors.push('ASAAS_API_KEY is not set');
-  } else if (process.env.ASAAS_API_KEY.startsWith('$aact_hmlg_')) {
-    bootErrors.push('ASAAS_API_KEY is a sandbox/homologation key ($aact_hmlg_)');
-  }
-
-  if (!process.env.ASAAS_WEBHOOK_TOKEN) {
-    bootErrors.push('ASAAS_WEBHOOK_TOKEN is not set (webhook validation will fail)');
-  }
-
-  if (bootErrors.length > 0) {
-    console.error('\n╔══════════════════════════════════════════════════╗');
-    console.error('║  FATAL: Production environment misconfigured     ║');
-    console.error('╚══════════════════════════════════════════════════╝');
-    bootErrors.forEach(e => console.error(`  ✗ ${e}`));
-    console.error('\nAborting. Fix secrets via: flyctl secrets set -a eloscloud-api\n');
-    process.exit(1);
-  }
-}
 // ── END BOOT VALIDATION ──────────────────────────────────────
 
 // Polyfill WebSocket para Node.js < 22 (requerido por @supabase/realtime-js)
