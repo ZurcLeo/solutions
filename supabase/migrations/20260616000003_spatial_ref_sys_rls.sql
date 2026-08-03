@@ -1,0 +1,25 @@
+-- ============================================================
+-- Migration: spatial_ref_sys (PostGIS) — FALSO POSITIVO DOCUMENTADO
+-- Linter: "rls_disabled_in_public" (ERROR)
+-- Data: 2026-06-16
+-- ============================================================
+--
+-- A tabela public.spatial_ref_sys é criada e gerenciada pela extensão
+-- PostGIS, de propriedade do role supabase_admin. Nenhum role acessível
+-- ao usuário (postgres, Dashboard SQL Editor) consegue:
+--   1. ALTER TABLE ENABLE RLS  → "must be owner"
+--   2. REVOKE grants           → "no privileges could be revoked"
+--   3. SET ROLE supabase_admin → "permission denied"
+--
+-- Risco real: NEGLIGÍVEL
+--   - Contém apenas constantes geográficas (SRIDs padrão EPSG/ISO)
+--   - Zero dados de usuários
+--   - Modificação afetaria cálculos espaciais, não segurança de dados
+--
+-- Ação: Aceito como falso positivo. Se necessário no futuro,
+--   abrir ticket no Supabase Support para REVOKE via supabase_admin.
+--
+-- PostGIS é necessário: sim (haversine_km, delivery, hiper-local)
+-- ============================================================
+
+SELECT 1; -- no-op, migration existe apenas como documentação

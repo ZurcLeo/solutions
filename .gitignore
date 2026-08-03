@@ -81,3 +81,6 @@ secure-keys.txt
 certificates/
 *.crt
 *.key
+# Supabase CLI — estado local
+supabase/.temp/
+supabase/.branches/
