@@ -79,8 +79,45 @@ const app = express();
 
 // Trust proxy - CRÍTICO para deployment em plataformas como Render.com
 if (process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', 1);
-  logger.info('Trust proxy enabled for production', { service: 'index' });
+  const bootErrors = [];
+
+  // Escape hatch para ambientes não-produtivos (staging/homologação) que rodam
+  // com NODE_ENV=production para manter cookies, CORS e SSL idênticos a produção.
+  // Valor deliberadamente verboso — não se liga por acidente.
+  const sandboxAck = process.env.ASAAS_SANDBOX_ACK === 'i-know-this-is-not-production';
+
+  if (!process.env.ASAAS_API_URL) {
+    bootErrors.push('ASAAS_API_URL is not set (would silently fallback to sandbox)');
+  } else if (process.env.ASAAS_API_URL.includes('sandbox') && !sandboxAck) {
+    bootErrors.push(`ASAAS_API_URL points to sandbox: ${process.env.ASAAS_API_URL}`);
+  }
+
+  if (!process.env.ASAAS_API_KEY) {
+    bootErrors.push('ASAAS_API_KEY is not set');
+  } else if (process.env.ASAAS_API_KEY.startsWith('$aact_hmlg_') && !sandboxAck) {
+    bootErrors.push('ASAAS_API_KEY is a sandbox/homologation key ($aact_hmlg_)');
+  }
+
+  if (!process.env.ASAAS_WEBHOOK_TOKEN) {
+    bootErrors.push('ASAAS_WEBHOOK_TOKEN is not set (webhook validation will fail)');
+  }
+
+  if (bootErrors.length > 0) {
+    console.error('\n╔══════════════════════════════════════════════════╗');
+    console.error('║  FATAL: Production environment misconfigured     ║');
+    console.error('╚══════════════════════════════════════════════════╝');
+    bootErrors.forEach(e => console.error(`  ✗ ${e}`));
+    console.error('\nAborting. Fix secrets via: flyctl secrets set -a eloscloud-api\n');
+    process.exit(1);
+  }
+
+  if (sandboxAck) {
+    console.warn('\n╔══════════════════════════════════════════════════╗');
+    console.warn('║  ⚠️  ASAAS_SANDBOX_ACK ATIVO                      ║');
+    console.warn('║  Pagamentos em modo sandbox. Se esta app atende  ║');
+    console.warn('║  clientes reais, REMOVA este secret agora.       ║');
+    console.warn('╚══════════════════════════════════════════════════╝\n');
+  }
 } else {
   logger.info('Trust proxy disabled for development', { service: 'index' });
 }
