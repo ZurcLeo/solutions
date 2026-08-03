@@ -2,12 +2,13 @@ const express = require('express');
 const verifyToken = require('../middlewares/auth');
 const { readLimit, writeLimit, bankingLimit } = require('../middlewares/rateLimiter');
 const bankAccountController = require('../controllers/bankAccountController');
-const paymentsController = require('../controllers/paymentsController');
 const {
   validateCreateBankAccount,
   validateUpdateBankAccount,
   validateQueryBankAccount
 } = require('../schemas/bankAccountSchema');
+const requireVerifiedAction = require('../middlewares/requireVerifiedAction');
+const { securityLogging } = require('../middlewares/smartSecurity');
 
 const router = express.Router();
 
@@ -32,9 +33,27 @@ router.patch('/:id/activate', verifyToken, readLimit, bankAccountController.acti
 // Rota para deletar uma conta bancária
 router.delete('/:id', verifyToken, readLimit, bankAccountController.deleteBankAccount);
 
-// Rotas de pagamento - seguindo padrão /api/banking/payments/*
-router.post('/payments/card', verifyToken, writeLimit, paymentsController.createCardPayment);
-router.post('/payments/pix', verifyToken, writeLimit, paymentsController.createPixPayment);
-router.get('/payments/status/:paymentId', verifyToken, readLimit, paymentsController.checkPixPaymentStatus);
+// GAP-001: Transferência interna de saldo entre membros da caixinha
+router.post('/transfer',
+  verifyToken,
+  requireVerifiedAction('pagamento_pix', {
+    getEntityType: () => 'payment',
+    getEntityId: (req) => req.body.caixinhaId || null,
+  }),
+  writeLimit,
+  securityLogging,
+  bankAccountController.transferFunds
+);
+
+// GAP-002: Cancelar transação pendente
+router.post('/transaction/:id/cancel',
+  verifyToken,
+  writeLimit,
+  bankAccountController.cancelTransaction
+);
+
+// Aplica método de pagamento global do usuário a uma caixinha
+const userPaymentMethodController = require('../controllers/userPaymentMethodController');
+router.post('/:caixinhaId/apply-user-method/:methodId', verifyToken, bankingLimit, userPaymentMethodController.applyToCaixinha);
 
 module.exports = router;

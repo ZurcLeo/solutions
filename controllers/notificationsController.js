@@ -4,6 +4,7 @@
  */
 
 const notificationService = require('../services/notificationService');
+const pushService = require('../services/pushService');
 const { logger } = require('../logger');
 
 /**
@@ -17,30 +18,15 @@ const { logger } = require('../logger');
  */
 const getUserNotifications = async (req, res) => {
   const userId = req.uid;
-  logger.info('Requisicao para obter notificacoes do usuario', {
-    service: 'notificationsController',
-    function: 'getUserNotifications',
-    userId
-  });
+  const limit  = Math.min(parseInt(req.query.limit)  || 50, 200);
+  const offset = Math.max(parseInt(req.query.offset)  || 0, 0);
 
   try {
-    const result = await notificationService.getUserNotifications(userId);
+    const result = await notificationService.getUserNotifications(userId, { limit, offset });
     if (result.success) {
-      logger.info('Notificacoes obtidas com sucesso', {
-        service: 'notificationsController',
-        function: 'getUserNotifications',
-        userId
-      });
       return res.status(200).json(result.data);
-    } else {
-      logger.error('Erro ao obter notificacoes do usuario', {
-        service: 'notificationsController',
-        function: 'getUserNotifications',
-        userId,
-        error: result.message
-      });
-      return res.status(500).json({ message: 'Erro ao obter notificacoes', error: result.message });
     }
+    return res.status(500).json({ message: 'Erro ao obter notificacoes', error: result.message });
   } catch (error) {
     logger.error('Erro ao obter notificacoes do usuario', {
       service: 'notificationsController',
@@ -49,6 +35,25 @@ const getUserNotifications = async (req, res) => {
       error: error.message
     });
     return res.status(500).json({ message: 'Erro ao obter notificacoes', error: error.message });
+  }
+};
+
+const getUnreadCount = async (req, res) => {
+  const userId = req.uid;
+  try {
+    const result = await notificationService.getUnreadCount(userId);
+    if (result.success) {
+      return res.status(200).json({ unreadCount: result.count });
+    }
+    return res.status(500).json({ message: 'Erro ao contar notificações', error: result.message });
+  } catch (error) {
+    logger.error('Erro ao contar notificações não lidas', {
+      service: 'notificationsController',
+      function: 'getUnreadCount',
+      userId,
+      error: error.message
+    });
+    return res.status(500).json({ message: 'Erro ao contar notificações', error: error.message });
   }
 };
 
@@ -112,6 +117,57 @@ const markNotificationAsRead = async (req, res) => {
       error: error.message
     });
     return res.status(500).json({ message: 'Erro ao marcar notificacao como lida', error: error.message });
+  }
+};
+
+/**
+ * Marca todas as notificações de um usuário como lidas
+ * @async
+ * @function clearAllNotifications
+ * @param {Object} req - Objeto de requisição Express
+ * @param {string} req.params.userId - ID do usuário
+ * @param {Object} res - Objeto de resposta Express
+ * @returns {Promise<Object>} Confirmação da operação
+ */
+const clearAllNotifications = async (req, res) => {
+  const { userId } = req.params;
+
+  logger.info('Requisicao para limpar todas as notificacoes', {
+    service: 'notificationsController',
+    function: 'clearAllNotifications',
+    userId,
+  });
+
+  try {
+    const result = await notificationService.clearAllNotifications(userId);
+    if (result.success) {
+      // Emitir evento de socket para sincronizar outros dispositivos
+      if (req.socketManager) {
+        req.socketManager.emitToUser(
+          userId,
+          'clear_notifications',
+          { timestamp: Date.now() }
+        );
+      }
+
+      return res.status(200).json({ message: 'Todas as notificações marcadas como lidas' });
+    } else {
+      logger.error('Erro ao limpar notificacoes', {
+        service: 'notificationsController',
+        function: 'clearAllNotifications',
+        userId,
+        error: result.message,
+      });
+      return res.status(500).json({ message: 'Erro ao limpar notificações', error: result.message });
+    }
+  } catch (error) {
+    logger.error('Erro ao limpar notificacoes', {
+      service: 'notificationsController',
+      function: 'clearAllNotifications',
+      userId,
+      error: error.message,
+    });
+    return res.status(500).json({ message: 'Erro ao limpar notificações', error: error.message });
   }
 };
 
@@ -183,8 +239,85 @@ const createNotification = async (req, res) => {
   }
 };
 
+/**
+ * Retorna a chave pública VAPID para o frontend (necessária para PushManager.subscribe).
+ */
+const getVapidPublicKey = async (req, res) => {
+  const key = pushService.getVapidPublicKey();
+  if (!key) {
+    return res.status(503).json({ message: 'VAPID key não configurada' });
+  }
+  return res.status(200).json({ vapidPublicKey: key });
+};
+
+/**
+ * Salva uma subscription Web Push (W3C VAPID) para o usuário autenticado.
+ */
+const savePushToken = async (req, res) => {
+  const userId = req.uid;
+  const { subscription, deviceName, deviceType } = req.body;
+
+  if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
+    return res.status(400).json({ message: 'Subscription inválida — endpoint e keys (p256dh, auth) obrigatórios' });
+  }
+
+  try {
+    const result = await pushService.saveSubscription(userId, subscription, {
+      deviceName: deviceName || null,
+      deviceType: deviceType || 'web',
+    });
+
+    if (result.success) {
+      return res.status(200).json({ message: 'Subscription salva', subscriptionId: result.subscriptionId });
+    }
+    return res.status(500).json({ message: 'Erro ao salvar subscription', error: result.error });
+  } catch (error) {
+    logger.error('Erro ao salvar push subscription', {
+      service: 'notificationsController',
+      function: 'savePushToken',
+      userId,
+      error: error.message
+    });
+    return res.status(500).json({ message: 'Erro ao salvar subscription', error: error.message });
+  }
+};
+
+/**
+ * Remove (desativa) uma subscription Web Push do usuário autenticado.
+ */
+const removePushToken = async (req, res) => {
+  const userId = req.uid;
+  const { endpoint } = req.body;
+
+  if (!endpoint || typeof endpoint !== 'string') {
+    return res.status(400).json({ message: 'Endpoint inválido' });
+  }
+
+  try {
+    const result = await pushService.removeSubscription(userId, endpoint);
+
+    if (result.success) {
+      return res.status(200).json({ message: 'Subscription removida' });
+    }
+    return res.status(500).json({ message: 'Erro ao remover subscription', error: result.error });
+  } catch (error) {
+    logger.error('Erro ao remover push subscription', {
+      service: 'notificationsController',
+      function: 'removePushToken',
+      userId,
+      error: error.message
+    });
+    return res.status(500).json({ message: 'Erro ao remover subscription', error: error.message });
+  }
+};
+
 module.exports = {
   getUserNotifications,
+  getUnreadCount,
   markNotificationAsRead,
-  createNotification
+  clearAllNotifications,
+  createNotification,
+  getVapidPublicKey,
+  savePushToken,
+  removePushToken
 };

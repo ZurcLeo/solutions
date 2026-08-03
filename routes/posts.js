@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const postController = require('../controllers/postController');
+const reportController = require('../controllers/reportController')
 const verifyToken = require('../middlewares/auth');
 const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger')
@@ -21,6 +22,37 @@ router.use((req, res, next) => {
  *   name: Posts
  *   description: Gerenciamento de postagens
  */
+
+/**
+ * @swagger
+ * /posts:
+ *   get:
+ *     summary: Retorna o feed de postagens paginado
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Máximo de posts por página (máx 100)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Número da página
+ *     responses:
+ *       200:
+ *         description: Feed retornado com sucesso
+ *       500:
+ *         description: Erro no servidor
+ */
+router.get('/', verifyToken, readLimit, postController.getFeed);
+
+// Rotas estáticas antes de /:id para evitar conflito de matching
+router.get('/generosity-ranking',   verifyToken, readLimit, postController.getGenerosityRanking);
+router.get('/trending-hashtags',    verifyToken, readLimit, postController.getTrendingHashtags);
 
 /**
  * @swagger
@@ -172,6 +204,8 @@ router.delete('/:id', verifyToken, writeLimit, postController.deletePost);
  *         description: Erro no servidor
  */
 router.post('/:postId/comments', verifyToken, writeLimit, postController.addComment);
+router.post('/:postId/comments/:commentId/like', verifyToken, writeLimit, postController.toggleCommentLike);
+router.post('/:postId/comments/:commentId/reply', verifyToken, writeLimit, postController.replyToComment);
 
 /**
  * @swagger
@@ -210,39 +244,110 @@ router.post('/:postId/comments', verifyToken, writeLimit, postController.addComm
 router.post('/:postId/reactions', verifyToken, writeLimit, postController.addReaction);
 
 /**
- * @swagger
- * /posts/{postId}/gifts:
- *   post:
- *     summary: Adiciona um presente a uma postagem
- *     tags: [Posts]
- *     parameters:
- *       - in: path
- *         name: postId
- *         schema:
- *           type: string
- *         required: true
- *         description: ID da postagem
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               giftId:
- *                 type: string
- *                 description: ID do presente
- *                 example: "giftId123"
- *     responses:
- *       200:
- *         description: Presente adicionado com sucesso
- *       400:
- *         description: Erro na solicitação
- *       404:
- *         description: Postagem não encontrada
- *       500:
- *         description: Erro no servidor
- */
-router.post('/:postId/gifts', verifyToken, writeLimit, postController.addGift);
+  * @swagger
+  * /posts/{postId}/gifts:
+  *   post:
+  *     summary: Adiciona um presente a uma postagem
+  *     tags: [Posts]
+  *     parameters:
+  *       - in: path
+  *         name: postId
+  *         schema:
+  *           type: string
+  *         required: true
+  *         description: ID da postagem
+  *     requestBody:
+  *       required: true
+  *       content:
+  *         application/json:
+  *           schema:
+  *             type: object
+  *             properties:
+  *               giftId:
+  *                 type: string
+  *                 description: ID do presente
+  *                 example: "giftId123"
+  *     responses:
+  *       200:
+  *         description: Presente adicionado com sucesso
+  *       400:
+  *         description: Erro na solicitação
+  *       404:
+  *         description: Postagem não encontrada
+  *       500:
+  *         description: Erro no servidor
+  */
+ router.post('/:postId/gifts', verifyToken, writeLimit, postController.addGift);
 
-module.exports = router;
+ /**
+  * @swagger
+  * /posts/{postId}/report:
+  *   post:
+  *     summary: Denuncia uma postagem
+  *     tags: [Posts]
+  *     parameters:
+  *       - in: path
+  *         name: postId
+  *         schema:
+  *           type: string
+  *         required: true
+  *         description: ID da postagem
+  *     requestBody:
+  *       required: true
+  *       content:
+  *         application/json:
+  *           schema:
+  *             type: object
+  *             properties:
+  *               reason:
+  *                 type: string
+  *                 description: Motivo da denúncia
+  *                 example: "Discurso de ódio"
+  *     responses:
+  *       202:
+  *         description: Denúncia registrada
+  *       400:
+  *         description: Erro na solicitação
+  *       404:
+  *         description: Postagem não encontrada
+  *       500:
+  *         description: Erro no servidor
+  */
+ router.post('/:postId/report', verifyToken, writeLimit, reportController.reportPost);
+
+ /**
+  * @swagger
+  * /posts/{postId}/comments/{commentId}/report:
+  *   post:
+  *     summary: Denuncia um comentário
+  *     tags: [Posts]
+  *     parameters:
+  *       - in: path
+  *         name: postId
+  *         schema:
+  *           type: string
+  *         required: true
+  *       - in: path
+  *         name: commentId
+  *         schema:
+  *           type: string
+  *         required: true
+  *     requestBody:
+  *       required: true
+  *       content:
+  *         application/json:
+  *           schema:
+  *             type: object
+  *             properties:
+  *               reason:
+  *                 type: string
+  *                 example: "Discurso de ódio"
+  *     responses:
+  *       202:
+  *         description: Denúncia registrada
+  *       404:
+  *         description: Comentário não encontrado
+  */
+ router.post('/:postId/comments/:commentId/report', verifyToken, writeLimit, reportController.reportComment);
+
+ module.exports = router;

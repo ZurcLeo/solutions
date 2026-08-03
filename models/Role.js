@@ -1,8 +1,6 @@
 // models/Role.js
-const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
-const LocalStorageService = require('../services/LocalStorageService')
-const FirestoreService = require('../utils/firestoreService');
+const LocalStorageService = require('../services/LocalStorageService');
 const dbServiceRole = LocalStorageService.collection('roles');
 
 class Role {

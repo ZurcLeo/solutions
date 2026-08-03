@@ -26,8 +26,8 @@ CREATE INDEX IF NOT EXISTS idx_health_history_trusted
   ON health_history (created_at DESC)
   WHERE confidence_level >= 0.7;
 
--- RLS desabilitado: dados internos de infraestrutura, sem PII
-ALTER TABLE health_history DISABLE ROW LEVEL SECURITY;
+-- RLS habilitado: service_role bypassa automaticamente; anon bloqueado por padrão
+ALTER TABLE health_history ENABLE ROW LEVEL SECURITY;
 
 -- Política de retenção recomendada (executar via pg_cron ou Supabase scheduled jobs):
 -- DELETE FROM health_history WHERE created_at < NOW() - INTERVAL '30 days';

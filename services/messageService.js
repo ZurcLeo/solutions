@@ -172,6 +172,58 @@ class MessageService {
   }
 
   /**
+   * Toggle reaction em uma mensagem
+   * @param {string} messageId - ID da mensagem
+   * @param {string} userId - ID do usuário
+   * @param {string} emoji - Emoji da reação
+   * @returns {Promise<{action: string, reactionId: string}>}
+   */
+  static async toggleReaction(messageId, userId, emoji) {
+    try {
+      logger.info(`Toggle reação: ${emoji} na mensagem ${messageId} pelo usuário ${userId}`);
+      const result = await Message.toggleReaction(messageId, userId, emoji);
+      logger.debug(`Reação ${result.action}: ${result.reactionId}`);
+      return result;
+    } catch (error) {
+      logger.error(`Erro ao toggle reação na mensagem ${messageId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Retorna resumo de reações para múltiplas mensagens
+   * @param {string[]} messageIds - IDs das mensagens
+   * @returns {Promise<Object>} - Map { messageId: [{ emoji, count, userIds }] }
+   */
+  static async getReactionsSummary(messageIds) {
+    try {
+      return await Message.getReactionsSummary(messageIds);
+    } catch (error) {
+      logger.error('Erro ao buscar resumo de reações:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload de anexos para Supabase Storage
+   * @param {string} senderId - ID do remetente
+   * @param {string} conversationId - ID da conversa
+   * @param {Array} files - Arquivos do multer (buffer, originalname, mimetype, size)
+   * @returns {Promise<Array<{url, path, name, type, size}>>}
+   */
+  static async uploadAttachments(senderId, conversationId, files) {
+    try {
+      logger.info(`Upload de ${files.length} anexo(s) por ${senderId} na conversa ${conversationId}`);
+      const result = await Message.uploadAttachments(senderId, conversationId, files);
+      logger.debug(`${result.length} anexo(s) uploaded com sucesso`);
+      return result;
+    } catch (error) {
+      logger.error('Erro ao fazer upload de anexos:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Migra dados do modelo antigo para o novo
    * @param {string} userId - ID do usuário para migrar
    * @returns {Promise<Object>} - Resultado da migração

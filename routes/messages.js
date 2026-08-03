@@ -6,6 +6,26 @@ const verifyToken = require('../middlewares/auth');
 const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger');
 const { healthCheck } = require('../middlewares/healthMiddleware');
+const multer = require('multer');
+
+// Multer para upload de anexos (memory storage → Supabase Storage)
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'video/mp4', 'audio/mpeg', 'audio/ogg',
+      'application/pdf', 'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Tipo de arquivo não permitido'));
+    }
+  }
+});
 
 const ROUTE_NAME = 'messages';
 
@@ -420,6 +440,79 @@ router.get('/stats', verifyToken, readLimit, MessageController.getUserMessageSta
  *         description: Erro no servidor
  */
 // router.post('/migrate', verifyToken, writeLimit, MessageController.migrateUserMessages);
+
+// ─── Novas rotas: Anexos e Reações ────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/messages/conversations/{conversationId}/attachments:
+ *   post:
+ *     summary: Upload de anexos para uma conversa
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               files:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Metadados dos anexos uploaded
+ *       400:
+ *         description: Nenhum arquivo ou tipo inválido
+ *       403:
+ *         description: Acesso negado
+ */
+router.post('/conversations/:conversationId/attachments',
+  verifyToken, writeLimit, attachmentUpload.array('files', 5), MessageController.uploadAttachments);
+
+/**
+ * @swagger
+ * /api/messages/{messageId}/reactions:
+ *   post:
+ *     summary: Toggle reação em uma mensagem
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: messageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - emoji
+ *             properties:
+ *               emoji:
+ *                 type: string
+ *                 description: Emoji da reação (ex. 👍, ❤️)
+ *     responses:
+ *       200:
+ *         description: Reação adicionada ou removida
+ *       400:
+ *         description: Dados inválidos
+ */
+router.post('/:messageId/reactions', verifyToken, writeLimit, MessageController.toggleReaction);
 
 // Finalizar o módulo exportando o router
 module.exports = router;

@@ -13,12 +13,16 @@ class BaseFlow {
    * @param {string} layer     - 'api' | 'ui'
    * @param {string} runId     - ID do run de QA pai
    * @param {string} backendUrl - URL base do backend (ex: https://eloscloud-api.fly.dev)
+   * @param {string} [qaToken] - Token para chamadas internas de QA
+   * @param {Function} [onProgress] - Callback para emissão de eventos (SSE/Socket)
    */
-  constructor(flowId, layer, runId, backendUrl) {
+  constructor(flowId, layer, runId, backendUrl, qaToken = '', onProgress = null) {
     this.flowId     = flowId;
     this.layer      = layer;
     this.runId      = runId;
     this.backendUrl = backendUrl || process.env.QA_BACKEND_URL || process.env.REACT_APP_BACKEND_URL || 'http://localhost:9000';
+    this.qaToken    = qaToken;
+    this.onProgress = onProgress;
     this.steps      = [];
   }
 
@@ -34,6 +38,10 @@ class BaseFlow {
     const correlationId = `qa_${this.runId}_${this.flowId}_${name}`;
     const start         = Date.now();
 
+    if (this.onProgress) {
+      this.onProgress({ event: 'step_start', data: { flow: this.flowId, step: name } });
+    }
+
     // Axios configurado para capturar request/response como artifacts
     let capturedRequest  = null;
     let capturedResponse = null;
@@ -45,6 +53,7 @@ class BaseFlow {
       headers: {
         'x-correlation-id': correlationId,
         'x-qa-internal':    'true',
+        ...(this.qaToken ? { 'x-qa-token': this.qaToken } : {}),
       },
     });
 
@@ -54,7 +63,7 @@ class BaseFlow {
         method:  config.method?.toUpperCase(),
         url:     config.url,
         headers: BaseFlow._sanitizeHeaders(config.headers),
-        body:    config.data || null,
+        body:    BaseFlow._safeClone(config.data) || null,
       };
       return config;
     });
@@ -62,13 +71,13 @@ class BaseFlow {
     // Interceptor de response: captura response
     axiosInstance.interceptors.response.use(
       response => {
-        capturedResponse = BaseFlow._sanitizeResponse(response.data);
+        capturedResponse = BaseFlow._safeClone(BaseFlow._sanitizeResponse(response.data));
         capturedStatus   = response.status;
         return response;
       },
       error => {
         if (error.response) {
-          capturedResponse = error.response.data;
+          capturedResponse = BaseFlow._safeClone(error.response.data);
           capturedStatus   = error.response.status;
         }
         return Promise.reject(error);
@@ -89,8 +98,15 @@ class BaseFlow {
           response:   capturedResponse,
           statusCode: capturedStatus,
         }],
-        ...(result || {}),
+        ...BaseFlow._safeClone(result || {}),
       };
+
+      if (this.onProgress) {
+        this.onProgress({ 
+          event: 'step_done', 
+          data: { flow: this.flowId, step: name, success: true, duration: stepResult.duration } 
+        });
+      }
 
       this.steps.push(stepResult);
       return stepResult;
@@ -110,6 +126,13 @@ class BaseFlow {
           statusCode: capturedStatus || err.response?.status || null,
         }],
       };
+
+      if (this.onProgress) {
+        this.onProgress({ 
+          event: 'step_done', 
+          data: { flow: this.flowId, step: name, success: false, duration: stepResult.duration, error: stepResult.error } 
+        });
+      }
 
       logger.warn(`[QA] Flow "${this.flowId}" step "${name}" falhou`, {
         service:      'QAFlowSimulator',
@@ -159,6 +182,24 @@ class BaseFlow {
       if (safe[k]) safe[k] = '[REDACTED]';
     });
     return safe;
+  }
+
+  /**
+   * Clona um objeto removendo referências circulares para evitar erro no JSON.stringify.
+   */
+  static _safeClone(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    
+    const cache = new WeakSet();
+    const stringified = JSON.stringify(obj, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (cache.has(value)) return '[Circular]';
+        cache.add(value);
+      }
+      return value;
+    });
+    
+    return JSON.parse(stringified);
   }
 }
 

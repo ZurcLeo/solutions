@@ -26,7 +26,9 @@ const emailService = require('./emailService');
 // notificationService removido — todas as notificações roteadas via NotificationDispatcher
 const { HttpError } = require('../utils/errors');
 const { getFirestore, getStorage } = require('../firebaseAdmin');
+const { getSupabaseClient } = require('../config/supabase');
 const { userExistsByEmail } = require('../utils/firebaseAuthUtils');
+const { emailAssetUrl, emailStoragePath, EMAIL_STORAGE_BUCKET } = require('../utils/emailAssets');
 
 // Configurações
 const INVITE_EXPIRATION_DAYS = 5;
@@ -34,45 +36,96 @@ const RESEND_COOLDOWN_HOURS = 1;
 const MAX_PENDING_INVITES_PER_USER = 10;
 
 /**
- * Gera o PNG do QR Code, faz upload para o Firebase Storage e retorna a URL pública.
- * @param {string} inviteId
+ * Gera o PNG do QR Code e faz upload para Supabase Storage,
+ * retornando a URL pública via domínio próprio. Fallback para data URI base64 se o upload falhar.
  * @param {string} targetUrl - URL de destino que o QR Code aponta
- * @returns {Promise<string>} URL pública do QR Code
+ * @param {string} inviteId  - ID do convite (usado como nome do arquivo)
+ * @returns {Promise<string>} URL pública do QR Code ou data URI base64 como fallback
  */
-const uploadQRCodeToStorage = async (inviteId, targetUrl) => {
+const generateAndUploadQRCode = async (targetUrl, inviteId) => {
   const pngBuffer = await QRCode.toBuffer(targetUrl, { type: 'png', width: 300 });
-  const bucket = getStorage();
-  const filePath = `qrcodes/${inviteId}.png`;
-  const file = bucket.file(filePath);
-  await file.save(pngBuffer, {
-    contentType: 'image/png',
-    public: true,
-    metadata: { cacheControl: 'public, max-age=31536000' }
-  });
-  return `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+  const dataUri = `data:image/png;base64,${pngBuffer.toString('base64')}`;
+
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      logger.warn('Supabase não disponível — QR code enviado como data URI', { service: 'inviteService', inviteId });
+      return dataUri;
+    }
+
+    const relativePath = `qrcodes/${inviteId}.png`;
+    const filePath = emailStoragePath(relativePath);
+
+    const { error: uploadError } = await supabase
+      .storage
+      .from(EMAIL_STORAGE_BUCKET)
+      .upload(filePath, pngBuffer, {
+        contentType: 'image/png',
+        upsert: true
+      });
+
+    if (uploadError) {
+      logger.warn('Falha ao fazer upload do QR Code para Supabase Storage — fallback para data URI', {
+        service: 'inviteService', inviteId, error: uploadError.message
+      });
+      return dataUri;
+    }
+
+    // URL via domínio próprio (Firebase Hosting rewrite → Supabase Storage)
+    const brandedUrl = emailAssetUrl(relativePath);
+
+    logger.info('QR Code salvo no Supabase Storage', { service: 'inviteService', inviteId, brandedUrl });
+    return brandedUrl;
+  } catch (err) {
+    logger.warn('Erro inesperado ao salvar QR Code no Storage — fallback para data URI', {
+      service: 'inviteService', inviteId, error: err.message
+    });
+    return dataUri;
+  }
 };
 
 /**
- * Remove o arquivo de QR Code do Firebase Storage (fire-and-forget).
+ * Remove o arquivo de QR Code do Firebase Storage e Supabase Storage (fire-and-forget).
  * @param {string} inviteId
  */
 const deleteQRCodeFromStorage = async (inviteId) => {
+  // Firebase Storage (legado)
   try {
     const bucket = getStorage();
     await bucket.file(`qrcodes/${inviteId}.png`).delete();
-    logger.info('QR Code removido do Storage', { service: 'inviteService', inviteId });
+    logger.info('QR Code removido do Firebase Storage', { service: 'inviteService', inviteId });
   } catch (err) {
-    logger.warn('Falha ao remover QR Code do Storage', {
-      service: 'inviteService',
-      inviteId,
-      error: err.message
+    logger.warn('Falha ao remover QR Code do Firebase Storage (pode não existir)', {
+      service: 'inviteService', inviteId, error: err.message
+    });
+  }
+
+  // Supabase Storage
+  try {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { error } = await supabase
+        .storage
+        .from(EMAIL_STORAGE_BUCKET)
+        .remove([emailStoragePath(`qrcodes/${inviteId}.png`)]);
+
+      if (error) {
+        logger.warn('Falha ao remover QR Code do Supabase Storage', {
+          service: 'inviteService', inviteId, error: error.message
+        });
+      } else {
+        logger.info('QR Code removido do Supabase Storage', { service: 'inviteService', inviteId });
+      }
+    }
+  } catch (err) {
+    logger.warn('Erro inesperado ao remover QR Code do Supabase Storage', {
+      service: 'inviteService', inviteId, error: err.message
     });
   }
 };
 
-const BASE_URL = process.env.NODE_ENV === 'development'
-  ? 'https://localhost:3000'
-  : 'https://eloscloud.com';
+const BASE_URL = process.env.FRONTEND_URL ||
+  (process.env.NODE_ENV === 'development' ? 'https://localhost:3000' : 'https://eloscloud.com');
 
 /**
  * Normaliza um campo de data que pode ser Firestore Timestamp, JS Date ou string ISO.
@@ -233,8 +286,6 @@ const validateInvite = async (inviteId, email, nome) => {
  * @description Marca o convite como 'used', estabelece o relacionamento de ancestralidade e descendência entre os usuários, concede moedas de boas-vindas ao novo usuário e envia notificações.
  */
 const invalidateInvite = async (inviteId, newUserId) => {
-  const db = getFirestore();
-
   logger.info('Invalidando convite após uso', {
     service: 'inviteService',
     function: 'invalidateInvite',
@@ -254,44 +305,166 @@ const invalidateInvite = async (inviteId, newUserId) => {
       throw new HttpError('Convite já utilizado', 400);
     }
 
-    // Transação Firestore para registrar ancestralidade, descendência e boas-vindas
-    await db.runTransaction(async (transaction) => {
-      const newUserRef = db.collection('usuario').doc(newUserId);
+    // ─── SUPABASE PRIMARY ───────────────────────────────────────────────────
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const now = new Date().toISOString();
 
-      // 1. Configurar relacionamento de ancestralidade
-      const ancestralidadeRef = newUserRef.collection('ancestralidade').doc();
-      transaction.set(ancestralidadeRef, {
-        inviteId: inviteId,
-        senderId: invite.senderId,
-        dataAceite: new Date(),
-        senderName: invite.senderName,
-        senderPhotoURL: invite.senderPhotoURL
+      // 1. Registrar ancestralidade (novo usuário ← remetente)
+      const { error: errAncestry } = await supabase
+        .from('user_ancestry')
+        .upsert({
+          user_id:        newUserId,
+          ancestor_id:    invite.senderId,
+          invite_id:      inviteId,
+          ancestor_name:  invite.senderName || null,
+          ancestor_photo: invite.senderPhotoURL || null,
+          accepted_at:    now
+        }, { onConflict: 'user_id,ancestor_id' });
+
+      if (errAncestry) {
+        logger.warn('inviteService.invalidateInvite — falha ao inserir ancestralidade', {
+          service: 'inviteService', error: errAncestry.message
+        });
+      }
+
+      // 2. Crédito de boas-vindas via grant_xp (idempotente por source_id)
+      const welcomeSourceId = `welcome_${newUserId}_${invite.id || 'direct'}`;
+      const { error: errGrant } = await supabase.rpc('grant_xp', {
+        p_user_id:     newUserId,
+        p_xp:          0,
+        p_coins:       500,
+        p_source:      'welcome_bonus',
+        p_source_id:   welcomeSourceId,
+        p_description: 'Boas-vindas — convite aceito'
       });
 
-      // 2. Adicionar à lista de descendentes do remetente
-      const senderRef = db.collection('usuario').doc(invite.senderId);
-      const descendentesRef = senderRef.collection('descendentes').doc();
-      transaction.set(descendentesRef, {
-        userId: newUserId,
-        nome: invite.friendName,
-        email: invite.email,
-        dataAceite: new Date()
-      });
+      if (errGrant) {
+        logger.warn('inviteService.invalidateInvite — falha ao creditar bônus de boas-vindas', {
+          service: 'inviteService', error: errGrant.message
+        });
+      }
+    }
 
-      // 3. Adicionar moedas de boas-vindas
-      const comprasRef = newUserRef.collection('compras').doc();
-      transaction.set(comprasRef, {
-        quantidade: 5000,
-        valorPago: 0,
-        dataCompra: new Date(),
-        meioPagamento: 'oferta-boas-vindas'
-      });
+      // 4. Lastro do Padrinho (SOCIAL-KYC-003) ──────────────────────────────────
+      // Se o remetente do convite tem KYC Social verificado, registrar o vínculo
+      // Padrinho↔Afilhado para ativar a cascata de reputação.
+      // Falha silenciosa: não interrompe o fluxo de registro.
+      try {
+        const { data: godfather } = await supabase
+          .from('users')
+          .select('kyc_social_verified')
+          .eq('id', invite.senderId)
+          .single();
 
-      // 4. Atualizar saldo do usuário
-      transaction.update(newUserRef, {
-        saldoElosCoins: 5000
-      });
+        if (godfather?.kyc_social_verified) {
+          const { error: errBond } = await supabase
+            .from('kyc_godfather_bonds')
+            .upsert({
+              godfather_id: invite.senderId,
+              protege_id:   newUserId,
+              bond_status:  'active'
+            }, { onConflict: 'protege_id', ignoreDuplicates: true });
+
+          if (errBond) {
+            logger.warn('inviteService.invalidateInvite — falha ao criar godfather bond', {
+              service: 'inviteService', error: errBond.message
+            });
+          } else {
+            logger.info('inviteService.invalidateInvite — godfather bond criado', {
+              service: 'inviteService', godfatherId: invite.senderId, protegeId: newUserId
+            });
+          }
+        }
+      } catch (bondErr) {
+        logger.warn('inviteService.invalidateInvite — erro inesperado ao criar godfather bond', {
+          service: 'inviteService', error: bondErr.message
+        });
+      }
+
+    // ─── FIRESTORE BACKUP (fire-and-forget) ────────────────────────────────
+    setImmediate(() => {
+      try {
+        const db = getFirestore();
+        const batch = db.batch();
+        const newUserRef = db.collection('usuario').doc(newUserId);
+
+        const ancestralidadeRef = newUserRef.collection('ancestralidade').doc();
+        batch.set(ancestralidadeRef, {
+          inviteId,
+          senderId:        invite.senderId,
+          dataAceite:      new Date(),
+          senderName:      invite.senderName,
+          senderPhotoURL:  invite.senderPhotoURL
+        });
+
+        const senderRef      = db.collection('usuario').doc(invite.senderId);
+        const descendentesRef = senderRef.collection('descendentes').doc();
+        batch.set(descendentesRef, {
+          userId:    newUserId,
+          nome:      invite.friendName,
+          email:     invite.email,
+          dataAceite: new Date()
+        });
+
+        const comprasRef = newUserRef.collection('compras').doc();
+        batch.set(comprasRef, {
+          quantidade:     500,
+          valorPago:      0,
+          dataCompra:     new Date(),
+          meioPagamento:  'oferta-boas-vindas'
+        });
+
+        const { FieldValue } = require('../firebaseAdmin');
+        batch.update(newUserRef, { saldoElosCoins: FieldValue.increment(500) });
+
+        batch.commit().catch(() => {});
+      } catch (_) {}
     });
+
+    // Criar conexão de amizade no Supabase (fonte de verdade para relações)
+    if (supabase) {
+      const timestamp = new Date().toISOString();
+      const connBase = {
+        status: 'active',
+        mensagem: '',
+        data_aceite: timestamp,
+        updated_at: timestamp,
+        is_best_friend: false,
+      };
+      const [{ error: err1 }, { error: err2 }] = await Promise.all([
+        // A→B: remetente → novo usuário
+        supabase.from('user_connections').upsert({
+          ...connBase,
+          user_id: invite.senderId,
+          connected_user_id: newUserId,
+          sender_name: invite.senderName || '',
+          sender_email: invite.email || '',
+          sender_photo_url: invite.senderPhotoURL || '',
+        }, { onConflict: 'user_id,connected_user_id' }),
+        // B→A: novo usuário → remetente
+        supabase.from('user_connections').upsert({
+          ...connBase,
+          user_id: newUserId,
+          connected_user_id: invite.senderId,
+          sender_name: invite.friendName || '',
+          sender_email: invite.email || '',
+          sender_photo_url: '',
+        }, { onConflict: 'user_id,connected_user_id' }),
+      ]);
+      if (err1 || err2) {
+        logger.warn('inviteService.invalidateInvite — falha ao criar user_connections no Supabase', {
+          service: 'inviteService', senderId: invite.senderId, newUserId,
+          err1: err1?.message, err2: err2?.message,
+        });
+      } else {
+        logger.info('Conexão criada no Supabase via convite', { senderId: invite.senderId, newUserId });
+        // Fire-and-forget: gamificação para ambos os usuários (já conectados)
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('connection_made', invite.senderId).catch(() => {});
+        gamificationService.triggerEvent('connection_made', newUserId).catch(() => {});
+      }
+    }
 
     // Marcar convite como usado no Supabase (após Firestore ter sucedido)
     await Invite.updateByInviteId(inviteId, {
@@ -303,12 +476,14 @@ const invalidateInvite = async (inviteId, newUserId) => {
     // Remover QR Code do Storage (convite consumido, arquivo não é mais necessário)
     deleteQRCodeFromStorage(inviteId);
 
+    const godfatherName = invite.senderName || 'Alguém especial';
     await emailService.sendEmail({
       to: invite.email,
-      subject: 'Embarque realizado com sucesso na ElosCloud',
+      subject: `${godfatherName} te trouxe para o bairro — bem-vindo à ElosCloud`,
       templateType: 'welcome',
       data: {
-        friendName: invite.friendName
+        friendName: invite.friendName,
+        godfatherName
       },
       userId: newUserId,
       reference: inviteId,
@@ -335,6 +510,17 @@ const invalidateInvite = async (inviteId, newUserId) => {
           service: 'inviteService', inviteId, error: err.message
         })
       );
+    });
+
+    // GAMIF-1: acionar missões de convite para o remetente (fire-and-forget)
+    setImmediate(() => {
+      const gamificationService = require('./gamificationService');
+      gamificationService.triggerEvent('invite_accepted', userId, { invitedUserId: newUserId })
+        .catch(err =>
+          logger.warn('Falha ao acionar gamificação em aceite de convite', {
+            service: 'inviteService', userId, inviteId, error: err.message
+          })
+        );
     });
 
     return {
@@ -527,9 +713,9 @@ const generateAndSendInvite = async (userId, email, friendName, preValidated = n
     // Gerar novo convite
     const inviteId = uuidv4();
 
-    // Gerar QR Code e armazenar no Storage
+    // Gerar QR Code e salvar no Supabase Storage (URL pública no email)
     const qrCodeUrl = `${BASE_URL}/invite/validate/${inviteId}`;
-    const qrCodeBuffer = await uploadQRCodeToStorage(inviteId, qrCodeUrl);
+    const qrCodeBuffer = await generateAndUploadQRCode(qrCodeUrl, inviteId);
 
     // Adicionar hash para segurança
     const hashedInviteId = crypto
@@ -558,6 +744,10 @@ const generateAndSendInvite = async (userId, email, friendName, preValidated = n
       lastSentAt: null,
       resendCount: 0
     });
+
+    // Fire-and-forget: gamificação por convite enviado
+    const gamificationService = require('./gamificationService');
+    gamificationService.triggerEvent('invite_sent', userId, { inviteId, email }).catch(() => {});
 
     // PERF-1: dispatch de email/notificação em fire-and-forget (não bloqueia a resposta)
     const NotificationDispatcher = require('../services/NotificationDispatcher');
@@ -688,14 +878,9 @@ const resendInvite = async (inviteId, userId) => {
     // Carregar dados do remetente
     const sender = await User.getById(userId);
 
-    // Reutilizar QR Code já armazenado ou regenerar se não encontrado
+    // Gerar QR Code e salvar no Supabase Storage (URL pública no email)
     const qrCodeTargetUrl = `${BASE_URL}/invite/validate/${inviteId}`;
-    const bucket = getStorage();
-    const qrFilePath = `qrcodes/${inviteId}.png`;
-    const [qrExists] = await bucket.file(qrFilePath).exists();
-    const qrCodeBuffer = qrExists
-      ? `https://storage.googleapis.com/${bucket.name}/${qrFilePath}`
-      : await uploadQRCodeToStorage(inviteId, qrCodeTargetUrl);
+    const qrCodeBuffer = await generateAndUploadQRCode(qrCodeTargetUrl, inviteId);
 
     // Preparar hash para segurança
     const hashedInviteId = crypto
@@ -789,11 +974,44 @@ const getSentInvites = async (userId) => {
   try {
     const invites = await Invite.getBySenderId(userId);
 
+    // Batch-fetch dados do invitado registrado (usedBy/validatedBy)
+    const inviteeUids = [...new Set(
+      invites
+        .map(inv => inv.usedBy || inv.validatedBy)
+        .filter(Boolean)
+    )];
+
+    const inviteeMap = {};
+    if (inviteeUids.length > 0) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, username, full_name, avatar_url')
+          .in('id', inviteeUids);
+        if (users) {
+          users.forEach(u => { inviteeMap[u.id] = u; });
+        }
+      } catch (lookupErr) {
+        logger.warn('Falha ao buscar dados do invitado registrado', { error: lookupErr.message });
+      }
+    }
+
     // Processar convites para adicionar metadados úteis
     return invites.map(invite => {
       const createdAt = moment(toDate(invite.createdAt));
       const expiresAt = createdAt.clone().add(INVITE_EXPIRATION_DAYS, 'days');
       const isExpired = invite.status === 'pending' && moment().isAfter(expiresAt);
+
+      const inviteeUid = invite.usedBy || invite.validatedBy;
+      const invitee = inviteeUid ? inviteeMap[inviteeUid] : null;
+
+      // Segundos restantes no cooldown de reenvio (0 = pode reenviar)
+      let cooldownRemainingSeconds = 0;
+      if (invite.lastSentAt) {
+        const secondsSince = moment().diff(moment(toDate(invite.lastSentAt)), 'seconds');
+        cooldownRemainingSeconds = Math.max(0, RESEND_COOLDOWN_HOURS * 3600 - secondsSince);
+      }
 
       return {
         ...invite,
@@ -804,8 +1022,12 @@ const getSentInvites = async (userId) => {
         canResend:
           invite.status === 'pending' &&
           !isExpired &&
-          (!invite.lastSentAt ||
-            moment().diff(moment(toDate(invite.lastSentAt)), 'hours') >= RESEND_COOLDOWN_HOURS)
+          cooldownRemainingSeconds === 0,
+        cooldownRemainingSeconds,
+        inviteeUsername: invitee?.username || null,
+        inviteeDisplayName: invitee?.full_name || null,
+        inviteePhotoURL: invitee?.avatar_url || null,
+        inviteeUid: invitee ? inviteeUid : null,
       };
     });
   } catch (error) {
@@ -992,6 +1214,7 @@ const createInviteForCaixinha = async ({
   const NotificationDispatcher = require('../services/NotificationDispatcher');
   await NotificationDispatcher.dispatch({
     userId: senderId,
+    recipientEmail: email,
     type: 'caixinha_invite',
     importance: 'high',
     data: {

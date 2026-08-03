@@ -1,3 +1,6 @@
 {
-  "ignore": ["data/", "node_modules/", "log/"]
+  "watch": ["index.js", "routes", "services", "controllers", "middleware", "config"],
+  "ignore": ["node_modules", "*.log", "logs/", ".git/"],
+  "delay": 300,
+  "ext": "js,json"
 }

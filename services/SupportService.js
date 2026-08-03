@@ -8,9 +8,8 @@
  * @requires ./emailService
  * @requires ../logger
  */
+const { randomUUID } = require('crypto');
 const SupportTicket = require('../models/SupportTicket');
-const User = require('../models/User');
-const Message = require('../models/Message');
 const SupportContextBuilder = require('./SupportContextBuilder');
 const emailService = require('./emailService');
 const { logger } = require('../logger');
@@ -37,6 +36,7 @@ class SupportService {
    * @description Processa a criação de um novo ticket de suporte, incluindo a construção de contexto, cálculo de prioridade, criação do ticket no banco de dados e envio de notificações.
    */
   async createTicket(ticketRequest) {
+    const User = require('../models/User');
     const { userId, category, module, issueType, title, description, context = {}, deviceInfo = {}, userAgent = '', sessionData = {} } = ticketRequest;
     
     logger.info(`Creating support ticket for user ${userId}`, {
@@ -65,6 +65,9 @@ class SupportService {
     // Determine priority based on category, issue type, and user context
     const priority = this._calculatePriorityV2(category, issueType, ticketContext.user, description);
 
+    const createdAt = new Date();
+    const slaDeadlines = this._calculateSLADeadlines(priority, createdAt);
+
     const ticketData = {
       userId,
       userName: user.nome || user.displayName || 'Usuário Desconhecido',
@@ -81,11 +84,25 @@ class SupportService {
       deviceInfo,
       userAgent,
       sessionData,
+      firstResponseDueAt: slaDeadlines.firstResponseDueAt,
+      resolutionDueAt:    slaDeadlines.resolutionDueAt,
       // Legacy fields for backward compatibility
       lastMessageSnippet: description ? description.substring(0, 100) : '',
     };
 
     const ticket = await SupportTicket.create(ticketData);
+
+    // Gravar evento de criação na timeline do ticket
+    const creationEvent = {
+      type: 'ticket_created',
+      content: 'Ticket criado pelo usuário',
+      timestamp: new Date().toISOString(),
+      isSystem: true,
+      id: `event_${Date.now()}_created`
+    };
+    await SupportTicket.update(ticket.id, {
+      notes: [creationEvent]
+    });
 
     // Send notifications
     await Promise.all([
@@ -124,6 +141,8 @@ class SupportService {
    * @description Cria um ticket de suporte específico para escalonamento de uma conversa com IA, incluindo o histórico da conversa como contexto.
    */
   async requestEscalation(conversationId, userId, reason = 'ai_cannot_help') {
+    const Message = require('../models/Message');
+    const User = require('../models/User');
     logger.info(`Requesting escalation for conv ${conversationId} by user ${userId}`, {
       service: 'SupportService', method: 'requestEscalation'
     });
@@ -333,7 +352,8 @@ class SupportService {
         account_locked: 'Conta Bloqueada',
         data_update_failed: 'Falha na Atualização dos Dados',
         verification_issue: 'Problema de Verificação',
-        password_reset: 'Redefinição de Senha'
+        password_reset: 'Redefinição de Senha',
+        identity_verification_pending: 'Verificação de Identidade Pendente',
       },
       technical: {
         app_crash: 'Aplicativo Travando',
@@ -529,7 +549,9 @@ class SupportService {
     });
     const ticket = await SupportTicket.getById(ticketId);
     if (!ticket) throw new Error('Support ticket not found.');
-    if (ticket.status !== 'pending') throw new Error('Ticket is not pending and cannot be assigned.');
+    if (ticket.status !== 'pending' && ticket.status !== 'open') {
+      throw new Error('Ticket is not pending and cannot be assigned.');
+    }
 
     // TODO: Verify agentId is a valid agent (e.g., check role)
     // const agentUser = await User.getById(agentId);
@@ -537,10 +559,20 @@ class SupportService {
     //   throw new Error('Invalid agent ID or user is not an agent.');
     // }
 
+    const assignmentEvent = {
+      type: 'ticket_assigned',
+      content: `Ticket atribuído ao agente`,
+      timestamp: new Date().toISOString(),
+      agentId,
+      isSystem: true,
+      id: `event_${Date.now()}_assigned`
+    };
+
     return SupportTicket.update(ticketId, {
       assignedTo: agentId,
       status: 'assigned',
-      assignedAt: new Date(), // Use JS Date for immediate update, Firestore will use serverTimestamp
+      assignedAt: new Date(),
+      notes: [...(ticket.notes || []), assignmentEvent]
     });
   }
 
@@ -580,6 +612,8 @@ class SupportService {
       resolvedAt: new Date(),
       resolutionSummary: resolutionSummary || 'Ticket resolved successfully',
       notes: updatedNotes,
+      csatSurveyToken: randomUUID(),
+      csatSurveySentAt: null,
     });
   }
 
@@ -690,7 +724,7 @@ class SupportService {
    * @returns {Promise<Array<Object>>} Uma lista de tickets atribuídos ao agente.
    * @description Delega ao modelo `SupportTicket` a busca por tickets atribuídos a um agente.
    */
-  async getAgentTickets(agentId, status = 'assigned', limit = 10) {
+  async getAgentTickets(agentId, status = 'active', limit = 10) {
     return SupportTicket.getTicketsByAgent(agentId, status, limit);
   }
 
@@ -711,7 +745,15 @@ class SupportService {
     async _sendTicketCreatedEmail(ticket, user) {
     try {
       const NotificationDispatcher = require('./NotificationDispatcher');
-      
+
+      const SLA_HOURS = { urgent: 4, high: 24, medium: 72, low: 168 };
+      const slaHours = SLA_HOURS[ticket.priority] || 72;
+      const estimatedResolutionDate = new Date(Date.now() + slaHours * 60 * 60 * 1000);
+      const formattedDeadline = estimatedResolutionDate.toLocaleDateString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+
       await NotificationDispatcher.dispatch({
         userId: ticket.userId,
         type: 'support_ticket_created',
@@ -722,7 +764,9 @@ class SupportService {
           ticketTitle: ticket.title,
           priority: ticket.priority,
           category: ticket.category,
-          description: ticket.description
+          description: ticket.description,
+          estimatedResolutionDate: formattedDeadline,
+          slaHours
         },
         metadata: {
           triggeredBy: 'system',
@@ -914,6 +958,234 @@ class SupportService {
 
     return resolvedTicket;
   }
+
+  // ── CSAT ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Registra a resposta do usuário a uma pesquisa CSAT.
+   * Rota pública — autenticada apenas pelo token UUID único do ticket.
+   * @param {string} token   - csat_survey_token do ticket
+   * @param {number} score   - Nota de 1 a 5
+   * @param {string} comment - Comentário opcional
+   */
+  async submitCsat(token, score, comment) {
+    logger.info('SupportService.submitCsat — iniciando', { token, score });
+
+    if (!token) throw new Error('Survey token is required.');
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      throw new Error('Score must be an integer between 1 and 5.');
+    }
+
+    const ticket = await SupportTicket.getBySurveyToken(token);
+    if (!ticket) {
+      throw Object.assign(new Error('Survey token not found or already expired.'), { statusCode: 404 });
+    }
+    if (ticket.status !== 'resolved' && ticket.status !== 'closed') {
+      throw Object.assign(new Error('Only resolved tickets can receive CSAT feedback.'), { statusCode: 400 });
+    }
+    if (ticket.csatRespondedAt) {
+      throw Object.assign(new Error('Feedback already submitted for this ticket.'), { statusCode: 409 });
+    }
+
+    const updated = await SupportTicket.update(ticket.id, {
+      csatScore:       score,
+      csatComment:     comment || null,
+      csatRespondedAt: new Date(),
+    });
+
+    logger.info('SupportService.submitCsat — score salvo', { ticketId: ticket.id, score });
+    return updated;
+  }
+
+  /**
+   * Envia o email de pesquisa CSAT para o usuário do ticket.
+   * Deve ser chamado 24h após resolveTicket() (via job/schedule).
+   * @param {string} ticketId
+   */
+  async sendCsatSurveyEmail(ticketId) {
+    const User = require('../models/User');
+    logger.info('SupportService.sendCsatSurveyEmail — iniciando', { ticketId });
+
+    const ticket = await SupportTicket.getById(ticketId);
+    if (!ticket) throw new Error('Ticket not found.');
+    if (ticket.status !== 'resolved' && ticket.status !== 'closed') {
+      throw new Error('Ticket must be resolved before sending CSAT survey.');
+    }
+    if (!ticket.csatSurveyToken) {
+      throw new Error('Ticket does not have a CSAT survey token.');
+    }
+    if (ticket.csatSurveySentAt) {
+      logger.warn('SupportService.sendCsatSurveyEmail — email already sent', { ticketId });
+      return ticket; // idempotente
+    }
+
+    const user = await User.getById(ticket.userId);
+    const userEmail = ticket.userEmail || user?.email;
+    if (!userEmail) throw new Error('User email not found for CSAT survey.');
+
+    await emailService.sendEmail({
+      to: userEmail,
+      subject: `Como foi seu atendimento? — Ticket #${ticket.id}`,
+      templateType: 'csat_survey',
+      data: {
+        userName:        ticket.userName || user?.nome || 'Usuário',
+        ticketId:        ticket.id,
+        ticketTitle:     ticket.title,
+        agentName:       'Nossa Equipe',
+        csatSurveyToken: ticket.csatSurveyToken,
+      },
+    });
+
+    const updated = await SupportTicket.update(ticketId, {
+      csatSurveySentAt: new Date(),
+    });
+
+    logger.info('SupportService.sendCsatSurveyEmail — email enviado', { ticketId, userEmail });
+    return updated;
+  }
+
+  // ── SLA ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Políticas de SLA por prioridade (horas).
+   * firstResponse = prazo para a primeira nota pública do agente.
+   * resolution    = prazo para fechar o ticket.
+   */
+  static get SLA_POLICIES() {
+    return {
+      urgent: { firstResponse: 1,  resolution: 4  },
+      high:   { firstResponse: 4,  resolution: 8  },
+      medium: { firstResponse: 8,  resolution: 24 },
+      low:    { firstResponse: 24, resolution: 72 },
+    };
+  }
+
+  /**
+   * Calcula os timestamps de prazo SLA com base na prioridade e no momento de criação.
+   * @param {string} priority - 'urgent' | 'high' | 'medium' | 'low'
+   * @param {Date} [createdAt=new Date()] - Momento de criação do ticket.
+   * @returns {{ firstResponseDueAt: Date, resolutionDueAt: Date }}
+   */
+  _calculateSLADeadlines(priority, createdAt = new Date()) {
+    const policy = SupportService.SLA_POLICIES[priority] || SupportService.SLA_POLICIES.medium;
+    const base = new Date(createdAt);
+    return {
+      firstResponseDueAt: new Date(base.getTime() + policy.firstResponse * 60 * 60 * 1000),
+      resolutionDueAt:    new Date(base.getTime() + policy.resolution    * 60 * 60 * 1000),
+    };
+  }
+
+  /**
+   * Retorna os tickets ativos em risco de breach de SLA.
+   * "Em risco" = prazo vence nas próximas `withinHours` horas OU já vencido.
+   * @param {number} [withinHours=2] - Janela de alerta antecipado (horas).
+   * @param {number} [limit=50]
+   */
+  async getTicketsAtSLARisk(withinHours = 2, limit = 50) {
+    const { getSupabaseClient } = require('../config/supabase');
+    const sb = getSupabaseClient();
+    const threshold = new Date(Date.now() + withinHours * 60 * 60 * 1000).toISOString();
+
+    const { data, error } = await sb
+      .from('support_tickets')
+      .select('*')
+      .not('status', 'in', '("resolved","closed")')
+      .or(`first_response_due_at.lte.${threshold},resolution_due_at.lte.${threshold}`)
+      .order('resolution_due_at', { ascending: true })
+      .limit(limit);
+
+    if (error) throw error;
+    const SupportTicket = require('../models/SupportTicket');
+    return (data || []).map(row => {
+      const t = new SupportTicket(mapTicketForService(row));
+      return {
+        ...t.toPlainObject(),
+        slaStatus: getSLAStatus(t),
+      };
+    });
+  }
 }
 
-module.exports = new SupportService();
+// Helper local — não exportado
+function mapTicketForService(row) {
+  const ctx = row.context || {};
+  return {
+    id: row.id, userId: row.user_id, userName: row.user_name, userEmail: row.user_email,
+    userPhotoURL: ctx.userPhotoURL, category: row.category, module: row.module,
+    issueType: row.issue_type, status: row.status, priority: row.priority,
+    title: row.subject, description: row.description, context: ctx,
+    assignedTo: row.assigned_to, assignedAt: row.assigned_at, resolvedAt: row.resolved_at,
+    closedAt: row.closed_at, notes: row.notes || [], internalNotes: row.internal_notes || [],
+    tags: row.tags || [], conversationHistory: row.conversation_history || [],
+    firstResponseDueAt: row.first_response_due_at, resolutionDueAt: row.resolution_due_at,
+    firstRespondedAt: row.first_responded_at, slaBreached: row.sla_breached,
+    slaFirstResponseBreached: row.sla_first_response_breached,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Calcula o status SLA de um ticket para exibição no frontend.
+ * @returns {'ok'|'warning'|'critical'|'breached'}
+ */
+function getSLAStatus(ticket) {
+  const now = Date.now();
+  const due = ticket.resolutionDueAt ? new Date(ticket.resolutionDueAt).getTime() : null;
+  const frDue = ticket.firstResponseDueAt ? new Date(ticket.firstResponseDueAt).getTime() : null;
+
+  if (!due) return 'ok';
+
+  const totalMs = due - (ticket.createdAt ? new Date(ticket.createdAt).getTime() : now);
+  const remainingMs = due - now;
+  const ratio = totalMs > 0 ? remainingMs / totalMs : 0;
+
+  if (remainingMs < 0) return 'breached';
+  if (!ticket.firstRespondedAt && frDue && frDue < now) return 'breached';
+  if (ratio < 0.10) return 'critical';
+  if (ratio < 0.25) return 'warning';
+  return 'ok';
+}
+
+// ─── Macros ──────────────────────────────────────────────────────────────────
+
+SupportService.prototype.getMacros = async function getMacros(category = null) {
+  const { getSupabaseClient } = require('../config/supabase');
+  const supabase = getSupabaseClient();
+
+  let query = supabase
+    .from('support_macros')
+    .select('id, title, body, category, created_at')
+    .eq('active', true)
+    .order('title', { ascending: true });
+
+  if (category) query = query.eq('category', category);
+
+  const { data, error } = await query;
+  if (error) throw new Error(`getMacros: ${error.message}`);
+  return data || [];
+};
+
+SupportService.prototype.createMacro = async function createMacro(macroData, createdBy) {
+  const { getSupabaseClient } = require('../config/supabase');
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('support_macros')
+    .insert({
+      title:      macroData.title,
+      body:       macroData.body,
+      category:   macroData.category || null,
+      created_by: createdBy,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`createMacro: ${error.message}`);
+  return data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const supportServiceInstance = new SupportService();
+module.exports = supportServiceInstance;
+module.exports.getSLAStatus = getSLAStatus;

@@ -3,8 +3,11 @@ const FirestoreService = require('../utils/firestoreService');
 const dbServiceUser = FirestoreService.collection('usuario');
 const {getFirestore} = require('../firebaseAdmin')
 const { logger } = require('../logger');
+const { getSupabaseClient } = require('../config/supabase');
+const { getOptedOutUserIds } = require('../services/userPreferencesService');
 
-const db = getFirestore();
+// Lazy proxy — evita init eagre do Firestore no startup
+const db = new Proxy({}, { get(_, k) { const d = getFirestore(); return typeof d[k] === 'function' ? d[k].bind(d) : d[k]; } });
 
 class User {
   constructor(data) {
@@ -39,6 +42,28 @@ class User {
     this.dataCriacao = data.dataCriacao || new Date();
     this.saldoElosCoins = data.saldoElosCoins || 0;
     this.conversas = data.conversas || {};
+    this.personalWishlist = data.personalWishlist || data.personal_wishlist || [];
+    this.username = data.username ? data.username.toLowerCase() : null;
+    this.usernameLastChangedAt = data.usernameLastChangedAt || null;
+    this.dataNascimento = data.dataNascimento || data.data_nascimento || null;
+    // KYC — Verificação de Identidade
+    this.kycStatus = data.kycStatus || data.kyc_status || 'none';
+    this.kycLevel = data.kycLevel || data.kyc_level || 'none';
+    this.kycVerifiedAt = data.kycVerifiedAt || data.kyc_verified_at || null;
+    // Recovery email
+    this.recoveryEmail = data.recoveryEmail || data.recovery_email || null;
+    this.recoveryEmailVerified = data.recoveryEmailVerified ?? data.recovery_email_verified ?? false;
+    this.recoveryEmailVerifiedAt = data.recoveryEmailVerifiedAt || data.recovery_email_verified_at || null;
+    // Phone verification
+    this.phoneVerified = data.phoneVerified ?? data.phone_verified ?? false;
+    this.phoneVerifiedAt = data.phoneVerifiedAt || data.phone_verified_at || null;
+    // MFA — Autenticacao em dois fatores
+    this.mfaEnabled = data.mfaEnabled ?? data.mfa_enabled ?? false;
+    this.mfaMethod = data.mfaMethod || data.mfa_method || null;
+    this.totpSecret = data.totpSecret || data.totp_secret || null;
+    this.backupCodes = data.backupCodes || data.backup_codes || null;
+    this.backupCodesCount = data.backupCodesCount ?? data.backup_codes_count ?? 0;
+    this.mfaEnabledAt = data.mfaEnabledAt || data.mfa_enabled_at || null;
   }
 
   toPlainObject() {
@@ -63,95 +88,29 @@ class User {
       amigos: this.amigos,
       dataCriacao: this.dataCriacao,
       saldoElosCoins: this.saldoElosCoins,
-      conversas: this.conversas
+      conversas: this.conversas,
+      personal_wishlist: this.personalWishlist,
+      username: this.username,
+      usernameLastChangedAt: this.usernameLastChangedAt,
+      dataNascimento: this.dataNascimento,
+      kycStatus: this.kycStatus,
+      kycLevel: this.kycLevel,
+      kycVerifiedAt: this.kycVerifiedAt,
+      recoveryEmail: this.recoveryEmail,
+      recoveryEmailVerified: this.recoveryEmailVerified,
+      recoveryEmailVerifiedAt: this.recoveryEmailVerifiedAt,
+      phoneVerified: this.phoneVerified,
+      phoneVerifiedAt: this.phoneVerifiedAt,
+      // MFA — apenas status publico (sem segredos)
+      mfaEnabled: this.mfaEnabled,
+      mfaMethod: this.mfaMethod,
+      backupCodesCount: this.backupCodesCount,
+      mfaEnabledAt: this.mfaEnabledAt,
     };
   }
 
-// Adicionando ao modelo User.js existente
-static _searchCache = new Map();
-static _searchCacheTimeout = 60000; // 1 minuto
-
-static async searchUsers(searchQuery, currentUserId) {
-  // Verificar cache
-  const cacheKey = `${searchQuery}_${currentUserId}`;
-  const cached = this._searchCache.get(cacheKey);
-  
-  if (cached && (Date.now() - cached.timestamp < this._searchCacheTimeout)) {
-    logger.info('Resultados retornados do cache', { 
-      service: 'userModel', 
-      function: 'searchUsers', 
-      query: searchQuery,
-      cacheHit: true
-    });
-    return cached.results;
-  }
-  
-  try {
-    // Buscar todos os usuários (limitando para melhorar performance)
-    const usersCollection = await dbServiceUser.limit(100).get();
-    
-    // Filtragem em memória dos resultados
-    const users = usersCollection.docs
-      .map(doc => {
-        const userData = doc.data();
-        userData.id = doc.id;
-        return userData;
-      })
-      .filter(user => {
-        // Excluir o usuário atual da busca
-        if (user.id === currentUserId || user.uid === currentUserId) {
-          return false;
-        }
-        
-        // Critérios de busca: nome ou email contém a query
-        const searchLower = searchQuery.toLowerCase();
-        const nameMatch = user.nome && user.nome.toLowerCase().includes(searchLower);
-        const emailMatch = user.email && user.email.toLowerCase().includes(searchLower);
-        const descriptionMatch = user.descricao && user.descricao.toLowerCase().includes(searchLower);
-        
-        return nameMatch || emailMatch || descriptionMatch;
-      })
-      .map(userData => new User(userData));
-
-    // Armazenar no cache
-    this._searchCache.set(cacheKey, {
-      results: users,
-      timestamp: Date.now()
-    });
-    
-    // Limitar tamanho do cache para evitar problemas de memória
-    if (this._searchCache.size > 100) {
-      // Remove a entrada mais antiga
-      const oldestKey = [...this._searchCache.keys()][0];
-      this._searchCache.delete(oldestKey);
-    }
-
-    logger.info('Busca de usuários concluída', { 
-      service: 'userModel', 
-      function: 'searchUsers', 
-      count: users.length,
-      query: searchQuery,
-      cacheHit: false
-    });
-    
-    return users;
-  } catch (error) {
-    logger.error('Erro ao buscar usuários', { 
-      service: 'userModel', 
-      function: 'searchUsers', 
-      error: error.message 
-    });
-    throw new Error(`Erro ao buscar usuários: ${error.message}`);
-  }
-}
-
-// Método para limpar o cache quando necessário
 static clearSearchCache() {
-  this._searchCache.clear();
-  logger.info('Cache de busca limpo', { 
-    service: 'userModel', 
-    function: 'clearSearchCache'
-  });
+  logger.info('Cache de busca limpo', { service: 'userModel', function: 'clearSearchCache' });
 }
 
   static async findAll() {
@@ -179,80 +138,124 @@ static clearSearchCache() {
       logger.error('Erro no getById', { service: 'userModel', function: 'getById', error: error.message });
       throw error;
     }
-  
+
     try {
-      const userDoc = await dbServiceUser.doc(userId).get();
-      
-      if (!userDoc.exists) {
-        // Em vez de lançar erro, registramos que o usuário não foi encontrado
-        logger.warn('Usuário não encontrado no getById', { 
-          service: 'userModel', 
-          function: 'getById', 
-          userId 
-        });
-        
-        // Verificamos se temos informações básicas do usuário do Firebase
-        try {
-          const auth = getAuth();
-          const userRecord = await auth.getUser(userId);
-          
-          // Criar um objeto User com dados básicos do Firebase
-          logger.info('Criando objeto User temporário com dados do Firebase', {
-            service: 'userModel',
-            function: 'getById',
-            userId
-          });
-          
-          // Retornar um objeto User básico
+      // ── 1. Supabase (fonte primária) ──
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data: sbUser, error: sbErr } = await supabase
+          .from('users')
+          .select(`
+            id, email, full_name, avatar_url, descricao, telefone,
+            tipo_de_conta, perfil_publico, username, username_last_changed_at,
+            personal_wishlist,
+            is_active, data_nascimento, kyc_status, kyc_level, kyc_verified_at, created_at,
+            email_verified, email_verified_at,
+            recovery_email, recovery_email_verified, recovery_email_verified_at,
+            phone_verified, phone_verified_at,
+            mfa_enabled, mfa_method, totp_secret, backup_codes, backup_codes_count, mfa_enabled_at,
+            user_roles (
+              role_id,
+              validation_status,
+              expires_at,
+              metadata,
+              roles ( id, name, description )
+            )
+          `)
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (!sbErr && sbUser) {
+          // Transforma o array user_roles no mapa { roleId: {...} } esperado pelo constructor
+          const rolesMap = {};
+          for (const ur of sbUser.user_roles || []) {
+            if (ur.validation_status === 'rejected') continue;
+            if (ur.expires_at && new Date(ur.expires_at) < new Date()) continue;
+            rolesMap[ur.role_id] = {
+              name:             ur.roles?.name || ur.role_id,
+              description:      ur.roles?.description || '',
+              validationStatus: ur.validation_status,
+              context:          { type: 'global' },
+              metadata:         ur.metadata || {},
+            };
+          }
+
+          logger.info('Usuário encontrado no Supabase', { service: 'userModel', function: 'getById', userId, rolesCount: Object.keys(rolesMap).length });
           return new User({
-            // id: userId,
-            uid: userId,
-            email: userRecord.email || 'sem email',
-            nome: userRecord.displayName || userRecord.email?.split('@')[0] || 'Novo Usuário',
-            fotoDoPerfil: userRecord.photoURL || '',
-            dataCriacao: new Date(),
-            telefone: '',
-            ja3Hash: userRecord.ja3Hash || '',
-            emailVerified: userRecord.emailVerified || false,
-            perfilPublico: false,
-            isFirstAccess: true, // Marcar explicitamente como primeiro acesso
-            tipoDeConta: 'Cliente',
-            saldoElosCoins: 0,
-            isOwnerOrAdmin: false,
-            roles: {},
-            caixinhas: [],
-            reacoes: {},
-            descricao: 'Escreva algo sobre voce.',
-            interesses: {},
-            conversas: {},
-            amigos: [],
-            amigosAutorizados: []
+            uid:                   sbUser.id,
+            email:                 sbUser.email || '',
+            nome:                  sbUser.full_name || sbUser.username || sbUser.email?.split('@')[0] || 'Usuário',
+            fotoDoPerfil:          sbUser.avatar_url || '',
+            descricao:             sbUser.descricao || '',
+            telefone:              sbUser.telefone || '',
+            tipoDeConta:           sbUser.tipo_de_conta || 'Cliente',
+            perfilPublico:         sbUser.perfil_publico || false,
+            username:              sbUser.username || null,
+            usernameLastChangedAt: sbUser.username_last_changed_at || null,
+            dataNascimento:        sbUser.data_nascimento || null,
+            kycStatus:             sbUser.kyc_status || 'none',
+            kycLevel:              sbUser.kyc_level || 'none',
+            kycVerifiedAt:         sbUser.kyc_verified_at || null,
+            personal_wishlist:     sbUser.personal_wishlist || [],
+            dataCriacao:           sbUser.created_at ? new Date(sbUser.created_at) : new Date(),
+            emailVerified:           sbUser.email_verified ?? false,
+            emailVerifiedAt:         sbUser.email_verified_at || null,
+            recoveryEmail:           sbUser.recovery_email || null,
+            recoveryEmailVerified:   sbUser.recovery_email_verified ?? false,
+            recoveryEmailVerifiedAt: sbUser.recovery_email_verified_at || null,
+            phoneVerified:           sbUser.phone_verified ?? false,
+            phoneVerifiedAt:         sbUser.phone_verified_at || null,
+            mfaEnabled:              sbUser.mfa_enabled ?? false,
+            mfaMethod:               sbUser.mfa_method || null,
+            totpSecret:              sbUser.totp_secret || null,
+            backupCodes:             sbUser.backup_codes || null,
+            backupCodesCount:        sbUser.backup_codes_count ?? 0,
+            mfaEnabledAt:            sbUser.mfa_enabled_at || null,
+            roles: rolesMap, caixinhas: [], amigos: [], amigosAutorizados: [],
+            reacoes: {}, conversas: {}, saldoElosCoins: 0, interesses: {},
           });
-        } catch (firebaseError) {
-          // Se não conseguirmos obter informação do Firebase, aí sim lançamos erro
-          logger.error('Falha ao recuperar dados básicos do Firebase', {
-            service: 'userModel',
-            function: 'getById',
-            userId,
-            error: firebaseError.message
-          });
-          
-          throw new Error('Usuário não encontrado.');
         }
       }
-      
-      // Fluxo normal - usuário encontrado no banco de dados
-      const userData = userDoc.data();
-      userData.id = userId;
-      return new User(userData);
+
+      // ── 2. Firestore fallback (dados legados ainda não sincronizados) ──
+      logger.warn('Usuário não encontrado no Supabase — tentando Firestore', { service: 'userModel', function: 'getById', userId });
+      const userDoc = await dbServiceUser.doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        userData.id = userId;
+        return new User(userData);
+      }
+
+      // ── 3. Firebase Auth fallback (comportamento legado) ──────────────────
+      logger.warn('Usuário não encontrado no Supabase — tentando Firebase Auth', { service: 'userModel', function: 'getById', userId });
+      try {
+        const auth = getAuth();
+        const userRecord = await auth.getUser(userId);
+        logger.info('Criando objeto User temporário com dados do Firebase', { service: 'userModel', function: 'getById', userId });
+        return new User({
+          uid:            userId,
+          email:          userRecord.email || 'sem email',
+          nome:           userRecord.displayName || userRecord.email?.split('@')[0] || 'Novo Usuário',
+          fotoDoPerfil:   userRecord.photoURL || '',
+          dataCriacao:    new Date(),
+          telefone:       '',
+          ja3Hash:        userRecord.ja3Hash || '',
+          emailVerified:  userRecord.emailVerified || false,
+          perfilPublico:  false,
+          isFirstAccess:  true,
+          tipoDeConta:    'Cliente',
+          saldoElosCoins: 0,
+          isOwnerOrAdmin: false,
+          roles: {}, caixinhas: [], reacoes: {},
+          descricao:      'Escreva algo sobre voce.',
+          interesses:     {}, conversas: {}, amigos: [], amigosAutorizados: []
+        });
+      } catch (firebaseError) {
+        logger.error('Falha ao recuperar dados básicos do Firebase', { service: 'userModel', function: 'getById', userId, error: firebaseError.message });
+        return null;
+      }
     } catch (error) {
-      // Captura erros não tratados
-      logger.error('Erro ao obter usuário por ID', { 
-        service: 'userModel', 
-        function: 'getById', 
-        userId, 
-        error: error.message 
-      });
+      logger.error('Erro ao obter usuário por ID', { service: 'userModel', function: 'getById', userId, error: error.message });
       throw error;
     }
   }
@@ -369,6 +372,12 @@ static async removeRole(userId, roleId) {
  * @returns {Promise<boolean>} Se o usuário tem a role
  */
 static async hasRole(userId, roleName, contextType = 'global', resourceId = null) {
+  // Feature Toggle: Usar Supabase se configurado e ativo
+  if (process.env.USE_SUPABASE_RBAC === 'true') {
+    const userRoleService = require('../services/userRoleService');
+    return await userRoleService.checkUserHasRole(userId, roleName, contextType, resourceId);
+  }
+
   try {
     const userDoc = await db.collection('usuario').doc(userId).get();
     
@@ -386,7 +395,12 @@ static async hasRole(userId, roleName, contextType = 'global', resourceId = null
     );
     
     if (!targetRoleId) {
-      return false; // Role não definida no sistema
+      // Fallback: se o nome da role for passado como ID
+      if (userRoles[roleName]) {
+        const userRole = userRoles[roleName];
+        if (userRole.validationStatus === 'validated') return true;
+      }
+      return false; 
     }
     
     // Verificar se o usuário tem a role
@@ -404,7 +418,7 @@ static async hasRole(userId, roleName, contextType = 'global', resourceId = null
     // Verificar contexto
     if (contextType !== 'global') {
       // Se o contexto não é global, verificar compatibilidade
-      if (userRole.context.type !== contextType) {
+      if (!userRole.context || userRole.context.type !== contextType) {
         return false;
       }
       
@@ -435,6 +449,12 @@ static async hasRole(userId, roleName, contextType = 'global', resourceId = null
  * @returns {Promise<boolean>} Se o usuário tem a permissão
  */
 static async hasPermission(userId, permissionName, contextType = 'global', resourceId = null) {
+  // Feature Toggle: Usar Supabase se configurado e ativo
+  if (process.env.USE_SUPABASE_RBAC === 'true') {
+    const userRoleService = require('../services/userRoleService');
+    return await userRoleService.checkUserHasPermission(userId, permissionName, contextType, resourceId);
+  }
+
   try {
     const userDoc = await db.collection('usuario').doc(userId).get();
     
@@ -464,7 +484,7 @@ static async hasPermission(userId, permissionName, contextType = 'global', resou
       // Verificar contexto
       if (contextType !== 'global') {
         // Se o contexto não é global, verificar compatibilidade
-        if (userRole.context.type !== contextType) {
+        if (!userRole.context || userRole.context.type !== contextType) {
           continue;
         }
         
@@ -501,169 +521,333 @@ static async hasPermission(userId, permissionName, contextType = 'global', resou
 }
 
   static async searchUsers(query, currentUserId) {
-    const db = getFirestore();
-    logger.info('searchUsers chamado', { 
-      service: 'userModel', 
-      function: 'searchUsers', 
-      query,
-      currentUserId 
-    });
-  
+    logger.info('searchUsers chamado', { service: 'userModel', function: 'searchUsers', query, currentUserId });
+
     if (!query) {
-      const error = new Error('Query de busca não fornecida');
-      logger.error('Erro no searchUsers', { 
-        service: 'userModel', 
-        function: 'searchUsers', 
-        error: error.message 
-      });
-      throw error;
+      throw new Error('Query de busca não fornecida');
     }
-  
+
     try {
-      const queryLower = query.toLowerCase();
-      logger.info('Realizando busca case-insensitive', { 
-        service: 'userModel', 
-        function: 'searchUsers', 
-        queryLower 
-      });
-      
-      // Primeiro obtemos todos os documentos de usuário
-      const mainUserCollection = db.collection('usuario');
-      const userDocs = await mainUserCollection.get();
-      
-      // Array para armazenar as promessas de busca
-      const searchPromises = [];
-  
-      // Para cada documento de usuário, buscamos nos dados
-      userDocs.forEach(userDoc => {
-        const userDataRef = db.collection('usuario').doc(userDoc.id);
-        searchPromises.push(userDataRef.get());
-      });
-  
-      // Aguarda todas as buscas serem concluídas
-      const userDataSnapshots = await Promise.all(searchPromises);
-  
-      // Verificar conexões ativas do usuário atual
-      const connectionsRef = db.collection('conexoes').doc(currentUserId).collection('ativas');
-      const activeConnections = await connectionsRef.get();
-      const activeConnectionIds = new Set(activeConnections.docs.map(doc => doc.id));
-  
-      // Filtra os resultados baseado na query e nas regras de privacidade
-      const users = userDataSnapshots
-        .filter(doc => {
-          if (!doc.exists) return false;
-          const userData = doc.data();
-          
-          // Verifica se o nome corresponde à busca
-          const nameMatches = userData.nome && 
-                            userData.nome.toLowerCase().includes(queryLower);
-          
-          if (!nameMatches) return false;
-  
-          // Se for o próprio usuário, mostrar
-          if (doc.id === currentUserId) return true;
-  
-          // Se o perfil for público, mostrar
+      const supabase = getSupabaseClient();
+      const queryLower = query.toLowerCase().trim();
+
+      // ── 1. Busca no Supabase (fonte primária) ──
+      if (supabase) {
+        // ilike pattern para match parcial em nome, email, username e descricao
+        const pattern = `%${queryLower}%`;
+
+        // PREFS-003: buscar IDs de usuários que desativaram appear_in_searches
+        const hiddenUserIds = await getOptedOutUserIds('appear_in_searches');
+
+        let searchQuery = supabase
+          .from('users')
+          .select('id, email, full_name, avatar_url, descricao, telefone, perfil_publico, username, is_active')
+          .neq('id', currentUserId)
+          .eq('is_active', true)
+          .or(`full_name.ilike.${pattern},email.ilike.${pattern},username.ilike.${pattern},descricao.ilike.${pattern}`)
+          .limit(30);
+
+        // PREFS-003: excluir usuários que desativaram appear_in_searches
+        if (hiddenUserIds.length > 0) {
+          searchQuery = searchQuery.not('id', 'in', `(${hiddenUserIds.join(',')})`);
+        }
+
+        const { data: rows, error: sbErr } = await searchQuery;
+
+        if (sbErr) {
+          logger.error('Erro Supabase na busca de usuários', { service: 'userModel', function: 'searchUsers', error: sbErr.message });
+          throw new Error(sbErr.message);
+        }
+
+        // Buscar conexões ativas do currentUser para filtro de privacidade
+        let activeConnectionIds = new Set();
+        try {
+          const { data: conns } = await supabase
+            .from('user_connections')
+            .select('friend_id')
+            .eq('user_id', currentUserId)
+            .eq('status', 'active');
+          if (conns) {
+            activeConnectionIds = new Set(conns.map(c => c.friend_id));
+          }
+        } catch (_) {
+          // Prosseguir sem filtro de conexões
+        }
+
+        // Filtrar por privacidade: perfil_publico, conexão ativa, match de @username,
+        // ou match direto de nome/email (quem busca já conhece esses dados).
+        const filtered = (rows || []).filter(row => {
+          if (row.perfil_publico) return true;
+          if (activeConnectionIds.has(row.id)) return true;
+          if (row.username && row.username.toLowerCase().includes(queryLower)) return true;
+          const nameMatch = row.full_name && row.full_name.toLowerCase().includes(queryLower);
+          const emailMatch = row.email && row.email.toLowerCase().includes(queryLower);
+          if (nameMatch || emailMatch) return true;
+          return false;
+        });
+
+        const users = filtered.slice(0, 20).map(row => new User({
+          uid:           row.id,
+          email:         row.email || '',
+          nome:          row.full_name || row.username || row.email?.split('@')[0] || 'Usuário',
+          fotoDoPerfil:  row.avatar_url || '',
+          descricao:     row.descricao || '',
+          telefone:      row.telefone || '',
+          perfilPublico: row.perfil_publico || false,
+          username:      row.username || null,
+        }));
+
+        logger.info('Busca realizada com sucesso (Supabase)', { service: 'userModel', function: 'searchUsers', resultsCount: users.length });
+        return users;
+      }
+
+      // ── 2. Firestore fallback (legado) ──
+      logger.warn('Supabase indisponível — fallback Firestore para searchUsers', { service: 'userModel', function: 'searchUsers' });
+
+      const userDocs = await dbServiceUser.limit(100).get();
+
+      // PREFS-003: buscar opted-out IDs (Supabase pode estar disponível mesmo com Firestore fallback)
+      const hiddenUserIdsFb = await getOptedOutUserIds('appear_in_searches');
+      const hiddenSetFb = new Set(hiddenUserIdsFb);
+
+      let activeConnectionIds = new Set();
+      try {
+        const connectionsRef = db.collection('conexoes').doc(currentUserId).collection('ativas');
+        const activeConnections = await connectionsRef.get();
+        activeConnectionIds = new Set(activeConnections.docs.map(doc => doc.id));
+      } catch (_) { /* Coleção pode não existir */ }
+
+      const users = userDocs.docs
+        .map(doc => { const data = doc.data(); data.id = doc.id; return data; })
+        .filter(userData => {
+          if (userData.id === currentUserId || userData.uid === currentUserId) return false;
+          // PREFS-003: excluir usuários que desativaram appear_in_searches
+          if (hiddenSetFb.has(userData.id)) return false;
+          const nameMatch     = userData.nome      && userData.nome.toLowerCase().includes(queryLower);
+          const emailMatch    = userData.email     && userData.email.toLowerCase().includes(queryLower);
+          const descMatch     = userData.descricao && userData.descricao.toLowerCase().includes(queryLower);
+          const usernameMatch = userData.username  && userData.username.toLowerCase().includes(queryLower);
+          if (!nameMatch && !emailMatch && !descMatch && !usernameMatch) return false;
           if (userData.perfilPublico) return true;
-  
-          // Se for uma conexão ativa, mostrar
-          if (activeConnectionIds.has(doc.id)) return true;
-  
-          // Se não atender nenhuma condição acima, não mostrar
+          if (activeConnectionIds.has(userData.id)) return true;
+          if (usernameMatch) return true;
           return false;
         })
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        .slice(0, 20);
-  
-      logger.info('Busca realizada com sucesso', { 
-        service: 'userModel', 
-        function: 'searchUsers',
-        resultsCount: users.length 
-      });
-  
+        .slice(0, 20)
+        .map(userData => new User(userData));
+
+      logger.info('Busca realizada com sucesso (Firestore fallback)', { service: 'userModel', function: 'searchUsers', resultsCount: users.length });
       return users;
     } catch (error) {
-      logger.error('Erro ao buscar usuários', { 
-        service: 'userModel', 
-        function: 'searchUsers', 
-        query,
-        error: error.message 
-      });
+      logger.error('Erro ao buscar usuários', { service: 'userModel', function: 'searchUsers', query, error: error.message });
       throw new Error('Erro ao buscar usuários');
     }
   }
 
   static async create(userData) {
     logger.info('create chamado', { service: 'userModel', function: 'create', userData: userData });
-    
-    // Garantir que o uid está presente
+
     if (!userData.uid) {
       logger.error('UID não fornecido na criação do usuário', { service: 'userModel', function: 'create' });
       throw new Error('UID do usuário é obrigatório para criação');
     }
-    
+
     const user = new User(userData);
-    try {
-      // Usar o UID como ID do documento do Firestore
-      await dbServiceUser.doc(userData.uid).set(user.toPlainObject());
-      
-      // O ID do documento já é o UID, então não precisa atribuir
-      logger.info('Usuário criado com sucesso', { service: 'userModel', function: 'create', userId: userData.uid });
-      return user;
-    } catch (error) {
-      logger.error('Erro ao criar usuário', { service: 'userModel', function: 'create', error: error.message });
-      throw new Error('Erro ao criar usuário');
+    let supabaseOk = false;
+
+    // ── 1. Supabase PRIMEIRO (fonte primária de escrita) ──────────────────
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const supabasePayload = {
+        id:             userData.uid,
+        email:          userData.email || null,
+        full_name:      userData.nome || userData.displayName || null,
+        avatar_url:     userData.fotoDoPerfil || userData.photoURL || null,
+        descricao:      userData.descricao || null,
+        telefone:       userData.telefone ? userData.telefone.replace(/\D/g, '') : null,
+        tipo_de_conta:  userData.tipoDeConta || 'Cliente',
+        perfil_publico: userData.perfilPublico || false,
+        is_active:      true,
+        updated_at:     new Date().toISOString(),
+      };
+      if (userData.username) supabasePayload.username = userData.username.toLowerCase();
+      if (userData.usernameLastChangedAt) supabasePayload.username_last_changed_at = userData.usernameLastChangedAt;
+      if (userData.personal_wishlist)     supabasePayload.personal_wishlist        = userData.personal_wishlist;
+      if (userData.personalWishlist)     supabasePayload.personal_wishlist        = userData.personalWishlist;
+      if (userData.dataNascimento)       supabasePayload.data_nascimento          = userData.dataNascimento;
+      if (userData.phoneVerified) {
+        supabasePayload.phone_verified    = true;
+        supabasePayload.phone_verified_at = new Date().toISOString();
+      }
+
+      // ignoreDuplicates=false: se o usuário já existe no Supabase, ATUALIZAR com os dados
+      // de registro. Anteriormente era true, o que causava perda silenciosa de dados de perfil
+      // quando o registro era feito em dois passos (Firebase Auth cria o row primeiro,
+      // depois o formulário de registro envia os dados completos via User.create).
+      const { error: supaErr } = await supabase
+        .from('users')
+        .upsert(supabasePayload, { onConflict: 'id', ignoreDuplicates: false });
+
+      if (supaErr) {
+        logger.warn('User.create — upsert Supabase falhou', { userId: userData.uid, error: supaErr.message });
+      } else {
+        supabaseOk = true;
+        logger.info('User.create — usuário criado/existente no Supabase (fonte primária)', { userId: userData.uid });
+      }
     }
+
+    // ── 2. Firestore (backup transitório durante migração) ────────────────
+    try {
+      // Filtrar undefined — Firestore rejeita valores undefined
+      const plainObj = user.toPlainObject();
+      const sanitized = Object.fromEntries(
+        Object.entries(plainObj).filter(([, v]) => v !== undefined)
+      );
+      await dbServiceUser.doc(userData.uid).set(sanitized);
+      logger.info('User.create — usuário salvo no Firestore (backup transitório)', { userId: userData.uid });
+    } catch (firestoreErr) {
+      logger.error('User.create — Firestore falhou', { userId: userData.uid, error: firestoreErr.message });
+      if (!supabaseOk) {
+        throw new Error('Falha ao criar usuário: Supabase e Firestore indisponíveis');
+      }
+    }
+
+    return user;
   }
 
   static async update(userId, data) {
-    // const db = getFirestore();
-    if (!data.dataCriacao) {
-        delete data.dataCriacao; // Remove dataCriacao se for null ou undefined
+    if (!data.dataCriacao) delete data.dataCriacao;
+    logger.info('update chamado', { service: 'userModel', function: 'update', userId, data });
+
+    // ── 1. Supabase PRIMEIRO (fonte primária — crítica) ───────────────────
+    const supabase = getSupabaseClient();
+    let supabaseOk = false;
+
+    if (supabase) {
+      const supabaseUpdate = { updated_at: new Date().toISOString() };
+      if (data.nome !== undefined)                    supabaseUpdate.full_name                = data.nome;
+      if (data.email !== undefined)                   supabaseUpdate.email                    = data.email;
+      if (data.fotoDoPerfil !== undefined)            supabaseUpdate.avatar_url               = data.fotoDoPerfil;
+      if (data.descricao !== undefined)               supabaseUpdate.descricao                = data.descricao;
+      if (data.telefone !== undefined)                supabaseUpdate.telefone                 = data.telefone ? data.telefone.replace(/\D/g, '') : null;
+      if (data.tipoDeConta !== undefined)             supabaseUpdate.tipo_de_conta            = data.tipoDeConta;
+      // perfilPublico aceita camelCase (padrão) e snake_case (enviado pelo PrivacySection)
+      if (data.perfilPublico !== undefined)           supabaseUpdate.perfil_publico           = data.perfilPublico;
+      if (data.perfil_publico !== undefined)          supabaseUpdate.perfil_publico           = data.perfil_publico;
+      if (data.dataNascimento !== undefined)          supabaseUpdate.data_nascimento          = data.dataNascimento;
+      if (data.data_nascimento !== undefined)         supabaseUpdate.data_nascimento          = data.data_nascimento;
+      if (data.username !== undefined)                supabaseUpdate.username                 = data.username?.toLowerCase() || null;
+      if (data.usernameLastChangedAt !== undefined)   supabaseUpdate.username_last_changed_at = data.usernameLastChangedAt;
+      if (data.personal_wishlist !== undefined)       supabaseUpdate.personal_wishlist        = data.personal_wishlist;
+      if (data.personalWishlist !== undefined)        supabaseUpdate.personal_wishlist        = data.personalWishlist;
+      // Campos de privacidade (PrivacySection)
+      if (data.aparece_na_busca !== undefined)        supabaseUpdate.aparece_na_busca         = data.aparece_na_busca;
+      if (data.funcao_social !== undefined)           supabaseUpdate.funcao_social            = data.funcao_social;
+      if (data.visibilidade_atividade !== undefined)  supabaseUpdate.visibilidade_atividade   = data.visibilidade_atividade;
+      if (data.quem_pode_adicionar !== undefined)     supabaseUpdate.quem_pode_adicionar      = data.quem_pode_adicionar;
+      // Recovery email
+      if (data.recoveryEmail !== undefined)           supabaseUpdate.recovery_email            = data.recoveryEmail;
+      if (data.recovery_email !== undefined)          supabaseUpdate.recovery_email            = data.recovery_email;
+      if (data.recoveryEmailVerified !== undefined)   supabaseUpdate.recovery_email_verified   = data.recoveryEmailVerified;
+      if (data.recovery_email_verified !== undefined) supabaseUpdate.recovery_email_verified   = data.recovery_email_verified;
+      if (data.recoveryEmailVerifiedAt !== undefined)   supabaseUpdate.recovery_email_verified_at = data.recoveryEmailVerifiedAt;
+      if (data.recovery_email_verified_at !== undefined) supabaseUpdate.recovery_email_verified_at = data.recovery_email_verified_at;
+      // Phone verification
+      if (data.phoneVerified !== undefined)           supabaseUpdate.phone_verified            = data.phoneVerified;
+      if (data.phone_verified !== undefined)          supabaseUpdate.phone_verified            = data.phone_verified;
+      if (data.phoneVerifiedAt !== undefined)         supabaseUpdate.phone_verified_at         = data.phoneVerifiedAt;
+      if (data.phone_verified_at !== undefined)       supabaseUpdate.phone_verified_at         = data.phone_verified_at;
+      // MFA fields
+      if (data.mfa_enabled !== undefined)             supabaseUpdate.mfa_enabled               = data.mfa_enabled;
+      if (data.mfaEnabled !== undefined)              supabaseUpdate.mfa_enabled               = data.mfaEnabled;
+      if (data.mfa_method !== undefined)              supabaseUpdate.mfa_method                = data.mfa_method;
+      if (data.mfaMethod !== undefined)               supabaseUpdate.mfa_method                = data.mfaMethod;
+      if (data.totp_secret !== undefined)             supabaseUpdate.totp_secret               = data.totp_secret;
+      if (data.totpSecret !== undefined)              supabaseUpdate.totp_secret               = data.totpSecret;
+      if (data.backup_codes !== undefined)            supabaseUpdate.backup_codes              = data.backup_codes;
+      if (data.backupCodes !== undefined)             supabaseUpdate.backup_codes              = data.backupCodes;
+      if (data.backup_codes_count !== undefined)      supabaseUpdate.backup_codes_count        = data.backup_codes_count;
+      if (data.backupCodesCount !== undefined)        supabaseUpdate.backup_codes_count        = data.backupCodesCount;
+      if (data.mfa_enabled_at !== undefined)          supabaseUpdate.mfa_enabled_at            = data.mfa_enabled_at;
+      if (data.mfaEnabledAt !== undefined)            supabaseUpdate.mfa_enabled_at            = data.mfaEnabledAt;
+
+      const { error: supaErr } = await supabase
+        .from('users')
+        .update(supabaseUpdate)
+        .eq('id', userId);
+
+      if (supaErr) {
+        // Supabase é a fonte primária — falha aqui é crítica
+        logger.error('User.update — Supabase falhou (fonte primária)', { userId, error: supaErr.message });
+        throw new Error('Erro ao atualizar usuário: falha no Supabase (fonte primária)');
+      }
+
+      supabaseOk = true;
+      logger.info('User.update — Supabase atualizado (fonte primária)', { userId });
     }
-    
-    logger.info('update chamado', { service: 'userModel', function: 'update', userId: userId, data });
+
+    // ── 2. Firestore (backup transitório — fire-and-forget quando Supabase ok) ─
     const userRef = dbServiceUser.doc(userId);
     try {
       await userRef.update(data);
-      const updatedDoc = await userRef.get();
-      const updatedUser = new User(updatedDoc.data());
-      logger.info('Usuário atualizado com sucesso', { service: 'userModel', function: 'update', userId: userId });
-      return updatedUser;
+      logger.info('User.update — Firestore atualizado (backup)', { service: 'userModel', function: 'update', userId });
+    } catch (firestoreErr) {
+      if (!supabaseOk) {
+        logger.error('Erro ao atualizar usuário', { service: 'userModel', function: 'update', userId, error: firestoreErr.message });
+        throw new Error('Erro ao atualizar usuário');
+      }
+      logger.warn('User.update — Firestore falhou (não crítico, Supabase ok)', { userId, error: firestoreErr.message });
+    }
+
+    // ── 3. Retornar registro completo do Supabase (fonte de verdade) ─────
+    // Nunca retornar dados fabricados — sempre buscar o registro atualizado.
+    return await User.getById(userId);
+  }
+
+  static async uploadProfilePicture(userId, file) {
+    if (!file || !file.buffer) {
+      throw new Error('No file buffer found');
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error('Supabase client not available');
+    }
+
+    // Usaremos o bucket 'avatars' (padrão para fotos de perfil)
+    const bucketName = 'avatars';
+    const fileExt = file.originalname ? file.originalname.split('.').pop() : 'png';
+    const fileName = `${userId}/profile_${Date.now()}.${fileExt}`;
+
+    try {
+      // 1. Upload para o Supabase Storage
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from(bucketName)
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadErr) {
+        logger.error('Erro no upload para Supabase Storage', { userId, error: uploadErr.message });
+        throw new Error(`Falha no storage: ${uploadErr.message}`);
+      }
+
+      // 2. Obter URL pública
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(fileName);
+
+      // 3. Atualizar o perfil do usuário (isso já atualiza Supabase e Firestore via static update)
+      await this.update(userId, { fotoDoPerfil: publicUrl });
+
+      logger.info('Foto de perfil atualizada com sucesso no Supabase Storage', { userId, publicUrl });
+      return publicUrl;
     } catch (error) {
-      logger.error('Erro ao atualizar usuário', { service: 'userModel', function: 'update', userId: userId, error: error.message });
-      throw new Error('Erro ao atualizar usuário');
+      logger.error('Erro ao processar foto de perfil no Supabase', { userId, error: error.message });
+      throw new Error('Erro ao salvar foto de perfil no storage');
     }
   }
-
-static async uploadProfilePicture(userId, file) {
-  // const db = getFirestore();
-  if (!file || !file.buffer) {
-    throw new Error('No file buffer found');
-  }
-
-  const fileName = `${userId}/fotoDePerfil.png`;
-  const fileRef = storage.bucket().file(fileName);
-
-  try {
-    await fileRef.save(file.buffer, {
-      contentType: file.mimetype,
-      public: true,
-    });
-
-    const publicUrl = `https://storage.googleapis.com/${storage.bucket().name}/${fileName}`;
-    await this.update(userId, { fotoDoPerfil: publicUrl });
-
-    logger.info('Foto de perfil atualizada com sucesso', { userId, publicUrl });
-    return publicUrl;
-  } catch (error) {
-    logger.error('Erro ao salvar foto de perfil no storage', { error: error.message });
-    throw new Error('Erro ao salvar foto de perfil');
-  }
-}
 
 
   static async delete(id) {

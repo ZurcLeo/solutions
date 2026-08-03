@@ -1,179 +1,161 @@
 /**
- * @fileoverview Controller de interesses - gerencia interesses de usuários e categorias
+ * @fileoverview Controller de interesses - gerencia interesses de usuarios e categorias
  * @module controllers/interestsController
  */
 
 const { logger } = require('../logger');
-const Interest = require('../models/Interest');
-const InterestsCategory = require('../models/InterestsCategory');
+const interestsService = require('../services/interestsService');
 
 /**
  * Controlador para gerenciar endpoints de interesses
  */
 const interestsController = {
   /**
-   * Busca todas as categorias de interesses disponíveis com seus respectivos interesses
+   * Busca todas as categorias de interesses disponiveis com seus respectivos interesses
    * @async
    * @function getAvailableInterests
-   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req - Objeto de requisicao Express
    * @param {Object} res - Objeto de resposta Express
    * @returns {Promise<Object>} Lista de categorias com interesses
    */
   async getAvailableInterests(req, res) {
     try {
-      // 1. Buscar todas as categorias ativas
-      const categories = await InterestsCategory.getAllCategories();
-  
-      // 2. Para cada categoria, buscar APENAS os interesses relacionados àquela categoria
-      const categoriesWithInterests = await Promise.all(
-        categories.map(async (category) => {
-          // Modificação aqui - passar o ID da categoria como filtro
-          const interests = await Interest.getInterestsByCategory(category.id);
-  
-          return {
-            ...category.toPlainObject(),
-            interests: interests.map(interest => interest.toPlainObject()),
-          };
-        })
-      );
-  
+      const categoriesWithInterests = await interestsService.getAvailableInterests();
+
       return res.status(200).json({ success: true, data: categoriesWithInterests });
     } catch (error) {
-      console.error('Erro ao buscar interesses e categorias:', error);
+      logger.error('Erro ao buscar interesses e categorias', {
+        controller: 'interestsController',
+        function: 'getAvailableInterests',
+        error: error.message
+      });
       return res.status(500).json({ success: false, message: 'Erro ao buscar interesses e categorias.' });
     }
   },
 
   /**
-   * Busca interesses de um usuário específico
+   * Busca interesses de um usuario especifico
    * @async
    * @function getUserInterests
-   * @param {Object} req - Objeto de requisição Express
-   * @param {string} req.params.userId - ID do usuário
-   * @param {boolean} req.isFirstAccess - Indica se é primeiro acesso
-   * @param {Object} req.user - Usuário autenticado
+   * @param {Object} req - Objeto de requisicao Express
+   * @param {string} req.params.userId - ID do usuario
+   * @param {Object} req.user - Usuario autenticado
    * @param {Object} res - Objeto de resposta Express
-   * @returns {Promise<Object>} Interesses do usuário
+   * @returns {Promise<Object>} Interesses do usuario
    */
   async getUserInterests(req, res) {
     try {
       const { userId } = req.params;
-      const { isFirstAccess } = req.isFirstAccess
-      // Validar usuário (pode ser feito por middleware)
+      const isFirstAccess = req.query.isFirstAccess === 'true';
+
+      // Validar usuario
       if (!userId) {
         return res.status(400).json({
           success: false,
-          message: 'ID do usuário é obrigatório'
-        });
-      }
-      
-      // Verificar autorização (o próprio usuário ou admin)
-      if (req.user && req.user.uid !== userId && !req.user.isAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: 'Não autorizado a acessar interesses de outro usuário'
-        });
-      }
-      
-      if (!isFirstAccess) {
-        const interests = await Interest.getUserInterests(userId);
-        return res.status(200).json({
-          success: true,
-          data: interests
+          message: 'ID do usuario e obrigatorio'
         });
       }
 
+      // Interesses sao dados publicos (exibidos em perfis, usados para recomendacoes)
+      // Qualquer usuario autenticado pode visualizar interesses de outros usuarios
+
+      if (isFirstAccess) {
+        return res.status(200).json({
+          success: true,
+          data: []
+        });
+      }
+
+      const interests = await interestsService.getUserInterests(userId);
       return res.status(200).json({
         success: true,
-        data: {}
+        data: interests
       });
     } catch (error) {
-      logger.error('Erro ao obter interesses do usuário', {
+      logger.error('Erro ao obter interesses do usuario', {
         controller: 'interestsController',
         function: 'getUserInterests',
         error: error.message
       });
-      
-      // Tratar erro específico de "Usuário não encontrado"
-      if (error.message.includes('não encontrado')) {
+
+      if (error.message.includes('nao encontrado')) {
         return res.status(404).json({
           success: false,
-          message: 'Usuário não encontrado'
+          message: 'Usuario nao encontrado'
         });
       }
-      
+
       return res.status(500).json({
         success: false,
-        message: 'Erro ao obter interesses do usuário',
+        message: 'Erro ao obter interesses do usuario',
         error: error.message
       });
     }
   },
 
   /**
-   * Atualiza os interesses de um usuário
+   * Atualiza os interesses de um usuario
    * @async
    * @function updateUserInterests
-   * @param {Object} req - Objeto de requisição Express
-   * @param {string} req.params.userId - ID do usuário
-   * @param {Object} req.body - Dados da atualização
+   * @param {Object} req - Objeto de requisicao Express
+   * @param {string} req.params.userId - ID do usuario
+   * @param {Object} req.body - Dados da atualizacao
    * @param {Array<string>} req.body.interestIds - IDs dos interesses selecionados
-   * @param {Object} req.user - Usuário autenticado
+   * @param {Object} req.user - Usuario autenticado
    * @param {Object} res - Objeto de resposta Express
-   * @returns {Promise<Object>} Resultado da atualização
+   * @returns {Promise<Object>} Resultado da atualizacao
    */
   async updateUserInterests(req, res) {
     try {
       const { userId } = req.params;
       const { interestIds } = req.body;
-      
+
       // Validar dados
       if (!userId) {
         return res.status(400).json({
           success: false,
-          message: 'ID do usuário é obrigatório'
+          message: 'ID do usuario e obrigatorio'
         });
       }
-      
+
       if (!Array.isArray(interestIds)) {
         return res.status(400).json({
           success: false,
           message: 'interestIds deve ser um array'
         });
       }
-      
-      // Verificar autorização (o próprio usuário ou admin)
+
+      // Verificar autorizacao (o proprio usuario ou admin)
       if (req.user && req.user.uid !== userId && !req.user.isAdmin) {
         return res.status(403).json({
           success: false,
-          message: 'Não autorizado a modificar interesses de outro usuário'
+          message: 'Nao autorizado a modificar interesses de outro usuario'
         });
       }
-      
-      const result = await Interest.updateUserInterests(userId, interestIds);
-      
+
+      const result = await interestsService.updateUserInterests(userId, interestIds);
+
       return res.status(200).json({
         success: true,
         data: result
       });
     } catch (error) {
-      logger.error('Erro ao atualizar interesses do usuário', {
+      logger.error('Erro ao atualizar interesses do usuario', {
         controller: 'interestsController',
         function: 'updateUserInterests',
         error: error.message
       });
-      
-      // Tratar erro específico de "Usuário não encontrado"
-      if (error.message.includes('não encontrado')) {
+
+      if (error.message.includes('nao encontrado')) {
         return res.status(404).json({
           success: false,
-          message: 'Usuário não encontrado'
+          message: 'Usuario nao encontrado'
         });
       }
-      
+
       return res.status(500).json({
         success: false,
-        message: 'Erro ao atualizar interesses do usuário',
+        message: 'Erro ao atualizar interesses do usuario',
         error: error.message
       });
     }
@@ -183,36 +165,34 @@ const interestsController = {
    * [ADMIN] Cria uma nova categoria de interesses
    * @async
    * @function createCategory
-   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req - Objeto de requisicao Express
    * @param {Object} req.body - Dados da categoria
    * @param {string} req.body.name - Nome da categoria
-   * @param {string} req.body.description - Descrição da categoria
-   * @param {string} req.body.icon - Ícone da categoria
-   * @param {number} req.body.order - Ordem de exibição
-   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {string} req.body.description - Descricao da categoria
+   * @param {string} req.body.icon - Icone da categoria
+   * @param {number} req.body.order - Ordem de exibicao
+   * @param {Object} req.user - Usuario autenticado (deve ser admin)
    * @param {Object} res - Objeto de resposta Express
    * @returns {Promise<Object>} Categoria criada
    */
   async createCategory(req, res) {
     try {
-      // Verificar se é admin
       if (!req.user || !req.user.isAdmin) {
         return res.status(403).json({
           success: false,
           message: 'Acesso restrito a administradores'
         });
       }
-      
+
       const { name, description, icon, order } = req.body;
-      
-      // Validar dados
+
       if (!name) {
         return res.status(400).json({
           success: false,
-          message: 'Nome da categoria é obrigatório'
+          message: 'Nome da categoria e obrigatorio'
         });
       }
-      
+
       const categoryData = {
         name,
         description,
@@ -220,9 +200,9 @@ const interestsController = {
         order: order || 0,
         active: true
       };
-      
-      const category = await InterestsCategory.createCategory(categoryData);
-      
+
+      const category = await interestsService.createCategory(categoryData);
+
       return res.status(201).json({
         success: true,
         data: category
@@ -233,15 +213,14 @@ const interestsController = {
         function: 'createCategory',
         error: error.message
       });
-      
-      // Tratar erro de categoria duplicada
-      if (error.message.includes('já existe')) {
+
+      if (error.message.includes('ja existe')) {
         return res.status(409).json({
           success: false,
           message: error.message
         });
       }
-      
+
       return res.status(500).json({
         success: false,
         message: 'Erro ao criar categoria',
@@ -254,43 +233,41 @@ const interestsController = {
    * [ADMIN] Atualiza uma categoria existente
    * @async
    * @function updateCategory
-   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req - Objeto de requisicao Express
    * @param {string} req.params.categoryId - ID da categoria
-   * @param {Object} req.body - Dados da atualização
-   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} req.body - Dados da atualizacao
+   * @param {Object} req.user - Usuario autenticado (deve ser admin)
    * @param {Object} res - Objeto de resposta Express
    * @returns {Promise<Object>} Categoria atualizada
    */
   async updateCategory(req, res) {
     try {
-      // Verificar se é admin
       if (!req.user || !req.user.isAdmin) {
         return res.status(403).json({
           success: false,
           message: 'Acesso restrito a administradores'
         });
       }
-      
+
       const { categoryId } = req.params;
       const { name, description, icon, order, active } = req.body;
-      
-      // Validar dados
+
       if (!categoryId) {
         return res.status(400).json({
           success: false,
-          message: 'ID da categoria é obrigatório'
+          message: 'ID da categoria e obrigatorio'
         });
       }
-      
+
       const updateData = {};
       if (name !== undefined) updateData.name = name;
       if (description !== undefined) updateData.description = description;
       if (icon !== undefined) updateData.icon = icon;
       if (order !== undefined) updateData.order = order;
       if (active !== undefined) updateData.active = active;
-      
-      const category = await InterestsCategory.updateCategory(categoryId, updateData);
-      
+
+      const category = await interestsService.updateCategory(categoryId, updateData);
+
       return res.status(200).json({
         success: true,
         data: category
@@ -301,23 +278,21 @@ const interestsController = {
         function: 'updateCategory',
         error: error.message
       });
-      
-      // Tratar erro de categoria não encontrada
-      if (error.message.includes('não encontrada')) {
+
+      if (error.message.includes('nao encontrada')) {
         return res.status(404).json({
           success: false,
-          message: 'Categoria não encontrada'
+          message: 'Categoria nao encontrada'
         });
       }
-      
-      // Tratar erro de categoria duplicada
-      if (error.message.includes('já existe')) {
+
+      if (error.message.includes('ja existe')) {
         return res.status(409).json({
           success: false,
           message: error.message
         });
       }
-      
+
       return res.status(500).json({
         success: false,
         message: 'Erro ao atualizar categoria',
@@ -330,36 +305,34 @@ const interestsController = {
    * [ADMIN] Cria um novo interesse dentro de uma categoria
    * @async
    * @function createInterest
-   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req - Objeto de requisicao Express
    * @param {Object} req.body - Dados do interesse
-   * @param {string} req.body.label - Rótulo do interesse
+   * @param {string} req.body.label - Rotulo do interesse
    * @param {string} req.body.categoryId - ID da categoria
-   * @param {string} req.body.description - Descrição do interesse
-   * @param {number} req.body.order - Ordem de exibição
-   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {string} req.body.description - Descricao do interesse
+   * @param {number} req.body.order - Ordem de exibicao
+   * @param {Object} req.user - Usuario autenticado (deve ser admin)
    * @param {Object} res - Objeto de resposta Express
    * @returns {Promise<Object>} Interesse criado
    */
   async createInterest(req, res) {
     try {
-      // Verificar se é admin
       if (!req.user || !req.user.isAdmin) {
         return res.status(403).json({
           success: false,
           message: 'Acesso restrito a administradores'
         });
       }
-      
+
       const { label, categoryId, description, order } = req.body;
-      
-      // Validar dados
+
       if (!label || !categoryId) {
         return res.status(400).json({
           success: false,
-          message: 'Label e categoryId são obrigatórios'
+          message: 'Label e categoryId sao obrigatorios'
         });
       }
-      
+
       const interestData = {
         label,
         categoryId,
@@ -367,9 +340,9 @@ const interestsController = {
         order: order || 0,
         active: true
       };
-      
+
       const interest = await interestsService.createInterest(interestData);
-      
+
       return res.status(201).json({
         success: true,
         data: interest
@@ -380,15 +353,14 @@ const interestsController = {
         function: 'createInterest',
         error: error.message
       });
-      
-      // Tratar erro de categoria não encontrada
-      if (error.message.includes('Categoria não encontrada')) {
+
+      if (error.message.includes('Categoria nao encontrada')) {
         return res.status(404).json({
           success: false,
-          message: 'Categoria não encontrada'
+          message: 'Categoria nao encontrada'
         });
       }
-      
+
       return res.status(500).json({
         success: false,
         message: 'Erro ao criar interesse',
@@ -401,43 +373,41 @@ const interestsController = {
    * [ADMIN] Atualiza um interesse existente
    * @async
    * @function updateInterest
-   * @param {Object} req - Objeto de requisição Express
+   * @param {Object} req - Objeto de requisicao Express
    * @param {string} req.params.interestId - ID do interesse
-   * @param {Object} req.body - Dados da atualização
-   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} req.body - Dados da atualizacao
+   * @param {Object} req.user - Usuario autenticado (deve ser admin)
    * @param {Object} res - Objeto de resposta Express
    * @returns {Promise<Object>} Interesse atualizado
    */
   async updateInterest(req, res) {
     try {
-      // Verificar se é admin
       if (!req.user || !req.user.isAdmin) {
         return res.status(403).json({
           success: false,
           message: 'Acesso restrito a administradores'
         });
       }
-      
+
       const { interestId } = req.params;
       const { label, categoryId, description, order, active } = req.body;
-      
-      // Validar dados
+
       if (!interestId) {
         return res.status(400).json({
           success: false,
-          message: 'ID do interesse é obrigatório'
+          message: 'ID do interesse e obrigatorio'
         });
       }
-      
+
       const updateData = {};
       if (label !== undefined) updateData.label = label;
       if (categoryId !== undefined) updateData.categoryId = categoryId;
       if (description !== undefined) updateData.description = description;
       if (order !== undefined) updateData.order = order;
       if (active !== undefined) updateData.active = active;
-      
+
       const interest = await interestsService.updateInterest(interestId, updateData);
-      
+
       return res.status(200).json({
         success: true,
         data: interest
@@ -448,15 +418,14 @@ const interestsController = {
         function: 'updateInterest',
         error: error.message
       });
-      
-      // Tratar erro de interesse não encontrado
-      if (error.message.includes('não encontrado')) {
+
+      if (error.message.includes('nao encontrado')) {
         return res.status(404).json({
           success: false,
-          message: 'Interesse não encontrado'
+          message: 'Interesse nao encontrado'
         });
       }
-      
+
       return res.status(500).json({
         success: false,
         message: 'Erro ao atualizar interesse',
@@ -466,133 +435,62 @@ const interestsController = {
   },
 
   /**
-   * [ADMIN] Busca estatísticas de uso dos interesses
+   * [ADMIN] Busca estatisticas de uso dos interesses
    * @async
    * @function getInterestStats
-   * @param {Object} req - Objeto de requisição Express
-   * @param {Object} req.user - Usuário autenticado (deve ser admin)
+   * @param {Object} req - Objeto de requisicao Express
+   * @param {Object} req.user - Usuario autenticado (deve ser admin)
    * @param {Object} res - Objeto de resposta Express
-   * @returns {Promise<Object>} Estatísticas de interesses
+   * @returns {Promise<Object>} Estatisticas de interesses
    */
   async getInterestStats(req, res) {
     try {
-      // Verificar se é admin (mantendo a verificação no controlador)
       if (!req.user || !req.user.isAdmin) {
         return res.status(403).json({
           success: false,
           message: 'Acesso restrito a administradores'
         });
       }
-  
-      // Chamar o serviço para calcular as estatísticas
-      const stats = await Interest.calculateInterestStatistics();
-  
+
+      const stats = await interestsService.calculateInterestStatistics();
+
       return res.status(200).json({ success: true, ...stats });
-  
+
     } catch (error) {
-      logger.error('Erro ao obter estatísticas de interesses', {
+      logger.error('Erro ao obter estatisticas de interesses', {
         controller: 'interestsController',
         function: 'getInterestStats',
         error: error.message
       });
-  
+
       return res.status(500).json({
         success: false,
-        message: 'Erro ao obter estatísticas de interesses',
-        error: error.message
-      });
-    }
-  },
-  
-  /**
-   * [ADMIN] Migra interesses do formato estático para o Firestore
-   * @async
-   * @function migrateStaticInterests
-   * @param {Object} req - Objeto de requisição Express
-   * @param {Object} req.body - Dados da migração
-   * @param {Object} req.body.staticInterests - Interesses estáticos a migrar
-   * @param {Object} req.user - Usuário autenticado (deve ser admin)
-   * @param {Object} res - Objeto de resposta Express
-   * @returns {Promise<Object>} Resultado da migração
-   */
-  async migrateStaticInterests(req, res) {
-    try {
-      // Verificar se é admin
-      if (!req.user || !req.user.isAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: 'Acesso restrito a administradores'
-        });
-      }
-      
-      const { staticInterests } = req.body;
-      
-      if (!staticInterests || typeof staticInterests !== 'object') {
-        return res.status(400).json({
-          success: false,
-          message: 'Dados de interesses estáticos são obrigatórios'
-        });
-      }
-      
-      const result = await interestsService.migrateStaticInterestsToFirestore(staticInterests);
-      
-      return res.status(200).json({
-        success: true,
-        data: result
-      });
-    } catch (error) {
-      logger.error('Erro ao migrar interesses estáticos', {
-        controller: 'interestsController',
-        function: 'migrateStaticInterests',
-        error: error.message
-      });
-      
-      return res.status(500).json({
-        success: false,
-        message: 'Erro ao migrar interesses estáticos',
+        message: 'Erro ao obter estatisticas de interesses',
         error: error.message
       });
     }
   },
 
   /**
-   * [ADMIN] Migra interesses de usuários para o novo formato
-   * @async
-   * @function migrateUserInterests
-   * @param {Object} req - Objeto de requisição Express
-   * @param {Object} req.user - Usuário autenticado (deve ser admin)
-   * @param {Object} res - Objeto de resposta Express
-   * @returns {Promise<Object>} Resultado da migração
+   * [DEPRECATED] Endpoint de migracao de interesses estaticos.
+   * Mantido para compatibilidade — retorna 410 Gone.
+   */
+  async migrateStaticInterests(req, res) {
+    return res.status(410).json({
+      success: false,
+      message: 'Endpoint de migracao descontinuado. Dados ja residem no Supabase.'
+    });
+  },
+
+  /**
+   * [DEPRECATED] Endpoint de migracao de interesses de usuarios.
+   * Mantido para compatibilidade — retorna 410 Gone.
    */
   async migrateUserInterests(req, res) {
-    try {
-      // Verificar se é admin
-      if (!req.user || !req.user.isAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: 'Acesso restrito a administradores'
-        });
-      }
-      
-      const result = await interestsService.migrateUserInterestsToNewFormat();
-      
-      return res.status(200).json({
-        success: true,
-        data: result
-      });
-    } catch (error) {
-      logger.error('Erro ao migrar interesses de usuários', {
-        controller: 'interestsController',
-        function: 'migrateUserInterests',
-        error: error.message
-      });
-      
-      return res.status(500).json({
-        success: false,
-        message: 'Erro ao migrar interesses de usuários',
-        error: error.message
-      });
-    }
+    return res.status(410).json({
+      success: false,
+      message: 'Endpoint de migracao descontinuado. Dados ja residem no Supabase.'
+    });
   }
 };
 

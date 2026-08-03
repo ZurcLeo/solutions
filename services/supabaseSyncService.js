@@ -106,6 +106,60 @@ class SupabaseSyncService {
   }
 
   /**
+   * Sincroniza os dados de uma caixinha para o Supabase
+   * @param {Object} caixinha - Objeto da caixinha (do Firestore ou Model)
+   */
+  async syncCaixinhaToSupabase(caixinha) {
+    if (!supabase) return null;
+    if (!caixinha || !caixinha.id) return null;
+
+    logger.info('Sincronizando caixinha para o Supabase', {
+      service: 'SupabaseSyncService',
+      caixinhaId: caixinha.id,
+      name: caixinha.name || caixinha.nome
+    });
+
+    try {
+      // Mapeamento para snake_case do Supabase
+      const payload = {
+        id: caixinha.id,
+        name: caixinha.name || caixinha.nome || 'Sem nome',
+        description: caixinha.description || caixinha.descricao || null,
+        admin_id: caixinha.adminId,
+        contribuicao_mensal: Number(caixinha.contribuicaoMensal || 0),
+        saldo_total: Number(caixinha.saldoTotal || 0),
+        permite_emprestimos: caixinha.permiteEmprestimos || false,
+        dia_vencimento: Number(caixinha.diaVencimento || 1),
+        valor_multa: Number(caixinha.valorMulta || 0),
+        valor_juros: Number(caixinha.valorJuros || 0),
+        distribuicao_tipo: caixinha.distribuicaoTipo || 'padrão',
+        duracao_meses: Number(caixinha.duracaoMeses || 12),
+        bank_account_active: caixinha.bankAccountActive || false,
+        updated_at: new Date().toISOString()
+      };
+
+      if (caixinha.governanceModel) {
+        payload.governance_model = caixinha.governanceModel;
+      }
+
+      const { data, error } = await supabase
+        .from('caixinhas')
+        .upsert(payload, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      logger.info('Caixinha sincronizada com sucesso no Supabase', { caixinhaId: caixinha.id });
+      return data;
+    } catch (error) {
+      logger.error('Erro ao sincronizar caixinha para o Supabase', {
+        error: error.message,
+        caixinhaId: caixinha.id
+      });
+      return null;
+    }
+  }
+
+  /**
    * Sincroniza todas as roles de um usuário em uma única operação paralela (batch).
    * Deduplica roles por nome (case-insensitive) para evitar upserts redundantes.
    * @param {string} userId
@@ -147,7 +201,35 @@ class SupabaseSyncService {
     if (!user || !user.uid) return null;
 
     try {
-      // Coletar todas as roles a sincronizar
+      // ── Upsert do perfil na tabela users ─────────────────────────────
+      // IMPORTANTE: ignoreDuplicates=true para NÃO sobrescrever dados já existentes no Supabase.
+      // Supabase é a fonte de verdade — o sync só cria o registro se ele ainda não existir.
+      // Campos editáveis (full_name, avatar_url, etc.) são atualizados exclusivamente via User.update().
+      if (supabase) {
+        const profilePayload = {
+          id:            user.uid,
+          email:         user.email || null,
+          full_name:     user.nome || user.displayName || null,
+          avatar_url:    user.fotoDoPerfil || user.photoURL || null,
+          descricao:     user.descricao || null,
+          telefone:      user.telefone || null,
+          tipo_de_conta: user.tipoDeConta || 'Cliente',
+          perfil_publico: user.perfilPublico || false,
+          is_active:     true,
+          updated_at:    new Date().toISOString(),
+        };
+        if (user.username) profilePayload.username = user.username.toLowerCase();
+        if (user.usernameLastChangedAt) profilePayload.username_last_changed_at = user.usernameLastChangedAt;
+        if (user.dataNascimento) profilePayload.data_nascimento = user.dataNascimento;
+        const { error: upsertErr } = await supabase
+          .from('users')
+          .upsert(profilePayload, { onConflict: 'id', ignoreDuplicates: true });
+        if (upsertErr) {
+          logger.warn('Falha no upsert de perfil para Supabase', { userId: user.uid, error: upsertErr.message });
+        }
+      }
+
+      // ── Sync de roles ─────────────────────────────────────────────────
       const roles = [
         { roleName: 'Client', context: { type: 'global', resourceId: null }, validationStatus: 'validated' }
       ];

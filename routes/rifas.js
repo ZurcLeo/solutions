@@ -1,17 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth');
+const requireCaixinhaAdmin = require('../middlewares/requireCaixinhaAdmin');
 const validate = require('../middlewares/validate');
 const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
 const rifaSchema = require('../schemas/rifaSchema');
 const rifaController = require('../controllers/rifaController');
 const { logger } = require('../logger');
 const { healthCheck } = require('../middlewares/healthMiddleware');
+const { requireRifas } = require('../middlewares/requireRegulatoryApproval');
 
 const ROUTE_NAME = 'rifas';
 
 // Aplicar middleware de health check a todas as rotas de rifas
 router.use(healthCheck(ROUTE_NAME));
+
+// Gate regulatorio: todas as operacoes de rifa bloqueadas ate parecer juridico
+router.use(requireRifas);
 
 // Middleware de log para todas as requisições
 router.use((req, res, next) => {
@@ -154,6 +159,7 @@ router.get('/:caixinhaId/:rifaId',
  */
 router.post('/:caixinhaId',
   verifyToken,
+  requireCaixinhaAdmin,
   validate(rifaSchema.create),
   writeLimit,
   rifaController.criarRifa
@@ -518,6 +524,55 @@ router.get('/:caixinhaId/rifas/:rifaId/comprovante',
   verifyToken,
   readLimit,
   rifaController.gerarComprovante
+);
+
+// ── Amigo Secreto ─────────────────────────────────────────────────────────
+
+// POST /:caixinhaId/amigo-secreto/:rifaId/sortear — admin executa o Sattolo
+router.post('/:caixinhaId/amigo-secreto/:rifaId/sortear',
+  verifyToken,
+  validate(rifaSchema.sortearPares),
+  writeLimit,
+  rifaController.executarSorteioAmigo
+);
+
+// GET /:caixinhaId/amigo-secreto/:rifaId/meu-par — membro revela seu destinatário
+router.get('/:caixinhaId/amigo-secreto/:rifaId/meu-par',
+  verifyToken,
+  readLimit,
+  rifaController.revelarMeuPar
+);
+
+// GET /:caixinhaId/amigo-secreto/:rifaId/pares — admin vê todos os pares
+router.get('/:caixinhaId/amigo-secreto/:rifaId/pares',
+  verifyToken,
+  readLimit,
+  rifaController.listarTodosPares
+);
+
+// ── Votação em concursos (ELEICAO, SOLIDARIA) ─────────────────────────────
+
+// POST /:caixinhaId/votar/:rifaId — registrar voto
+router.post('/:caixinhaId/votar/:rifaId',
+  verifyToken,
+  validate(rifaSchema.votar),
+  writeLimit,
+  rifaController.votarConcurso
+);
+
+// GET /:caixinhaId/votos/:rifaId — listar votos agregados
+router.get('/:caixinhaId/votos/:rifaId',
+  verifyToken,
+  readLimit,
+  rifaController.listarVotos
+);
+
+// POST /:caixinhaId/resolver/:rifaId — finalizar concurso e determinar vencedor
+router.post('/:caixinhaId/resolver/:rifaId',
+  verifyToken,
+  validate(rifaSchema.resolver),
+  writeLimit,
+  rifaController.resolverConcurso
 );
 
 module.exports = router;

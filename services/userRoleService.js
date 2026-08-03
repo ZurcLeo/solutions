@@ -5,152 +5,17 @@ const Role = require('../models/Role');
 const User = require('../models/User');
 const RolePermission = require('../models/RolePermission');
 
+const { createClient } = require('@supabase/supabase-js');
+
+// Inicializar Supabase para leitura opcional
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+
 /**
  * Serviço para gerenciamento de roles de usuário
  */
 class UserRoleService {
-  /**
-   * Atribui uma role a um usuário
-   * @param {string} userId - ID do usuário
-   * @param {string} roleId - ID da role
-   * @param {Object} context - Contexto onde a role se aplica
-   * @param {Object} options - Opções adicionais
-   * @returns {Promise<UserRole>} A UserRole criada
-   */
-  async assignRoleToUser(userId, roleId, context = { type: 'global', resourceId: null }, options = {}) {
-    logger.info('Atribuindo role ao usuário', {
-      service: 'userRoleService',
-      function: 'assignRoleToUser',
-      userId,
-      roleId,
-      context
-    });
-    
-    try {
-      return await UserRole.assignRoleToUser(userId, roleId, context, options);
-    } catch (error) {
-      logger.error('Erro ao atribuir role ao usuário', {
-        service: 'userRoleService',
-        function: 'assignRoleToUser',
-        userId,
-        roleId,
-        context,
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Remove uma role de um usuário
-   * @param {string} userRoleId - ID da userRole a ser removida
-   * @returns {Promise<boolean>} Sucesso da operação
-   */
-  async removeRoleFromUser(userRoleId) {
-    logger.info('Removendo role do usuário', {
-      service: 'userRoleService',
-      function: 'removeRoleFromUser',
-      userRoleId
-    });
-    
-    try {
-      return await UserRole.removeRoleFromUser(userRoleId);
-    } catch (error) {
-      logger.error('Erro ao remover role do usuário', {
-        service: 'userRoleService',
-        function: 'removeRoleFromUser',
-        userRoleId,
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Obtém as roles de um usuário
-   * @param {string} userId - ID do usuário
-   * @param {string} contextType - Tipo de contexto (opcional)
-   * @param {string} resourceId - ID do recurso no contexto (opcional)
-   * @returns {Promise<Array<UserRole>>} Lista de userRoles
-   */
-async getUserRoles(userId, contextType = null, resourceId = null) {
-  logger.info('Buscando roles do usuário', {
-    service: 'userRoleService',
-    function: 'getUserRoles',
-    userId,
-    contextType,
-    resourceId
-  });
-  
-  try {
-    // Usar o modelo para obter as roles
-    return await UserRole.getUserRoles(userId, contextType, resourceId);
-  } catch (error) {
-    logger.error('Erro ao buscar roles do usuário', {
-      service: 'userRoleService',
-      function: 'getUserRoles',
-      userId,
-      contextType,
-      resourceId,
-      error: error.message
-    });
-    throw error;
-  }
-}
-
-  /**
-   * Valida uma role de usuário
-   * @param {string} userRoleId - ID da userRole
-   * @param {Object} validationData - Dados adicionais para validação
-   * @returns {Promise<UserRole>} A userRole validada
-   */
-  async validateUserRole(userRoleId, validationData = {}) {
-    logger.info('Validando role do usuário', {
-      service: 'userRoleService',
-      function: 'validateUserRole',
-      userRoleId
-    });
-    
-    try {
-      return await UserRole.validateUserRole(userRoleId, validationData);
-    } catch (error) {
-      logger.error('Erro ao validar role do usuário', {
-        service: 'userRoleService',
-        function: 'validateUserRole',
-        userRoleId,
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Rejeita uma role de usuário
-   * @param {string} userRoleId - ID da userRole
-   * @param {Object} reasonData - Dados sobre o motivo da rejeição
-   * @returns {Promise<UserRole>} A userRole rejeitada
-   */
-  async rejectUserRole(userRoleId, reasonData = {}) {
-    logger.info('Rejeitando role do usuário', {
-      service: 'userRoleService',
-      function: 'rejectUserRole',
-      userRoleId,
-      reasonData
-    });
-    
-    try {
-      return await UserRole.rejectUserRole(userRoleId, reasonData);
-    } catch (error) {
-      logger.error('Erro ao rejeitar role do usuário', {
-        service: 'userRoleService',
-        function: 'rejectUserRole',
-        userRoleId,
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
   /**
    * Verifica se um usuário tem uma role específica
    * @param {string} userId - ID do usuário
@@ -160,28 +25,26 @@ async getUserRoles(userId, contextType = null, resourceId = null) {
    * @returns {Promise<boolean>} True se o usuário tiver a role
    */
   async checkUserHasRole(userId, roleName, contextType = 'global', resourceId = null) {
-    logger.info('Verificando se usuário tem role', {
-      service: 'userRoleService',
-      function: 'checkUserHasRole',
-      userId,
-      roleName,
-      contextType,
-      resourceId
-    });
-    
+    if (!supabase) {
+      logger.error('Supabase não configurado — roles não podem ser verificadas', { userId, roleName });
+      return false;
+    }
     try {
-      return await UserRole.checkUserHasRole(userId, roleName, contextType, resourceId);
-    } catch (error) {
-      logger.error('Erro ao verificar se usuário tem role', {
+      const { data, error } = await supabase.rpc('check_user_has_role', {
+        p_user_id: userId,
+        p_role_name: roleName,
+        p_context_type: contextType,
+        p_resource_id: resourceId
+      });
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      logger.error('Erro ao verificar role no Supabase', {
         service: 'userRoleService',
         function: 'checkUserHasRole',
-        userId,
-        roleName,
-        contextType,
-        resourceId,
-        error: error.message
+        userId, roleName, contextType, resourceId,
+        error: err.message
       });
-      // Em caso de erro, retornar false por segurança
       return false;
     }
   }
@@ -195,29 +58,65 @@ async getUserRoles(userId, contextType = null, resourceId = null) {
    * @returns {Promise<boolean>} True se o usuário tiver a permissão
    */
   async checkUserHasPermission(userId, permissionName, contextType = 'global', resourceId = null) {
-    logger.info('Verificando se usuário tem permissão', {
-      service: 'userRoleService',
-      function: 'checkUserHasPermission',
-      userId,
-      permissionName,
-      contextType,
-      resourceId
-    });
-    
+    if (!supabase) {
+      logger.error('Supabase não configurado — permissões não podem ser verificadas', { userId, permissionName });
+      return false;
+    }
     try {
-      return await UserRole.checkUserHasPermission(userId, permissionName, contextType, resourceId);
-    } catch (error) {
-      logger.error('Erro ao verificar se usuário tem permissão', {
+      const { data, error } = await supabase.rpc('check_user_has_permission', {
+        p_user_id: userId,
+        p_permission_name: permissionName,
+        p_context_type: contextType,
+        p_resource_id: resourceId
+      });
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      logger.error('Erro ao verificar permissão no Supabase', {
         service: 'userRoleService',
         function: 'checkUserHasPermission',
-        userId,
-        permissionName,
-        contextType,
-        resourceId,
-        error: error.message
+        userId, permissionName, contextType, resourceId,
+        error: err.message
       });
-      // Em caso de erro, retornar false por segurança
       return false;
+    }
+  }
+
+  /**
+   * Obtém as roles de um usuário
+   * @param {string} userId - ID do usuário
+   * @param {string} contextType - Tipo de contexto (opcional)
+   * @param {string} resourceId - ID do recurso no contexto (opcional)
+   * @returns {Promise<Array<Object>>} Lista de roles (objetos simples)
+   */
+  async getUserRoles(userId, contextType = null, resourceId = null) {
+    if (!supabase) {
+      logger.error('Supabase não configurado — roles retornarão vazias', { userId });
+      return [];
+    }
+    try {
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('*, roles(name)')
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      return (data || []).map(ur => ({
+        roleId: ur.role_id,
+        roleName: ur.role_id,          // 'admin', 'member' etc. — identificador programático
+        displayName: ur.roles?.name,   // 'Administrador', 'Membro' etc. — apenas exibição
+        context: ur.metadata?.context || { type: 'global', resourceId: null },
+        validationStatus: ur.metadata?.validationStatus || 'validated'
+      }));
+    } catch (err) {
+      logger.error('Erro ao buscar roles do usuário no Supabase', {
+        service: 'userRoleService',
+        function: 'getUserRoles',
+        userId,
+        error: err.message
+      });
+      return [];
     }
   }
 

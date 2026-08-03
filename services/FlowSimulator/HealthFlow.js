@@ -9,8 +9,8 @@ const BaseFlow = require('./BaseFlow');
  *   3. Detecta falhas de infraestrutura (simuladas via análise de response).
  */
 class HealthFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('health', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('health', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run() {
@@ -34,7 +34,7 @@ class HealthFlow extends BaseFlow {
       const res = await axios.get('/api/health/public');
       const { dependencies } = res.data;
 
-      if (!dependencies.database || !dependencies.openai || !dependencies.asaas) {
+      if (!dependencies?.database || !dependencies?.openai || !dependencies?.asaas) {
         throw new Error('Endpoint de saúde não retornou todas as dependências obrigatórias');
       }
 

@@ -12,8 +12,10 @@ const { logger }             = require('../logger');
 async function triggerRun(req, res) {
   try {
     const orchestrator = new QAOrchestratorService({
-      triggeredBy: req.body?.triggeredBy || 'manual',
-      backendUrl:  req.body?.backendUrl  || '',
+      triggeredBy:   req.body?.triggeredBy   || 'manual',
+      backendUrl:    req.body?.backendUrl    || '',
+      qaToken:       req.headers['x-qa-token'] || '',
+      firestoreMock: req.body?.firestoreMock === true,
     });
 
     // Gera o runId aqui para poder retorná-lo na resposta 202
@@ -48,6 +50,46 @@ async function triggerRun(req, res) {
       service: 'qaController', error: err.message,
     });
     res.status(500).json({ error: 'Falha ao iniciar run de QA' });
+  }
+}
+
+/**
+ * Endpoint de streaming para progresso em tempo real via SSE.
+ * GET /api/qa/stream
+ */
+async function streamRun(req, res) {
+  const { v4: uuidv4 } = require('uuid');
+  const runId = `run_${new Date().toISOString().replace(/[:.]/g, '-')}_${uuidv4().split('-')[0]}`;
+
+  // Headers SSE
+  res.writeHead(200, {
+    'Content-Type':      'text/event-stream',
+    'Cache-Control':     'no-cache',
+    'Connection':        'keep-alive',
+    'X-Accel-Buffering': 'no', // Desabilita buffering no Nginx
+  });
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const orchestrator = new QAOrchestratorService({
+    triggeredBy:   'manual_streaming',
+    backendUrl:    req.query.backendUrl    || '',
+    qaToken:       req.headers['x-qa-token'] || req.query.token || '',
+    firestoreMock: req.query.firestoreMock === 'true',
+    onProgress:    ({ event, data }) => sendEvent(event, data),
+  });
+
+  try {
+    logger.info('qaController.streamRun: iniciando stream', { runId });
+    await orchestrator.runFullSuite(runId);
+    res.end();
+  } catch (err) {
+    logger.error('qaController.streamRun: falha no stream', { runId, error: err.message });
+    sendEvent('error', { error: err.message });
+    res.end();
   }
 }
 
@@ -430,6 +472,7 @@ async function seedBalance(req, res) {
 
 module.exports = {
   triggerRun,
+  streamRun,
   listRuns,
   getRunDetail,
   getHealth,

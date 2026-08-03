@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth');
+const { checkRole, checkCaixinhaMembership } = require('../middlewares/rbac');
 const validate  = require('../middlewares/validate');
 const {readLimit, writeLimit} = require('../middlewares/rateLimiter');
 const caixinhaSchema = require('../schemas/caixinhaSchema');
@@ -10,18 +11,24 @@ const caixinhaInviteController = require('../controllers/caixinhaInviteControlle
 const { logger } = require('../logger');
 const { healthCheck } = require('../middlewares/healthMiddleware');
 const disputeController = require('../controllers/disputeController');
-const loanController = require('../controllers/loanController')
+const loanController = require('../controllers/loanController');
+const { requireCaixinhaFinancial } = require('../middlewares/requireRegulatoryApproval');
 const disputeSchema = require('../schemas/disputeSchema');
 const loanSchema = require('../schemas/loanSchema');
 
 // Smart Security Middleware
-const { 
-  velocityCheck, 
-  deviceCheck, 
-  transactionAnalysis, 
-  riskScoring, 
-  securityLogging 
+const {
+  velocityCheck,
+  deviceCheck,
+  transactionAnalysis,
+  riskScoring,
+  securityLogging
 } = require('../middlewares/smartSecurity');
+
+const requireVerifiedAction = require('../middlewares/requireVerifiedAction');
+const requireKYC = require('../middlewares/requireKYC');
+const requireCaixinhaAdmin = require('../middlewares/requireCaixinhaAdmin');
+const requireCaixinhaRole = require('../middlewares/requireCaixinhaRole');
 
 const ROUTE_NAME = 'caixinha'
 // Aplicar middleware de health check a todas as rotas de interests
@@ -62,9 +69,24 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor.
  */
-router.get('/user/:userId', 
-  verifyToken, 
-  readLimit, 
+router.get('/user/:userId',
+  verifyToken,
+  readLimit,
+  // Ownership check: só o próprio usuário ou admin global pode listar suas caixinhas
+  async (req, res, next) => {
+    const requestedUserId = req.params.userId;
+    const currentUserId = req.uid;
+    if (currentUserId === requestedUserId) return next();
+    // Bypass para admin global
+    if (req.user && req.user.roles && Array.isArray(req.user.roles)) {
+      const isGlobalAdmin = req.user.roles.some(role =>
+        (role.roleName === 'admin' || role.roleName === 'Admin' || role.roleName === 'adm-master') &&
+        role.validationStatus === 'validated'
+      );
+      if (isGlobalAdmin) return next();
+    }
+    return res.status(403).json({ success: false, message: 'Acesso negado: você só pode ver suas próprias caixinhas' });
+  },
   caixinhaController.getCaixinhas);
 
 /**
@@ -93,9 +115,10 @@ router.get('/user/:userId',
  *       500:
  *         description: Erro no servidor.
  */
-// Criar caixinha - ação sensível
-router.post('/', 
-  verifyToken, 
+// Criar caixinha - ação sensível (exige KYC verificado)
+router.post('/',
+  verifyToken,
+  requireKYC('cpf'),
   deviceCheck,
   velocityCheck('caixinha_creation'),
   (req, res, next) => {
@@ -119,7 +142,11 @@ router.post('/',
     }
     next();
   },
-  validate(caixinhaSchema.create), 
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: () => null,
+  }),
+  validate(caixinhaSchema.create),
   writeLimit,
   securityLogging,
   caixinhaController.createCaixinha
@@ -152,9 +179,10 @@ router.post('/',
  *       500:
  *         description: Erro no servidor.
  */
-router.get('/id/:caixinhaId', 
-  verifyToken, 
-  readLimit, 
+router.get('/id/:caixinhaId',
+  verifyToken,
+  readLimit,
+  checkCaixinhaMembership(),
   caixinhaController.getCaixinhaById);
 
 /**
@@ -190,11 +218,15 @@ router.get('/id/:caixinhaId',
  *       500:
  *         description: Erro no servidor.
  */
-router.put('/:caixinhaId', 
-  verifyToken, 
-  // verifyRole(['admin']), 
-  validate(caixinhaSchema.update), 
-  writeLimit, 
+router.put('/:caixinhaId',
+  verifyToken,
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: (req) => req.params.caixinhaId,
+  }),
+  requireCaixinhaAdmin,
+  validate(caixinhaSchema.update),
+  writeLimit,
   caixinhaController.updateCaixinha);
 
 /**
@@ -220,10 +252,14 @@ router.put('/:caixinhaId',
  *       500:
  *         description: Erro no servidor.
  */
-router.delete('/:caixinhaId', 
-  verifyToken, 
-  // verifyRole(['admin']), 
-  writeLimit, 
+router.delete('/:caixinhaId',
+  verifyToken,
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: (req) => req.params.caixinhaId,
+  }),
+  requireCaixinhaAdmin,
+  writeLimit,
   caixinhaController.deleteCaixinha);
 
 /**
@@ -268,11 +304,11 @@ router.delete('/:caixinhaId',
  *       500:
  *         description: Erro no servidor.
  */
-router.post('/:caixinhaId/membros', 
-  verifyToken, 
-  // verifyRole(['admin']), 
-  validate(caixinhaSchema.membro), 
-  writeLimit, 
+router.post('/:caixinhaId/membros',
+  verifyToken,
+  requireCaixinhaRole('gerente'),
+  validate(caixinhaSchema.membro),
+  writeLimit,
   caixinhaController.gerenciarMembros);
 
   /**
@@ -326,9 +362,10 @@ router.post('/:caixinhaId/membros',
  *       403:
  *         description: Usuário não tem permissão para acessar estes convites
  */
-router.get('/membros/:caixinhaId', 
+router.get('/membros/:caixinhaId',
   verifyToken,
-  readLimit, 
+  readLimit,
+  checkCaixinhaMembership(),
   caixinhaController.getMembers);
 
 /**
@@ -494,9 +531,9 @@ router.post('/membros/:caixinhaId/convite-email',
  *       403:
  *         description: Usuário não tem permissão para aceitar este convite
  */
-router.post('/membros/convite/:caxinhaInviteId/aceitar', 
+router.post('/membros/convite/:caixinhaInviteId/aceitar',
   verifyToken,
-  writeLimit, 
+  writeLimit,
   caixinhaInviteController.acceptInvite);
 
 /**
@@ -541,9 +578,9 @@ router.post('/membros/convite/:caxinhaInviteId/aceitar',
  *       403:
  *         description: Usuário não tem permissão para aceitar este convite
  */
-router.post('/membros/convite/:caxinhaInviteId/cancelar', 
+router.post('/membros/convite/:caixinhaInviteId/cancelar',
   verifyToken,
-  writeLimit, 
+  writeLimit,
   caixinhaInviteController.cancelInvite);
 
 /**
@@ -588,9 +625,9 @@ router.post('/membros/convite/:caxinhaInviteId/cancelar',
  *       403:
  *         description: Usuário não tem permissão para aceitar este convite
  */
-router.post('/membros/convite/:caxinhaInviteId/reenviar', 
+router.post('/membros/convite/:caixinhaInviteId/reenviar',
   verifyToken,
-  writeLimit, 
+  writeLimit,
   caixinhaInviteController.resendInvite);
 
 /**
@@ -633,9 +670,9 @@ router.post('/membros/convite/:caxinhaInviteId/reenviar',
  *       403:
  *         description: Usuário não tem permissão para rejeitar este convite
  */
-router.post('/membros/convite/:caxinhaInviteId/rejeitar', 
+router.post('/membros/convite/:caixinhaInviteId/rejeitar',
   verifyToken,
-  writeLimit, 
+  writeLimit,
   caixinhaInviteController.rejectInvite);
 
 /**
@@ -748,10 +785,10 @@ router.get('/membros/:userId/convites-enviados',
   readLimit, 
   caixinhaInviteController.getSentInvites);
 
-  router.post('/membros/:caixinhaId/convite/:caxinhaInviteId/reenviar-email', caixinhaInviteController.resendInviteEmail);
+  router.post('/membros/:caixinhaId/convite/:caixinhaInviteId/reenviar-email', verifyToken, writeLimit, caixinhaInviteController.resendInviteEmail);
 
-  router.get('/membros/:caixinhaId/convites', caixinhaInviteController.getCaixinhaInvites);
-  router.get('/membros/convite/:caxinhaInviteId', caixinhaInviteController.getInviteDetails);
+  router.get('/membros/:caixinhaId/convites', verifyToken, readLimit, caixinhaInviteController.getCaixinhaInvites);
+  router.get('/membros/convite/:caixinhaInviteId', verifyToken, readLimit, caixinhaInviteController.getInviteDetails);
 
 /**
  * @swagger
@@ -780,9 +817,10 @@ router.get('/membros/:userId/convites-enviados',
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:caixinhaId/disputes', 
-  verifyToken, 
-  readLimit, 
+router.get('/:caixinhaId/disputes',
+  verifyToken,
+  readLimit,
+  checkCaixinhaMembership(),
   disputeController.getDisputes);
 
 /**
@@ -814,9 +852,10 @@ router.get('/:caixinhaId/disputes',
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:caixinhaId/disputes/:disputeId', 
-  verifyToken, 
-  readLimit, 
+router.get('/:caixinhaId/disputes/:disputeId',
+  verifyToken,
+  readLimit,
+  checkCaixinhaMembership(),
   disputeController.getDisputeById);
 
 /**
@@ -913,6 +952,7 @@ router.post('/:caixinhaId/disputes',
  */
 router.post('/:caixinhaId/disputes/:disputeId/vote', 
   verifyToken, 
+  checkCaixinhaMembership(),
   validate(disputeSchema.vote),
   writeLimit, 
   disputeController.voteOnDispute);
@@ -995,9 +1035,10 @@ router.post('/:caixinhaId/disputes/:disputeId/cancel',
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:caixinhaId/disputes/check', 
-  verifyToken, 
-  readLimit, 
+router.get('/:caixinhaId/disputes/check',
+  verifyToken,
+  readLimit,
+  checkCaixinhaMembership(),
   disputeController.checkDisputeRequirement);
 
 /**
@@ -1038,9 +1079,13 @@ router.get('/:caixinhaId/disputes/check',
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:caixinhaId/disputes/rule-change', 
-  verifyToken, 
-  writeLimit, 
+router.post('/:caixinhaId/disputes/rule-change',
+  verifyToken,
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: (req) => req.params.caixinhaId,
+  }),
+  writeLimit,
   disputeController.createRuleChangeDispute);
 
   /**
@@ -1064,9 +1109,10 @@ router.post('/:caixinhaId/disputes/rule-change',
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:caixinhaId/emprestimos', 
-  verifyToken, 
-  readLimit, 
+router.get('/:caixinhaId/emprestimos',
+  verifyToken,
+  readLimit,
+  checkCaixinhaMembership(),
   loanController.getLoans);
 
 /**
@@ -1098,9 +1144,10 @@ router.get('/:caixinhaId/emprestimos',
  *       500:
  *         description: Erro no servidor
  */
-router.get('/:caixinhaId/emprestimos/:loanId', 
-  verifyToken, 
-  readLimit, 
+router.get('/:caixinhaId/emprestimos/:loanId',
+  verifyToken,
+  readLimit,
+  checkCaixinhaMembership(),
   loanController.getLoanById);
 
 /**
@@ -1145,10 +1192,16 @@ router.get('/:caixinhaId/emprestimos/:loanId',
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:caixinhaId/emprestimos', 
-  verifyToken, 
+router.post('/:caixinhaId/emprestimos',
+  verifyToken,
+  requireCaixinhaFinancial,
+  requireKYC('cpf'),
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: (req) => req.params.caixinhaId,
+  }),
   validate(loanSchema.create),
-  writeLimit, 
+  writeLimit,
   loanController.requestLoan);
 
 /**
@@ -1195,10 +1248,15 @@ router.post('/:caixinhaId/emprestimos',
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:caixinhaId/emprestimos/:loanId/pagamento', 
-  verifyToken, 
+router.post('/:caixinhaId/emprestimos/:loanId/pagamento',
+  verifyToken,
+  requireCaixinhaFinancial,
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: (req) => req.params.caixinhaId,
+  }),
   validate(loanSchema.payment),
-  writeLimit, 
+  writeLimit,
   loanController.makePayment);
 
 /**
@@ -1232,9 +1290,15 @@ router.post('/:caixinhaId/emprestimos/:loanId/pagamento',
  *       500:
  *         description: Erro no servidor
  */
-router.post('/:caixinhaId/emprestimos/:loanId/aprovar', 
-  verifyToken, 
-  writeLimit, 
+router.post('/:caixinhaId/emprestimos/:loanId/aprovar',
+  verifyToken,
+  requireCaixinhaFinancial,
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: (req) => req.params.caixinhaId,
+  }),
+  requireCaixinhaAdmin,
+  writeLimit,
   loanController.approveLoan);
 
 /**
@@ -1280,23 +1344,41 @@ router.post('/:caixinhaId/emprestimos/:loanId/aprovar',
  */
 router.post('/:caixinhaId/emprestimos/:loanId/rejeitar',
   verifyToken,
+  requireCaixinhaFinancial,
+  requireVerifiedAction('saque', {
+    getEntityType: () => 'caixinha',
+    getEntityId: (req) => req.params.caixinhaId,
+  }),
+  requireCaixinhaAdmin,
   validate(loanSchema.reject),
   writeLimit,
   loanController.rejectLoan);
 
+// Dados do usuário autenticado dentro de uma caixinha (ledger + dados de membro)
+router.get('/:caixinhaId/me',
+  verifyToken,
+  readLimit,
+  checkCaixinhaMembership(),
+  caixinhaController.getMyMemberData);
+
 router.post('/:caixinhaId/contribuicao',
   verifyToken,
+  requireCaixinhaFinancial,
+  checkCaixinhaMembership(),
+  validate(caixinhaSchema.contribuicao),
   writeLimit,
   caixinhaController.addContribuicao);
 
 router.get('/:caixinhaId/contribuicoes',
   verifyToken,
   readLimit,
+  checkCaixinhaMembership(),
   caixinhaController.getContribuicoes);
 
 router.get('/:caixinhaId/relatorio',
   verifyToken,
   readLimit,
+  checkCaixinhaMembership(),
   caixinhaController.gerarRelatorio);
 
 

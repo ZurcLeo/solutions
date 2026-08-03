@@ -1,12 +1,10 @@
 // scripts/initializeLocalStorage.js
-const { getFirestore } = require('../../firebaseAdmin');
 const { logger } = require('../../logger');
+const { getFirestore } = require('../../firebaseAdmin');
 const LocalStorageService = require('../../services/LocalStorageService');
 const { roles } = require('../data/initialData');
 const { permissions } = require('../data/initialData');
 const { rolePermissions } = require('../data/initialData');
-
-const db = getFirestore();
 
 /**
  * Inicializa os dados locais para o RBAC
@@ -62,12 +60,14 @@ async function initializeFirstAdmin(email) {
       });
       return false;
     }
-    
+
     logger.info('Iniciando inicialização do usuário', {
       service: 'initializeFirstAdmin',
       email
     });
-    
+
+    const db = getFirestore();
+
     // Buscar o usuário pelo email
     const usersSnapshot = await db.collection('usuario')
       .where('email', '==', email)

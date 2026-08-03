@@ -1,4 +1,5 @@
 // controllers/userRoleController.js
+const crypto = require('crypto');
 const { logger } = require('../logger');
 const userRoleService = require('../services/userRoleService');
 const roleService = require('../services/roleService');
@@ -338,7 +339,7 @@ const initBankValidation = async (req, res) => {
     }
     
     // Gerar um código Pix simbólico para validação
-    const validationAmount = (Math.floor(Math.random() * 5) + 1) / 100; // Entre 0,01 e 0,05
+    const validationAmount = (crypto.randomInt(1, 6)) / 100; // Entre 0,01 e 0,05 (secure random)
     const validationCode = generateValidationCode();
     
     // Armazenar dados da validação
@@ -503,7 +504,7 @@ const migrateAdminUsers = async (req, res) => {
  * @returns {string} Código de validação
  */
 function generateValidationCode() {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+  return crypto.randomBytes(4).toString('hex').substring(0, 6).toUpperCase();
 }
 
 module.exports = {

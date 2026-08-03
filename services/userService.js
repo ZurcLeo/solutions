@@ -91,6 +91,7 @@ const searchUsers = async (searchQuery, currentUserId) => {
       id: user.id,
       uid: user.uid,
       nome: user.nome,
+      username: user.username || null,
       email: user.email,
       fotoDoPerfil: user.fotoDoPerfil,
       descricao: user.descricao,

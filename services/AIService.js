@@ -1,33 +1,208 @@
 // /Users/leocruz/Documents/Projects/eloscloud/backend/eloscloudapp/services/AIService.js
 const { logger } = require('../logger');
-const SupportService = require('./SupportService');
+const anthropicClient = require('../config/anthropic/anthropicClient');
+const deepseekClient = require('../config/deepseek/deepseekClient');
 
-const AI_MODEL_NAME = process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001';
-const AI_ENABLED = process.env.AI_ENABLED !== 'false'; // Default to true unless explicitly disabled
+const CLAUDE_MODEL = process.env.CLAUDE_SUPPORT_MODEL || 'claude-sonnet-4-6';
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL_NAME || 'deepseek-chat';
+const AI_ENABLED = process.env.AI_ENABLED !== 'false';
 
-let openai = null;
-
-// Initialize OpenAI only if enabled and API key is available
-if (AI_ENABLED && process.env.OPENAI_API_KEY) {
-  try {
-    const OpenAI = require('openai');
-    openai = new OpenAI({ 
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 30000
-    });
-    logger.info('OpenAI client initialized successfully', { service: 'AIService' });
-  } catch (error) {
-    logger.error('Failed to initialize OpenAI client', { 
-      service: 'AIService', 
-      error: error.message 
-    });
-  }
-} else {
-  logger.warn('AI Service running in fallback mode', { 
-    service: 'AIService',
-    reason: AI_ENABLED ? 'Missing OPENAI_API_KEY' : 'AI_ENABLED=false'
-  });
+// Claude primário, DeepSeek fallback
+if (AI_ENABLED && anthropicClient) {
+  logger.info('Anthropic client used as primary for AIService', { service: 'AIService', model: CLAUDE_MODEL });
+} else if (AI_ENABLED && deepseekClient) {
+  logger.info('DeepSeek client used as fallback for AIService (Anthropic unavailable)', { service: 'AIService', model: DEEPSEEK_MODEL });
+} else if (AI_ENABLED) {
+  logger.warn('AI Service running in fallback mode (no AI client available)', { service: 'AIService' });
 }
+
+// System prompt base — campos {{}} interpolados em runtime com contexto do usuário
+const BASE_SYSTEM_PROMPT = `Você é a Claud, assistente de suporte da ElosCloud — plataforma brasileira
+de economia hiperlocal onde vizinhos verificados compram, vendem, entregam,
+se hospedam, poupam juntos e têm voz na comunidade.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONTEXTO DO USUÁRIO (use para personalizar — nunca cite esses dados literalmente)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Nome: {{firstName}}
+Saldo ElosCoins: {{elosCoinsBalance}}
+Caixinhas ativas: {{caixinhasCount}} ({{caixinhasNames}})
+Empréstimos ativos: {{loansCount}} — valor total: {{loansValue}}
+Papéis na plataforma: {{roles}}
+
+Passaporte de Confiança:
+- Nível atual: {{trustLevel}} — {{trustLevelName}}
+- Verticais ativas: {{activeDomains}}
+- Progresso para próximo nível: {{progressPct}}%
+- Próximas ações recomendadas: {{nextLevelActions}}
+- Validadores conquistados: {{validators}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+O QUE A ELOSCLOUD OFERECE (conheça bem para explicar com naturalidade)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A ElosCloud tem 8 verticais integradas:
+
+1. CONTA — identidade verificada por CPF, perfil de confiança, acesso por convite
+2. SOCIAL — feed de posts do bairro, presentes em ElosCoins, stickers, conexões
+3. FINANCEIRO — caixinhas coletivas com votação, empréstimos do grupo, contribuições mensais, saldo custodiado pelo Asaas (IP regulada pelo Banco Central)
+4. ESTADIAS — aluguel de imóveis por dia ou semana (estilo Airbnb), calendário de disponibilidade, avaliação bidirecional, pagamento com proteção por escrow
+5. ENTREGAS — entregadores autônomos do bairro que definem o próprio preço por km; comprador vê nota, histórico e preço antes de escolher; rastreamento em tempo real
+6. MARKETPLACE — produtos, serviços e alimentação de vendedores locais verificados; pague com PIX ou use ElosCoins para desconto
+7. MODERAÇÃO — sistema de disputas, Passaporte de Confiança, reputação construída por ações
+8. CIDADANIA — Ágora Digital: relatos de infraestrutura para o poder público, enquetes comunitárias, informativos sobre votações no Congresso
+
+MODULOS ATIVAVEIS
+A plataforma tem 5 modulos que podem ser ativados ou desativados:
+- Caixinhas (financeiro): poupanca coletiva, contribuicoes e emprestimos
+- Mobilidade: carona solidaria e gestao de veiculos
+- Jogos e Concursos: rifas, bolao, amigo secreto
+- Cidadania: Agora Digital com relatos, enquetes e informativos
+- Juridico: transparencia fiscal, contratos e governanca
+
+O admin pode habilitar/desabilitar modulos globalmente. O usuario pode ativar ou
+desativar modulos para si em Configuracoes > Central de Modulos.
+Se um modulo esta desativado, as funcionalidades dele nao aparecem no menu e as
+APIs retornam erro. Isso e normal — o usuario pode reativar a qualquer momento.
+
+INTEGRAÇÃO ICONCHAT (pedidos via WhatsApp)
+O IconChat é uma integração oficial da ElosCloud que permite que lojistas recebam
+pedidos diretamente pelo WhatsApp. Funciona assim:
+
+O que é: O IconChat conecta a loja do marketplace ao WhatsApp do lojista. Clientes
+enviam pedidos por WhatsApp e eles aparecem automaticamente no painel de pedidos
+da ElosCloud, com pagamento via PIX integrado.
+
+Pré-requisitos para ativar:
+1. Ter Passaporte de Confiança nível 2 ou superior
+2. Ter um telefone/WhatsApp cadastrado no perfil (em Configurações > Perfil)
+3. Ter um plano Brasileirinho T1 ou superior (assinatura ativa)
+
+Como ativar: O lojista acessa Configurações da Loja (engrenagem no painel do
+vendedor) e abre a seção "Integração IconChat". Se todos os pré-requisitos
+estiverem atendidos, basta clicar em "Conectar IconChat". O sistema gera as
+credenciais automaticamente.
+
+Após a ativação, o lojista recebe um HMAC Secret (chave de segurança) que é
+exibido UMA ÚNICA VEZ. Ele deve copiar e guardar em local seguro. Também recebe
+a URL de callback e o ID do tenant para configurar no lado do IconChat.
+
+Funcionalidades disponíveis após ativação:
+- Receber pedidos via WhatsApp que aparecem no painel de pedidos
+- Pagamento PIX integrado (cliente recebe QR code pelo WhatsApp)
+- Catálogo da loja sincronizado automaticamente
+- Pausar/reativar a integração a qualquer momento
+- Rotacionar o secret de segurança quando necessário
+
+A integração NÃO substitui o marketplace — funciona como um canal adicional de
+vendas. O lojista continua recebendo pedidos normalmente pelo site.
+
+Se o cliente perguntar sobre o IconChat mas não for lojista, explique que é uma
+funcionalidade para vendedores e sugira que ele abra sua loja primeiro.
+
+PLANOS E PREÇOS (Sistema Brasileirinho)
+A ElosCloud tem 4 planos para lojistas e 2 para entregadores:
+
+Lojistas:
+- Modelo Básico: R$ 0/mês, comissão de 5% por venda. Sem selo de pagamento protegido.
+- Brasileirinho T1 (Inicial): R$ 39,90/mês (ou R$ 399/ano com ~16% de desconto).
+  Zero comissão. 2 membros na equipe. Boost 1.5x. Selo de pagamento protegido.
+  Ideal para faturamento até R$ 1.500/mês.
+- Brasileirinho T2 (Pro): R$ 69,90/mês (ou R$ 699/ano). Zero comissão.
+  3 membros. Boost 2.0x. Subconta financeira e split de pagamento.
+  Ideal para faturamento entre R$ 1.500 e R$ 6.000/mês.
+- Brasileirinho T3 (Premium): R$ 99,90/mês (ou R$ 999/ano). Zero comissão até
+  R$ 10.000/mês, 1,5% sobre o excedente. 5 membros. Boost 2.0x.
+  Ideal para faturamento acima de R$ 6.000/mês.
+
+Entregadores:
+- Entregador Básico: R$ 0/mês, comissão de 8% por entrega.
+- Entregador Ativo: R$ 19,90/mês, zero comissão. Requer 10 entregas como básico.
+  Selo "Entregador Verificado".
+
+Todos os planos pagos podem ser adquiridos em Configurações > Plano. Aceitamos
+PIX e cartão de crédito. Sem fidelidade — cancele quando quiser.
+
+O breakeven do T1 ocorre com faturamento de ~R$ 800/mês (a partir desse valor,
+o plano fixo sai mais barato que a comissão de 5%).
+
+Membros extras na equipe: R$ 9,90/mês (T1/T2) ou R$ 14,90/mês (T3).
+
+VENDAS PARA VISITANTES (Guest Checkout)
+Lojistas podem permitir que clientes sem conta no ElosCloud façam pedidos pela
+loja pública. O link público da loja é eloscloud.com/negocio/{id-da-loja}.
+Visitantes podem navegar o catálogo e fazer pedidos com PIX sem precisar criar conta.
+Essa funcionalidade pode ser ativada/desativada em Configurações da Loja > Vendas
+para Visitantes.
+
+ElosCoins: moeda exclusiva de engajamento e reputação. NÃO se compra com dinheiro
+real. Você ganha ao completar tarefas diárias, manter streaks de engajamento,
+atingir metas e participar ativamente da comunidade. Use para presenteiar vizinhos,
+impulsionar publicações e participar de previsões. Não são dinheiro — são
+reputação que gera benefícios reais.
+
+Passaporte de Confiança: reputação unificada que vale em todas as verticais.
+5 níveis (Novato → Guardião). Quanto mais verticais você usa, mais rápido sobe.
+Cada nível desbloqueia limites maiores de transação, custódia de caixinhas e
+capacidade de validar a identidade de outros membros.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMO RESPONDER — REGRAS OBRIGATÓRIAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PERSONALIZAÇÃO OBRIGATÓRIA
+Toda resposta deve partir do estado atual do usuário, não de informações genéricas.
+- Se o usuário pergunta sobre o Passaporte → diga o nível dele, o progresso, e a
+  ação MAIS RÁPIDA que ele pode fazer agora, dado o que já tem ativo.
+- Se o usuário pergunta "o que posso fazer" → mencione o que ele ainda NÃO usou
+  como oportunidade, não liste tudo como se fosse novidade igual.
+- Se o usuário tem caixinhas → reconheça isso ao falar de finanças.
+- Se o usuário é seller → adapte a linguagem de quem vende, não de quem compra.
+
+PROFUNDIDADE ADEQUADA
+Nunca responda com lista genérica quando você tem o contexto do usuário.
+Errado: "Para subir de nível você pode: fazer vendas, participar de caixinhas..."
+Certo: "Você está no nível 2 com Social e Conta ativos. Para o nível 3 você
+precisa ativar mais uma vertical. A mais rápida para você agora seria o
+Marketplace — basta fazer uma compra ou avaliação."
+
+SEMPRE INDIQUE O QUE UMA AÇÃO DESBLOQUEIA
+Não diga só O QUE fazer — diga O QUE ACONTECE quando fizer.
+Errado: "Participar de caixinhas gera pontos no Passaporte."
+Certo: "Participar de uma caixinha ativa a vertical Financeiro — isso te coloca
+a um passo do nível 3, que libera transações até R$5.000 e destaque no marketplace."
+
+PRÓXIMO PASSO SEMPRE CONCRETO
+Termine respostas sobre ações com uma sugestão específica e acionável.
+Não: "Explore as funcionalidades da plataforma."
+Sim: "Quer que eu te mostre como criar sua primeira caixinha? Leva 2 minutos."
+
+TOM E FORMATO
+- Linguagem natural, brasileira, sem jargão técnico
+- Use o primeiro nome do usuário na primeira mensagem, depois economize
+- Respostas curtas para perguntas simples, mais detalhadas para perguntas complexas
+- Nunca use bullet points com traço (–) — prefira frases corridas ou numeração
+- Nunca diga "ativo virtual", "trust level", "vertical", "escrow" — use sempre a
+  linguagem do produto: "Passaporte de Confiança", "nível", "área", "proteção do pagamento"
+- Emojis com moderação — só quando reforçam o tom, nunca decorativos
+- NÃO use markdown: sem asteriscos para negrito, sem hashtags, sem underline
+- Use quebras de linha duplas para separar parágrafos
+- Escreva como conversa de WhatsApp: natural, parágrafos curtos
+- Máximo de 3 a 4 parágrafos por resposta; seja direto
+
+LIMITES
+- Não tome ações em nome do usuário (transferências, pagamentos, cancelamentos)
+- Para problemas técnicos graves (pagamento preso, conta bloqueada), encaminhe
+  para suporte humano com a mensagem: "Esse caso precisa de um atendimento humano.
+  Abri um ticket para você — alguém do time vai responder em até 2 horas."
+- Não invente funcionalidades que não existem
+- Não faça promessas sobre prazos de resolução além dos SLAs definidos
+
+CONTATO DE SUPORTE
+- O email oficial de suporte é suporte@eloscloud.com (domínio .com, NÃO .com.br)
+- Sempre que precisar indicar um email de contato, use suporte@eloscloud.com
+- O site da plataforma é https://eloscloud.com`;
 
 class AIService {
   constructor() {
@@ -45,6 +220,7 @@ class AIService {
    * @returns {Promise<string>} The AI's response text.
    */
   async processMessage(userId, conversationId, messageContent, history = [], userContext = null) {
+    const SupportService = require('./SupportService');
     logger.info(`Processing message for AI: convId=${conversationId}, userId=${userId}`, {
       service: 'AIService',
       method: 'processMessage',
@@ -61,22 +237,28 @@ class AIService {
           userId
         });
         
+        const firstName = userContext?.firstName ? `, ${userContext.firstName}` : '';
+        const isCrisis = this._isCrisisMessage(messageContent);
+
         try {
           await SupportService.requestEscalation(conversationId, userId);
-          return "Entendo que você precisa de uma ajuda mais específica. Acabei de transferir sua conversa para nossa equipe de suporte especializada.\\n\\nUm de nossos atendentes entrará em contato em breve para resolver sua questão com acesso completo aos dados da sua conta.\\n\\nEnquanto isso, se tiver outras dúvidas, estou aqui para ajudar!";
         } catch (escalationError) {
           logger.warn('Failed to create escalation ticket', {
             error: escalationError.message,
             conversationId,
             userId
           });
-          return "Vou transferir você para nossa equipe de suporte especializada que pode acessar dados específicos da sua conta e resolver questões complexas.\\n\\nPor favor, aguarde que em breve um atendente entrará em contato.";
         }
+
+        if (isCrisis) {
+          return `Que situação difícil${firstName} — imagino o quanto isso deve estar te preocupando agora.\n\nVou chamar um atendente humano imediatamente pra estar com você nisso. Nossa equipe tem acesso completo à sua conta e vai conseguir investigar o que aconteceu.\n\nRespira — a gente resolve juntos. Um atendente entra em contato em breve.`;
+        }
+        return `Faz sentido precisar de uma ajuda mais especializada aqui${firstName}.\n\nVou te conectar com nossa equipe agora — eles têm acesso completo à sua conta e vão conseguir te ajudar melhor do que eu nesse ponto.\n\nUm atendente entra em contato em breve!`;
       }
 
-      // Check if OpenAI is available
-      if (!openai) {
-        logger.info('OpenAI not available, using fallback response', {
+      // Check if any AI client is available
+      if (!anthropicClient && !deepseekClient) {
+        logger.info('No AI client available, using fallback response', {
           service: 'AIService',
           method: 'processMessage',
           conversationId
@@ -84,78 +266,54 @@ class AIService {
         return this._getFallbackResponse(messageContent, userId, userContext);
       }
 
-      const messages = history.map(msg => ({
+      // Enrich user context with live data (wallet, caixinhas, loans, trust passport)
+      const richContext = await this._enrichUserContext(userId, userContext);
+
+      // Build interpolated system prompt
+      const systemPrompt = this._buildSystemPrompt(richContext);
+
+      const conversationMessages = history.map(msg => ({
         role: msg.sender === userId ? 'user' : 'assistant',
         content: msg.content
       }));
-      
-      let systemContent = `Você é o assistente virtual da ElosCloud, uma plataforma de economia colaborativa e marketplace digital no Brasil.
+      conversationMessages.push({ role: 'user', content: messageContent });
 
-Diretrizes de personalidade:
-- Seja natural, amigável e conversacional (evite parecer robotizado)
-- Use linguagem brasileira informal mas respeitosa
-- Responda de forma direta e personalizada
-- Demonstre compreensão do contexto específico do usuário
-- Seja empático e prestativo
+      // Try Claude (primary), then DeepSeek (fallback)
+      let aiResponse = null;
 
-Sobre respostas:
-- Responda perguntas específicas com informações detalhadas e úteis
-- Use dados do usuário quando disponíveis para personalizar respostas
-- Explique conceitos de forma clara e prática
-- Ofereça próximos passos ou ações quando relevante
-
-Escalonamento para suporte humano:
-- Sugira apenas quando realmente necessário (problemas técnicos complexos, questões financeiras específicas, disputas)
-- Evite escalonar para perguntas que você consegue responder adequadamente
-- Sempre explique por que está sugerindo o escalonamento
-
-Tópicos que você domina:
-- Funcionamento das caixinhas (economia colaborativa)
-- Sistema de pagamentos e ElosCoins
-- Marketplace e vendas
-- Configurações de perfil
-- Explicações sobre saldos e valores`;
-
-      // Add user context to system prompt if available
-      if (userContext) {
-        systemContent += `\n\nContexto do usuário:`;
-        if (userContext.firstName) {
-          systemContent += `\n- Nome: ${userContext.firstName}`;
-        }
-        if (userContext.caixinhas && userContext.caixinhas.length > 0) {
-          systemContent += `\n- Participa de ${userContext.caixinhas.length} caixinha(s)`;
-          const totalBalance = userContext.caixinhas.reduce((sum, c) => sum + (c.balance || 0), 0);
-          systemContent += `\n- Saldo total em caixinhas: R$ ${totalBalance.toFixed(2)}`;
-        }
-        if (userContext.roles && userContext.roles.length > 0) {
-          systemContent += `\n- Roles: ${userContext.roles.join(', ')}`;
+      if (anthropicClient) {
+        try {
+          aiResponse = await this._callClaude(systemPrompt, conversationMessages);
+        } catch (claudeError) {
+          logger.warn('Claude primary call failed, trying DeepSeek fallback', {
+            service: 'AIService',
+            method: 'processMessage',
+            conversationId,
+            error: claudeError.message
+          });
         }
       }
 
-      const systemPrompt = {
-        role: 'system',
-        content: systemContent
-      };
-
-      messages.unshift(systemPrompt);
-      messages.push({ role: 'user', content: messageContent });
-
-      const completion = await openai.chat.completions.create({
-        model: AI_MODEL_NAME,
-        messages: messages,
-        max_tokens: 500,
-        temperature: 0.7,
-      });
-      
-      const aiResponse = completion.choices[0]?.message?.content?.trim();
+      if (!aiResponse && deepseekClient) {
+        try {
+          aiResponse = await this._callDeepSeek(systemPrompt, conversationMessages);
+        } catch (deepseekError) {
+          logger.error('DeepSeek fallback also failed', {
+            service: 'AIService',
+            method: 'processMessage',
+            conversationId,
+            error: deepseekError.message
+          });
+        }
+      }
 
       if (!aiResponse) {
-        logger.warn('AI returned an empty response', {
+        logger.warn('All AI providers failed, using static fallback', {
           service: 'AIService',
           method: 'processMessage',
           conversationId
         });
-        return "Desculpe, não consegui processar sua mensagem no momento.";
+        return this._getFallbackResponse(messageContent, userId, userContext);
       }
 
       logger.info('AI response generated successfully', {
@@ -166,37 +324,168 @@ Tópicos que você domina:
       return aiResponse;
 
     } catch (error) {
-      logger.error('Error interacting with AI model', {
+      logger.error('Error in processMessage', {
         service: 'AIService',
         method: 'processMessage',
         conversationId,
         error: error.message,
-        errorCode: error.code,
-        errorType: error.type,
         stack: error.stack
       });
-
-      // Handle specific OpenAI errors
-      if (error.message && error.message.includes('429')) {
-        logger.warn('OpenAI quota exceeded, using fallback response', {
-          service: 'AIService',
-          method: 'processMessage',
-          conversationId
-        });
-        return this._getFallbackResponse(messageContent, userId, userContext);
-      }
-
-      if (error.message && error.message.includes('401')) {
-        logger.error('OpenAI authentication failed', {
-          service: 'AIService',
-          method: 'processMessage',
-          conversationId
-        });
-        return "Estou com dificuldades técnicas no momento. Nossa equipe de suporte pode ajudá-lo melhor. Digite 'falar com suporte' para ser conectado a um atendente humano.";
-      }
-
-      // Generic fallback
       return this._getFallbackResponse(messageContent, userId, userContext);
+    }
+  }
+
+  /**
+   * Interpola o system prompt base com dados do contexto enriquecido do usuário.
+   */
+  _buildSystemPrompt(richContext) {
+    if (!richContext) return BASE_SYSTEM_PROMPT;
+
+    const caixinhasCount = richContext.caixinhas?.length || 0;
+    const caixinhasNames = richContext.caixinhas
+      ?.slice(0, 3).map(c => c.nome || c.name).filter(Boolean).join(', ') || 'nenhuma';
+    const walletBalance = richContext.wallet?.saldo || richContext.wallet?.balance || 0;
+
+    const ativos = (richContext.loans || []).filter(l => ['active', 'pending', 'approved'].includes(l.status));
+    const loansCount = ativos.length;
+    const loansValue = `R$${ativos.reduce((s, l) => s + Number(l.valor_solicitado || l.valor_total || 0), 0).toFixed(2)}`;
+
+    const passport = richContext.trustPassport;
+
+    return BASE_SYSTEM_PROMPT
+      .replace('{{firstName}}', richContext.firstName || 'usuário')
+      .replace('{{elosCoinsBalance}}', Number(walletBalance).toFixed(2))
+      .replace('{{caixinhasCount}}', String(caixinhasCount))
+      .replace('{{caixinhasNames}}', caixinhasNames)
+      .replace('{{loansCount}}', String(loansCount))
+      .replace('{{loansValue}}', loansValue)
+      .replace('{{roles}}', (richContext.roles || []).join(', ') || 'membro')
+      .replace('{{trustLevel}}', String(passport?.nivel || 1))
+      .replace('{{trustLevelName}}', passport?.nome_nivel || 'Novato')
+      .replace('{{activeDomains}}', passport?.verticais_ativas?.join(', ') || 'nenhuma ainda')
+      .replace('{{progressPct}}', String(passport?.progresso_proximo_nivel || 0))
+      .replace('{{nextLevelActions}}', passport?.proximas_acoes?.map(a => a.description || a).join('; ') || 'explore as áreas da plataforma')
+      .replace('{{validators}}', passport?.validadores?.join(', ') || 'nenhum ainda');
+  }
+
+  /**
+   * Chama Claude (Anthropic SDK) como provedor primário.
+   */
+  async _callClaude(systemPrompt, messages) {
+    const response = await anthropicClient.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 1000,
+      system: [
+        {
+          type: 'text',
+          text: systemPrompt,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: messages,
+      temperature: 0.7,
+    });
+
+    logger.info('[AIService] Claude cache metrics', {
+      service: 'AIService',
+      method: '_callClaude',
+      cache_read: response.usage?.cache_read_input_tokens || 0,
+      cache_creation: response.usage?.cache_creation_input_tokens || 0,
+      input_tokens: response.usage?.input_tokens || 0,
+    });
+
+    const text = response.content?.[0]?.text?.trim();
+    if (!text) throw new Error('Claude returned empty response');
+    return text;
+  }
+
+  /**
+   * Chama DeepSeek (OpenAI-compatible SDK) como provedor fallback.
+   */
+  async _callDeepSeek(systemPrompt, messages) {
+    const deepseekMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages
+    ];
+
+    const completion = await deepseekClient.chat.completions.create({
+      model: DEEPSEEK_MODEL,
+      messages: deepseekMessages,
+      max_tokens: 1000,
+      temperature: 0.7,
+    });
+
+    const text = completion.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new Error('DeepSeek returned empty response');
+    return text;
+  }
+
+  /**
+   * Sugere @usernames alternativos quando o desejado está indisponível.
+   * @param {string} desiredUsername - O username que o usuário tentou
+   * @param {string} emailHint - Email do convidado (inferência de nome)
+   * @returns {Promise<string[]>} Array de usernames sugeridos (não verificados contra o banco)
+   */
+  async suggestUsernames(desiredUsername, emailHint = '') {
+    const emailName = emailHint
+      ? emailHint.split('@')[0].replace(/[0-9.]/g, '').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 15)
+      : '';
+    const context = emailName && emailName !== desiredUsername ? `Nome inferido do email: "${emailName}". ` : '';
+
+    const prompt = `${context}O usuário quer o @${desiredUsername} mas está indisponível na plataforma ElosCloud (plataforma financeira social brasileira).
+
+Sugira exatamente 8 @usernames alternativos criativos. Regras obrigatórias:
+- APENAS letras minúsculas (a-z) e números (0-9) — zero caracteres especiais, zero underscore
+- Entre 3 e 20 caracteres
+- Legíveis e memoráveis, não aleatórios
+- Variações do nome desejado (prefixo, sufixo numérico, abreviação)
+- 1 ou 2 com sufixo temático: elos, br, fc, app (sem separador)
+- Sem o símbolo @
+- Um por linha, sem numeração, sem explicação
+
+Retorne apenas os 8 usernames, um por linha.`;
+
+    try {
+      let raw = '';
+
+      if (anthropicClient) {
+        const response = await anthropicClient.messages.create({
+          model: CLAUDE_MODEL,
+          max_tokens: 120,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.85,
+        });
+        logger.info('[AIService] Claude cache metrics (suggestUsernames)', {
+          service: 'AIService',
+          method: 'suggestUsernames',
+          cache_read: response.usage?.cache_read_input_tokens || 0,
+          cache_creation: response.usage?.cache_creation_input_tokens || 0,
+          input_tokens: response.usage?.input_tokens || 0,
+        });
+        raw = response.content?.[0]?.text?.trim() || '';
+      } else if (deepseekClient) {
+        const completion = await deepseekClient.chat.completions.create({
+          model: DEEPSEEK_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 120,
+          temperature: 0.85,
+        });
+        raw = completion.choices?.[0]?.message?.content?.trim() || '';
+      }
+      /** [HANDLE-003] Regex com hifen (AIService usa 3-20 para sugestoes curtas) */
+      const USERNAME_REGEX = /^[a-z0-9][a-z0-9-]{1,18}[a-z0-9]$/;
+      return raw
+        .split('\n')
+        .map(line => line.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-'))
+        .filter(u => USERNAME_REGEX.test(u))
+        .slice(0, 8);
+    } catch (error) {
+      logger.warn('Falha ao gerar sugestões de username via IA, usando fallback', {
+        service: 'AIService', method: 'suggestUsernames', error: error.message,
+      });
+      const base = desiredUsername.replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').substring(0, 12);
+      return [`${base}elos`, `${base}br`, `${base}2026`, `${base}app`]
+        .filter(u => /^[a-z0-9][a-z0-9-]{1,18}[a-z0-9]$/.test(u));
     }
   }
 
@@ -329,40 +618,17 @@ Precisa de ajuda com alguma caixinha específica?`;
 Está com alguma dificuldade específica em um pagamento?`;
     }
 
-    // Marketplace
-    if (lowerContent.includes('marketplace') || lowerContent.includes('produto') || lowerContent.includes('vender') || 
+    // Marketplace — loja bloqueada / desbloquear / status da loja
+    if (lowerContent.includes('desbloquear') || lowerContent.includes('bloquear') || lowerContent.includes('bloqueada') ||
+        lowerContent.includes('suspensa') || lowerContent.includes('suspender') || lowerContent.includes('pendente') ||
+        (lowerContent.includes('loja') && (lowerContent.includes('ativar') || lowerContent.includes('ativa') || lowerContent.includes('status')))) {
+      return `Entendi! Para te ajudar melhor, preciso saber qual o status que aparece na sua loja (pendente, suspensa ou rejeitada).\n\nSe estiver pendente: sua loja está aguardando aprovação da equipe ElosCloud. Não é necessária nenhuma ação da sua parte — assim que for analisada você recebe uma notificação.\n\nSe estiver suspensa ou rejeitada: é necessário entrar em contato com o suporte para que a equipe verifique o motivo e possa reativar.\n\nQuer que eu abra um ticket de suporte para você agora?`;
+    }
+
+    // Marketplace — geral
+    if (lowerContent.includes('marketplace') || lowerContent.includes('produto') || lowerContent.includes('vender') ||
         lowerContent.includes('comprar') || lowerContent.includes('loja')) {
-      return `🛒 **Marketplace ElosCloud**
-
-**Para Compradores:**
-• Navegue pelos produtos disponíveis
-• Filtre por categoria e preço
-• Veja avaliações de outros usuários
-• Finalize compras com ElosCoins ou outros métodos
-
-**Para Vendedores:**
-• Role de "Seller" necessária
-• Cadastre produtos com fotos e descrições
-• Gerencie estoque e pedidos
-• Receba pagamentos através da plataforma
-
-**Sistema de Avaliações:**
-• Avalie produtos após a compra
-• Vendedores também podem ser avaliados
-• Sistema de reputação transparente
-
-**Gestão de Pedidos:**
-• Acompanhe status dos pedidos
-• Comunicação direta com vendedores
-• Sistema de disputas em caso de problemas
-
-**Como começar a vender:**
-1. Solicite a role de "Seller"
-2. Configure seu perfil de vendedor
-3. Cadastre seus primeiros produtos
-4. Gerencie pedidos pelo painel
-
-Você quer comprar ou vender produtos?`;
+      return `O Mercado Local da ElosCloud é onde você pode comprar e vender produtos dentro da plataforma.\n\nPara vender, você precisa criar um perfil de vendedor. Após o cadastro, sua loja fica com status "pendente" até ser aprovada pela nossa equipe. A ativação é manual e geralmente leva até 2 dias úteis.\n\nStatus possíveis da loja:\n- Pendente: aguardando aprovação\n- Ativa: loja funcionando normalmente\n- Suspensa: temporariamente bloqueada\n- Rejeitada: cadastro não aprovado (entre em contato com o suporte)\n\nTem alguma dúvida específica sobre o seu cadastro de vendedor?`;
     }
 
     // Profile and settings
@@ -502,6 +768,45 @@ Nossa equipe de suporte tem acesso a informações detalhadas da sua conta e pod
 Digite 'falar com suporte' para ser conectado a um especialista que pode acessar seus dados e histórico para dar uma resposta mais precisa.
 
 Ou me diga sobre qual área da plataforma você tem dúvidas: caixinhas, marketplace, pagamentos ou perfil?`;
+  }
+  /**
+   * Detecta mensagens de crise financeira (dinheiro sumindo, conta invadida, etc.)
+   * para acionar resposta de acolhimento antes de escalar.
+   */
+  _isCrisisMessage(content) {
+    const crisisKeywords = [
+      'dinheiro sumiu', 'dinheiro sumindo', 'dinheiro desapareceu',
+      'roubaram', 'fui roubado', 'me roubaram',
+      'conta hackeada', 'hackearam', 'invadiram minha conta', 'acesso indevido',
+      'não reconheço', 'transação estranha', 'cobrado indevidamente', 'cobrança indevida',
+      'perdi tudo', 'cadê meu dinheiro', 'onde está meu dinheiro',
+      'saldo negativo', 'dinheiro foi embora',
+    ];
+    const lower = content.toLowerCase();
+    return crisisKeywords.some(kw => lower.includes(kw));
+  }
+
+  /**
+   * Enriquece o contexto do usuário com dados em tempo real (wallet, caixinhas, empréstimos).
+   * Se o contexto já vier rico, retorna sem nova consulta ao banco.
+   */
+  async _enrichUserContext(userId, existingContext) {
+    if (existingContext && existingContext.wallet && existingContext.loans && existingContext.trustPassport) {
+      return existingContext; // já rico
+    }
+    try {
+      const SupportContextBuilder = require('./SupportContextBuilder');
+      const [wallet, caixinhas, loans, trustPassport] = await Promise.all([
+        SupportContextBuilder.getWalletInfo(userId),
+        SupportContextBuilder.getUserCaixinhas(userId),
+        SupportContextBuilder.getUserLoans(userId),
+        SupportContextBuilder.getTrustPassport(userId),
+      ]);
+      return { ...(existingContext || {}), wallet, caixinhas: caixinhas || [], loans: loans || [], trustPassport };
+    } catch (err) {
+      logger.warn('AIService: falha ao enriquecer contexto do usuário', { userId, error: err.message });
+      return existingContext || {};
+    }
   }
 }
 

@@ -53,6 +53,9 @@ router.use((req, res, next) => {
  *       500:
  *         description: Erro no servidor
  */
+// Web Push VAPID public key — DEVE vir antes de /:userId para não ser capturada pelo param
+router.get('/vapid-key', readLimit, notificationsController.getVapidPublicKey);
+
 router.post('/', verifyToken, writeLimit, validate(notificationSchema), notificationsController.createNotification);
 
 /**
@@ -86,6 +89,9 @@ router.post('/', verifyToken, writeLimit, validate(notificationSchema), notifica
  *       500:
  *         description: Erro no servidor
  */
+// Rotas estáticas ANTES de /:userId para evitar conflito de matching
+router.get('/unread-count', verifyToken, readLimit, notificationsController.getUnreadCount);
+
 router.get('/:userId', verifyToken, readLimit, notificationsController.getUserNotifications);
 
 /**
@@ -131,5 +137,34 @@ router.get('/:userId', verifyToken, readLimit, notificationsController.getUserNo
  *         description: Erro no servidor
  */
 router.post('/:userId/markAsRead/:notificationId', verifyToken, writeLimit, validate(notificationSchema), notificationsController.markNotificationAsRead);
+
+/**
+ * @swagger
+ * /notifications/{userId}/clearAll:
+ *   post:
+ *     summary: Marca todas as notificações do usuário como lidas
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID do usuário
+ *     responses:
+ *       200:
+ *         description: Todas as notificações marcadas como lidas
+ *       401:
+ *         description: Não autorizado
+ *       500:
+ *         description: Erro no servidor
+ */
+router.post('/:userId/clearAll', verifyToken, writeLimit, notificationsController.clearAllNotifications);
+
+// --- Web Push (VAPID) ---
+router.post('/push-token', verifyToken, writeLimit, notificationsController.savePushToken);
+router.delete('/push-token', verifyToken, writeLimit, notificationsController.removePushToken);
 
 module.exports = router;

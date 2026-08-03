@@ -8,8 +8,8 @@ const BaseFlow = require('./BaseFlow');
  *   aprovar empréstimo (admin) → realizar pagamento → verificar quitação parcial.
  */
 class LoanFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('loan', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('loan', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run(testUser, secondUser) {
@@ -30,11 +30,12 @@ class LoanFlow extends BaseFlow {
         contribuicaoMensal: 200,
         duracaoMeses: 12,
         distribuicaoTipo: 'MENSAL',
+        dataCriacao: new Date().toISOString(),
         permiteEmprestimos: true,
         diaVencimento: 15
       }, { headers: authAdmin });
 
-      caixinhaId = res.data?.id || res.data?.caixinhaId;
+      caixinhaId = res.data?.id || res.data?.caixinhaId || res.data?.data?.id;
       return { caixinhaId };
     });
 
@@ -42,17 +43,47 @@ class LoanFlow extends BaseFlow {
 
     // 2. Injetar saldo na caixinha para permitir o empréstimo
     await this.step('seed_caixinha_funds', async ({ axios }) => {
-      return await axios.post('/api/qa/seed-balance', {
+      const res = await axios.post('/api/qa/seed-balance', {
         caixinhaId,
         userId: testUser.uid,
         amount: 1000,
         description: 'Carga para lastro de empréstimo'
-      }, {
-        headers: { 'x-qa-internal': 'true' }
       });
+      return { success: res.data?.success, status: res.status };
     });
 
-    // 3. Solicitar empréstimo (Second User)
+    // 3. Adicionar secondUser como membro da caixinha (necessário para solicitar empréstimo)
+    if (secondUser) {
+      await this.step('add_member_for_loan', async ({ axios }) => {
+        // Convidar secondUser
+        const inviteRes = await axios.post(`/api/caixinha/membros/${caixinhaId}/convite`, {
+          caixinhaId,
+          targetId: secondUser.uid,
+          targetName: secondUser.displayName,
+          senderId: testUser.uid,
+          senderName: testUser.displayName
+        }, { headers: authAdmin });
+
+        // Tenta extrair o ID lidando com typos e diferentes formatos
+        const inviteId = inviteRes.data?.inviteId || 
+                         inviteRes.data?.caxinhaInviteId || 
+                         inviteRes.data?.data?.id || 
+                         inviteRes.data?.id;
+
+        if (!inviteId) {
+          throw new Error('Falha ao obter ID do convite (verificar typo caxinhaInviteId na API)');
+        }
+
+        // secondUser aceita o convite
+        await axios.post(`/api/caixinha/membros/convite/${inviteId}/aceitar`,
+          { userId: secondUser.uid },
+          { headers: authUser }
+        );
+        return { memberAdded: true, inviteId };
+      });
+    }
+
+    // 4. Solicitar empréstimo (Second User)
     await this.step('request_loan', async ({ axios }) => {
       const res = await axios.post(`/api/caixinha/${caixinhaId}/emprestimos`, {
         userId: secondUser?.uid || testUser.uid,
@@ -62,8 +93,9 @@ class LoanFlow extends BaseFlow {
         taxaJuros: 2
       }, { headers: authUser });
 
-      loanId = res.data?.id || res.data?.loanId;
-      return { loanId, status: res.data?.status };
+      // O backend retorna { success: true, data: { id: '...', ... } }
+      loanId = res.data?.data?.id || res.data?.id || res.data?.loanId;
+      return { loanId, status: res.data?.data?.status || res.data?.status };
     });
 
     if (!loanId) return this.result();

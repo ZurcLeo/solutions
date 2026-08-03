@@ -11,8 +11,8 @@ const BaseFlow = require('./BaseFlow');
  * o bug aparece apenas se o `usuario` doc estiver sem `nome`.
  */
 class InviteFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('invite', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('invite', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run(testUser) {
@@ -29,7 +29,7 @@ class InviteFlow extends BaseFlow {
         friendName: targetName,
       }, { headers: authHeader });
 
-      generatedInviteId = res.data?.inviteId || res.data?.id || null;
+      generatedInviteId = res.data?.data?.id || res.data?.inviteId || res.data?.id || null;
 
       return {
         statusCode:          res.status,
@@ -87,7 +87,27 @@ class InviteFlow extends BaseFlow {
       });
     }
 
-    // ── Passo 5: Cancelar convite ─────────────────────────────────────────
+    // ── Passo 5: Validar convite (endpoint público, simula destinatário) ─────
+    let registrationToken = null;
+    if (generatedInviteId) {
+      await this.step('validate_invite', async ({ axios: ax }) => {
+        const res = await ax.post(`/api/invite/validate/${generatedInviteId}`, {
+          email: targetEmail,
+          nome:  'QA Recipient Name',   // nome diferente de friendName — confirma o fix
+        });
+
+        registrationToken = res.data?.registrationToken || null;
+
+        return {
+          statusCode:           res.status,
+          hasRegistrationToken: !!registrationToken,
+          hasInviter:           !!(res.data?.inviter?.id),
+          inviteMarkedValidated: res.data?.inviteId === generatedInviteId,
+        };
+      });
+    }
+
+    // ── Passo 6: Cancelar convite (cleanup — volta status para canceled) ──────
     if (generatedInviteId) {
       await this.step('cancel_invite', async ({ axios: ax }) => {
         const res = await ax.put(

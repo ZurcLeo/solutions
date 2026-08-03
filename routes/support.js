@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const supportController = require('../controllers/SupportController');
+const knowledgeController = require('../controllers/KnowledgeController');
 const verifyToken = require('../middlewares/auth');
 const { checkPermission, checkRole } = require('../middlewares/rbac');
 const { writeLimit, readLimit } = require('../middlewares/rateLimiter');
@@ -16,6 +17,17 @@ router.use((req, res, next) => {
   logger.info(`[ROUTE] Request received in ${ROUTE_NAME}`, { sreContext: req.sreContext || 'no-context' });
   next();
 });
+
+// ── Rotas públicas (sem autenticação) ─────────────────────────────────────────
+// DEVEM vir ANTES do router.use(verifyToken)
+
+// CSAT survey (token-based)
+router.put('/csat/:token', writeLimit, supportController.submitCsat);
+
+// Base de Conhecimento — leitura pública (SUPP-ARTICLE-001)
+router.get('/articles',            readLimit, knowledgeController.listArticles);
+router.get('/articles/stats',      readLimit, knowledgeController.getArticleStats);
+router.get('/articles/:articleId', readLimit, knowledgeController.getArticle);
 
 router.use(verifyToken); // All support routes require authentication
 
@@ -231,6 +243,9 @@ router.get('/tickets/category/:category', readLimit, checkPermission('support:ma
  */
 router.get('/tickets/analytics', readLimit, checkPermission('support:view_analytics'), supportController.getAnalytics);
 
+// SLA — tickets em risco de breach (próximas N horas ou já vencidos)
+router.get('/tickets/sla-at-risk', readLimit, checkPermission('support:manage_tickets'), supportController.getTicketsAtSLARisk);
+
 /**
  * @swagger
  * /api/support/tickets/assigned:
@@ -314,6 +329,10 @@ router.get('/tickets/all', readLimit, checkPermission('support:manage_tickets'),
  *         description: Server error
  */
 router.post('/tickets/:ticketId/assign', writeLimit, checkPermission('support:manage_tickets'), supportController.assignTicket);
+
+// Ação contextual: aprovar/rejeitar loja, pedir mais informações, etc.
+// Body: { decision: 'approve' | 'reject' | 'request_info', reason?: string }
+router.post('/tickets/:ticketId/action', writeLimit, checkPermission('support:manage_tickets'), supportController.executeTicketAction);
 
 /**
  * @swagger
@@ -496,5 +515,21 @@ router.get('/tickets/:ticketId/conversation', readLimit, checkPermission('suppor
  */
 router.get('/tickets/:ticketId', readLimit, supportController.getTicketDetails);
 router.put('/tickets/:ticketId', writeLimit, checkPermission('support:manage_tickets'), supportController.updateTicket);
+
+// ── Vínculos entre tickets (SUPP-LINK-001) ───────────────────────────────────
+// DELETE /links/:linkId DEVE vir antes de /:ticketId para evitar conflito de matching
+router.delete('/tickets/links/:linkId', writeLimit, checkPermission('support:manage_tickets'), supportController.deleteTicketLink);
+router.post('/tickets/:ticketId/links',  writeLimit, checkPermission('support:manage_tickets'), supportController.createTicketLink);
+router.get('/tickets/:ticketId/links',   readLimit,  checkPermission('support:manage_tickets'), supportController.getTicketLinks);
+
+// Macros / Respostas Rápidas
+router.get('/macros', readLimit, checkPermission('support:manage_tickets'), supportController.getMacros);
+router.post('/macros', writeLimit, checkPermission('support:manage_tickets'), supportController.createMacro);
+
+// ── Base de Conhecimento — CRUD admin (SUPP-ARTICLE-001) ─────────────────────
+router.get('/articles/admin/all',          readLimit,  checkPermission('support:manage_tickets'), knowledgeController.listAllArticles);
+router.post('/articles',                   writeLimit, checkPermission('support:manage_tickets'), knowledgeController.createArticle);
+router.put('/articles/:articleId',         writeLimit, checkPermission('support:manage_tickets'), knowledgeController.updateArticle);
+router.delete('/articles/:articleId',      writeLimit, checkPermission('support:manage_tickets'), knowledgeController.deleteArticle);
 
 module.exports = router;

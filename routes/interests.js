@@ -33,8 +33,4 @@ router.post('/admin/interests', verifyToken, isAdmin, writeLimit, interestsContr
 router.put('/admin/interests/:interestId', verifyToken, isAdmin, writeLimit, interestsController.updateInterest);
 router.get('/admin/stats', verifyToken, isAdmin, readLimit, interestsController.getInterestStats);
 
-// Rotas de migração (apenas admin)
-router.post('/admin/migrate/static', verifyToken, isAdmin, interestsController.migrateStaticInterests);
-router.post('/admin/migrate/users', verifyToken, isAdmin, interestsController.migrateUserInterests);
-
 module.exports = router;

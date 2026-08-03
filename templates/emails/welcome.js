@@ -1,205 +1,96 @@
-// templates/emails/welcome.js
+const wrapper = require('./wrapper');
 
 /**
- * Template for welcome emails when a user completes registration
+ * Template for welcome emails when a user completes registration via invite
  * @param {Object} data - Template data
- * @param {string} data.nome - User's name
- * @param {string} data.email - User's email
+ * @param {string} data.friendName - User's name
+ * @param {string} data.nome - Alias for friendName
+ * @param {string} data.godfatherName - Name of the person who invited the user
  * @returns {string} HTML content
  */
 module.exports = function(data) {
-    // Extract data with fallbacks
-    const nome = data.nome || 'Novo Usuário';
-    const email = data.email || '';
-    const ASSETS_BASE_URL = process.env.ASSETS_BASE_URL || 'https://eloscloud.com';
-    const logoURL = process.env.LOGO_URL || `${ASSETS_BASE_URL}/assets/logo.png`;
-    
-    return `
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Bem-vindo à ElosCloud</title>
-      <style>
-        body {
-          font-family: 'Poppins', Arial, sans-serif;
-          background-color: #f4f4f4;
-          margin: 0;
-          padding: 0;
-          color: #333333;
-        }
-        .email-container {
-          max-width: 600px;
-          margin: auto;
-          background-color: #ffffff;
-          border-radius: 8px;
-          box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-          overflow: hidden;
-        }
-        .email-header {
-          background-color: #345C72;
-          color: white;
-          text-align: center;
-          padding: 20px;
-          font-size: 24px;
-          font-weight: bold;
-        }
-        .email-body {
-          padding: 20px;
-          font-size: 16px;
-          color: #333333;
-        }
-        .email-body p {
-          margin: 10px 0;
-        }
-        .cta-button {
-          display: block;
-          width: 80%;
-          margin: 20px auto;
-          padding: 12px;
-          background-color: #007bff;
-          color: white;
-          text-align: center;
-          text-decoration: none;
-          border-radius: 6px;
-          font-size: 18px;
-        }
-        .highlight {
-          background-color: #ffcc00;
-          padding: 10px;
-          border-radius: 5px;
-          text-align: center;
-          font-weight: bold;
-        }
-        .steps-container {
-          background-color: #f9f9f9;
-          border-radius: 8px;
-          padding: 15px;
-          margin: 15px 0;
-        }
-        .step-item {
-          padding: 10px;
-          border-bottom: 1px solid #eeeeee;
-        }
-        .step-item:last-child {
-          border-bottom: none;
-        }
-        .step-title {
-          font-weight: bold;
-          font-size: 18px;
-          margin-bottom: 5px;
-        }
-        .step-description {
-          font-size: 16px;
-          color: #555555;
-        }
-        .email-footer {
-          background-color: #333333;
-          color: white;
-          text-align: center;
-          padding: 15px;
-          font-size: 14px;
-        }
-        .email-footer a {
-          color: #ffffff;
-          text-decoration: underline;
-          margin: 0 5px;
-        }
-        @media screen and (max-width: 600px) {
-          .email-container {
-            width: 100% !important;
-          }
-          .email-body {
-            padding: 10px !important;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <table width="100%" border="0" cellspacing="0" cellpadding="0">
-        <tr>
-          <td align="center" valign="top">
-            <table class="email-container" border="0" cellspacing="0" cellpadding="0">
-              <tr>
-                <td class="email-header">
-                  Bem-vindo à ElosCloud!
-                </td>
-              </tr>
-              <tr>
-                <td class="email-body">
-                  <table width="100%" border="0" cellspacing="0" cellpadding="0">
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 8px;">
-                          <tr>
-                            <td align="left" valign="top" style="padding: 10px;">
-                              <img src="${logoURL}" alt="ElosCloud" width="60" height="60" style="border-radius: 50%; object-fit: cover; margin-right: 15px; display: block;" />
-                            </td>
-                            <td align="left" valign="top">
-                              <p style="margin: 0;"><strong>Bem-vindo à ElosCloud!</strong></p>
-                              <p style="margin: 0; font-size: 20px;">Sua conta foi criada com sucesso.</p>
-                            </td>
-                          </tr>
-                        </table>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <div class="highlight" style="background-color: #ffcc00; padding: 10px; border-radius: 8px; margin: 20px 0; text-align: center; font-size: 20px; font-weight: bold; color: #333333;">
-                          Você recebeu 5.000 ElosCoins ao se cadastrar!
-                        </div>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="left" valign="top" style="padding: 10px;">
-                        <p style="margin: 0;"><strong>Próximos passos:</strong></p>
-                        <div class="steps-container">
-                          <div class="step-item">
-                            <p class="step-title">&#10112; Complete seu Perfil</p>
-                            <p class="step-description">Adicione informações e uma foto de perfil</p>
-                          </div>
-                          <div class="step-item">
-                            <p class="step-title">&#10113; Realize postagens</p>
-                            <p class="step-description">Compartilhe novidades com seus amigos</p>
-                          </div>
-                          <div class="step-item">
-                            <p class="step-title">&#10114; Crie, participe e gerencie caixinhas</p>
-                            <p class="step-description">Administre suas caixinhas de forma eficiente</p>
-                          </div>
-                          <div class="step-item">
-                            <p class="step-title">&#10115; Adicione formas de pagamento e recebimento</p>
-                            <p class="step-description">Configure métodos de pagamento e recebimento</p>
-                          </div>
-                          <div class="step-item">
-                            <p class="step-title">&#10116; Convide seus amigos</p>
-                            <p class="step-description">Traga seus amigos para a ElosCloud</p>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  </table>
-                  <p style="text-align: center; margin-top: 20px;">Clique no botão abaixo para acessar sua conta!</p>
-                  <a href="https://eloscloud.com/login" class="cta-button">VALIDAR MINHA CONTA E ENTRAR</a>
-                </td>
-              </tr>
-              <tr>
-                <td class="email-footer">
-                  Copyright &copy; ${new Date().getFullYear()} | ElosCloud
-                  <br>
-                  <a href="https://eloscloud.com">Visitar ElosCloud</a> |
-                  <a href="https://eloscloud.com/terms">Termos de Uso</a> |
-                  <a href="https://eloscloud.com/privacy">Política de Privacidade</a>
-                  <p style="font-size: 12px; margin: 10px 0 0 0;">
-                    Este e-mail é automático. Por favor, não responda.
-                  </p>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>
-    </body>
-    </html>
-    `;
-  };
+  const userName = data.friendName || data.nome || 'Pessoa querida';
+  const godfatherName = data.godfatherName || 'Alguém especial';
+  const APP_URL = process.env.FRONTEND_URL || 'https://eloscloud.com';
+
+  const bodyContent = `
+      <p style="text-align:center; color:#7A6F68; margin-bottom:32px;">
+        <strong>${godfatherName}</strong> te convidou para a ElosCloud &mdash; e convites aqui t&ecirc;m peso.<br>
+        Quem te trouxe responde pela sua entrada. E voc&ecirc; vai entender por qu&ecirc; isso importa.
+      </p>
+
+      <!-- O que é a ElosCloud -->
+      <div style="background-color:#FAF3E8; border-radius:16px; padding:24px; margin-bottom:32px;">
+        <h3 style="font-size:18px; margin-bottom:16px; color:#1A1410;">A ElosCloud &eacute; o bairro com endere&ccedil;o digital.</h3>
+        <p style="margin-bottom:16px; font-size:15px; line-height:1.5; color:#4a3b32;">
+          N&atilde;o &eacute; fintech. N&atilde;o &eacute; rede social. &Eacute; onde tudo que existe na sua rua finalmente tem um lugar:
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px; color:#4a3b32;">
+          <tr><td style="padding-bottom:10px;">&#x1F6CD;&#xFE0F; <strong>Mercado Local</strong> &mdash; compre, venda e contrate quem mora perto</td></tr>
+          <tr><td style="padding-bottom:10px;">&#x1F6F5; <strong>Entregas</strong> &mdash; vizinhos entregam para vizinhos, no pre&ccedil;o deles</td></tr>
+          <tr><td style="padding-bottom:10px;">&#x1F3E0; <strong>Temporada</strong> &mdash; alugue ou hospede por dia ou semana</td></tr>
+          <tr><td style="padding-bottom:10px;">&#x1F4AC; <strong>Comunidade</strong> &mdash; feed, presentes e conex&otilde;es do bairro</td></tr>
+          <tr><td style="padding-bottom:10px;">&#x1F3E6; <strong>Caixinhas</strong> &mdash; poupan&ccedil;a coletiva com governan&ccedil;a real</td></tr>
+          <tr><td style="padding-bottom:10px;">&#x1F3DB;&#xFE0F; <strong>&Aacute;gora Digital</strong> &mdash; sua voz na comunidade, relatos e enquetes</td></tr>
+        </table>
+      </div>
+
+      <!-- Passaporte de Confiança -->
+      <div style="background-color:#FAF3E8; border-radius:16px; padding:24px; margin-bottom:32px;">
+        <h3 style="font-size:18px; margin-bottom:12px; color:#1A1410;">Seu Passaporte de Confian&ccedil;a</h3>
+        <p style="font-size:15px; line-height:1.6; color:#4a3b32; margin-bottom:16px;">
+          Cada compra, entrega cumprida, avalia&ccedil;&atilde;o positiva e participa&ccedil;&atilde;o na comunidade constr&oacute;i sua reputa&ccedil;&atilde;o &mdash; uma s&oacute;, que vale em tudo.
+          Quanto mais voc&ecirc; usa, mais portas se abrem: limites de transa&ccedil;&atilde;o maiores, cust&oacute;dia de caixinhas, destaque no marketplace.
+        </p>
+        <div style="text-align:center;">
+          <a href="${APP_URL}/passaporte-de-confianca" style="color:#B85C2A; font-weight:600; text-decoration:underline;">Ver meu Passaporte &rarr;</a>
+        </div>
+      </div>
+
+      <!-- CTA principal -->
+      <div style="text-align:center; margin-bottom:32px;">
+        <a href="${APP_URL}" class="btn">&#x1F33F; Acessar minha conta</a>
+      </div>
+
+      <!-- Tabela "Por onde começar" -->
+      <div style="margin-bottom:32px;">
+        <h3 style="font-size:18px; margin-bottom:16px; color:#1A1410;">Por onde come&ccedil;ar</h3>
+        <table width="100%" cellpadding="8" cellspacing="0" style="font-size:14px; border-collapse:collapse;">
+          <tr style="background-color:#FAF3E8;">
+            <td style="padding:10px 12px; border-radius:8px 0 0 0; font-weight:600; color:#1A1410;">O que voc&ecirc; quer fazer</td>
+            <td style="padding:10px 12px; border-radius:0 8px 0 0; font-weight:600; color:#1A1410;">Por onde ir</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px; color:#4a3b32; border-bottom:1px solid #EFE4CF;">Comprar ou contratar algu&eacute;m do bairro</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #EFE4CF;"><a href="${APP_URL}/mercado" style="color:#B85C2A; font-weight:600;">Mercado Local</a></td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px; color:#4a3b32; border-bottom:1px solid #EFE4CF;">Trabalhar como entregador</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #EFE4CF;"><a href="${APP_URL}/delivery" style="color:#B85C2A; font-weight:600;">Delivery</a></td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px; color:#4a3b32; border-bottom:1px solid #EFE4CF;">Participar da comunidade</td>
+            <td style="padding:10px 12px; border-bottom:1px solid #EFE4CF;"><a href="${APP_URL}/posts" style="color:#B85C2A; font-weight:600;">Feed</a></td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px; color:#4a3b32;">Dar sua opini&atilde;o sobre o bairro</td>
+            <td style="padding:10px 12px;"><a href="${APP_URL}/agora/enquetes" style="color:#B85C2A; font-weight:600;">&Aacute;gora Digital</a></td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Segurança -->
+      <div style="font-size:13px; color:#7A6F68; background-color:#FAF3E8; border-radius:16px; padding:16px; margin-bottom:16px;">
+        <strong>&#x1F6E1;&#xFE0F; Seus dados est&atilde;o seguros.</strong> Criptografia AES-256, autentica&ccedil;&atilde;o em duas fatores e CPF nunca exibido inteiro &mdash; s&oacute; usado quando necess&aacute;rio.
+        <a href="${APP_URL}/privacidade" style="color:#B85C2A;">Saiba mais</a>
+      </div>
+  `;
+
+  return wrapper({
+    title: `${godfatherName} te trouxe para o bairro`,
+    badgeText: '&#x2728; Voc&ecirc; entrou pela porta certa',
+    userName,
+    bodyContent,
+    preheader: `${godfatherName} te trouxe para o bairro — bem-vindo à ElosCloud`
+  });
+};

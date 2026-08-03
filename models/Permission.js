@@ -1,8 +1,6 @@
 // models/Permission.js
-const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const LocalStorageService = require('../services/LocalStorageService');
-const FirestoreService = require('../utils/firestoreService');
 const dbServicePermission = LocalStorageService.collection('permissions');
 const { permissions: initialPermissions } = require('../config/data/initialData');
 

@@ -34,7 +34,7 @@ describe('rbac middlewares', () => {
 
   beforeEach(() => {
     next = jest.fn();
-    jest.clearAllMocks();
+    jest.resetAllMocks();
   });
 
   describe('checkPermission', () => {
@@ -164,19 +164,7 @@ describe('rbac middlewares', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    it('deve retornar 403 quando usuário não existe no banco', async () => {
-      User.getById.mockResolvedValue(null);
-      const req = mockReq();
-      const res = mockRes();
-
-      await isAdmin(req, res, next);
-
-      expect(res.status).toHaveBeenCalledWith(403);
-      expect(next).not.toHaveBeenCalled();
-    });
-
-    it('deve chamar next() e setar req.user.isAdmin quando tem Admin role', async () => {
-      User.getById.mockResolvedValue({ uid: 'user-123', isOwnerOrAdmin: false });
+    it('deve chamar next() e setar req.user.isAdmin quando tem admin role', async () => {
       userRoleService.checkUserHasRole.mockResolvedValue(true);
       const req = mockReq();
       const res = mockRes();
@@ -187,20 +175,7 @@ describe('rbac middlewares', () => {
       expect(next).toHaveBeenCalledTimes(1);
     });
 
-    it('deve chamar next() quando isOwnerOrAdmin === true (sistema legado)', async () => {
-      User.getById.mockResolvedValue({ uid: 'user-123', isOwnerOrAdmin: true });
-      userRoleService.checkUserHasRole.mockResolvedValue(false);
-      const req = mockReq();
-      const res = mockRes();
-
-      await isAdmin(req, res, next);
-
-      expect(req.user.isAdmin).toBe(true);
-      expect(next).toHaveBeenCalledTimes(1);
-    });
-
     it('deve retornar 403 quando usuário não é admin por nenhum mecanismo', async () => {
-      User.getById.mockResolvedValue({ uid: 'user-123', isOwnerOrAdmin: false });
       userRoleService.checkUserHasRole.mockResolvedValue(false);
       const req = mockReq();
       const res = mockRes();
@@ -212,7 +187,7 @@ describe('rbac middlewares', () => {
     });
 
     it('deve retornar 500 quando ocorre erro interno', async () => {
-      User.getById.mockRejectedValue(new Error('DB error'));
+      userRoleService.checkUserHasRole.mockRejectedValue(new Error('DB error'));
       const req = mockReq();
       const res = mockRes();
 

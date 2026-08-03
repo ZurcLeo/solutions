@@ -1,7 +1,9 @@
 const BankAccount = require('../models/BankAccount');
-const paymentService = require('../services/paymentService');
+const asaasService = require('../services/asaasService');
 const { logger } = require('../logger');
 const { securityValidation } = require('../schemas/bankAccountSchema');
+const supabaseSyncService = require('../services/supabaseSyncService');
+const ledgerService = require('../services/ledgerService');
 
 /**
  * Registra uma nova conta bancária para uma caixinha.
@@ -111,26 +113,19 @@ exports.generateValidationPix = async (req, res) => {
       return res.status(400).json({ message: 'Conta já está validada.' });
     }
 
-    // 2. Gerar PIX de validação de R$ 0,01
-    const pixData = await paymentService.createPixPayment(
-      0.01, 
-      `Validação conta bancária - ${bankAccount.bankName}`,
-      {
-        email: req.user.email || `${adminId}@eloscloud.com.br`,
-        first_name: req.user.firstName || bankAccount.accountHolder.split(' ')[0] || 'Usuario',
-        last_name: req.user.lastName || bankAccount.accountHolder.split(' ').slice(1).join(' ') || 'Eloscloud',
-        identificationType: 'CPF',
-        identificationNumber: req.user.cpf || req.user.document || '00000000000'
-      },
-      {
-        // Não enviar items para PIX - apenas para cartão
-        externalReference: `bank_validation_${accountId}_${Date.now()}`,
-        // Webhook URL - deve ser HTTPS válida em produção
-        notificationUrl: process.env.NODE_ENV === 'production' && process.env.BASE_URL ? 
-          `${process.env.BASE_URL}/api/webhooks/mercadopago` : 
-          'https://eloscloud.com/api/webhooks/mercadopago'
-      }
-    );
+    // 2. Gerar PIX de validação via Asaas
+    const customer = await asaasService.createCustomer({
+      name: bankAccount.accountHolder || `User ${adminId}`,
+      email: req.user.email || `${adminId}@eloscloud.com`,
+      externalReference: adminId,
+    });
+
+    const pixData = await asaasService.createPixCharge({
+      customerId: customer.id,
+      value: 0.01,
+      description: `Validação conta bancária - ${bankAccount.bankName}`,
+      externalReference: `bank_validation_${accountId}_${Date.now()}`,
+    });
 
     logger.info('PIX de validação gerado com sucesso', {
       controller: 'BankAccountController',
@@ -198,7 +193,7 @@ exports.validateAccount = async (req, res) => {
     }
 
     // 2. Verificar o status do pagamento no Mercado Pago
-    const paymentData = await paymentService.checkPaymentStatus(transactionId);
+    const paymentData = await asaasService.getPaymentStatus(transactionId);
     
     logger.info('Dados do pagamento recuperados', {
       controller: 'BankAccountController',
@@ -246,6 +241,10 @@ exports.validateAccount = async (req, res) => {
       transactionId,
       action: 'BANK_ACCOUNT_VALIDATED'
     });
+
+    // Sincronizar com Supabase (Dual-Write)
+    // Ao validar a conta bancária, o usuário se torna um membro validado na caixinha
+    supabaseSyncService.syncCaixinhaMemberToSupabase(adminId, bankAccount.caixinhaId, 'membro', 'validated');
 
     res.status(200).json({ 
       message: 'Conta validada com sucesso.', 
@@ -618,5 +617,121 @@ exports.getAllBankAccounts = async (req, res) => {
     });
 
     res.status(500).json({ message: 'Erro ao buscar contas.', error: error.message });
+  }
+};
+
+/**
+ * POST /api/banking/transfer
+ * Transferência interna de saldo virtual entre membros da mesma caixinha.
+ * Body: { caixinhaId, fromUserId, toUserId, amount, description }
+ * Requer que o usuário autenticado seja fromUserId (transferência própria) ou admin.
+ */
+exports.transferFunds = async (req, res) => {
+  const { caixinhaId, fromUserId, toUserId, amount, description } = req.body;
+  const { uid } = req.user;
+
+  if (!caixinhaId || !toUserId || !amount || amount <= 0) {
+    return res.status(400).json({
+      message: 'caixinhaId, toUserId e amount são obrigatórios'
+    });
+  }
+
+  const sourceUserId = fromUserId || uid;
+
+  // Apenas o próprio usuário pode transferir seus fundos (ou admin via isAdmin middleware)
+  if (sourceUserId !== uid) {
+    return res.status(403).json({ message: 'Sem permissão para transferir fundos de outro membro' });
+  }
+
+  logger.info('Transferência interna de saldo solicitada', {
+    controller: 'BankAccountController',
+    method: 'transferFunds',
+    caixinhaId, fromUserId: sourceUserId, toUserId, amount
+  });
+
+  try {
+    const transferId = require('crypto').randomUUID();
+
+    // Débito do remetente
+    await ledgerService.debitMember({
+      caixinhaId,
+      userId: sourceUserId,
+      amount: Number(amount),
+      description: description || `Transferência para ${toUserId}`,
+      reference: transferId
+    });
+
+    // Crédito do destinatário (paymentId garante idempotência)
+    await ledgerService.creditMember({
+      caixinhaId,
+      userId: toUserId,
+      amount: Number(amount),
+      paymentId: `TRANSFER_${transferId}`,
+      description: description || `Transferência de ${sourceUserId}`
+    });
+
+    logger.info('Transferência interna concluída', {
+      controller: 'BankAccountController',
+      method: 'transferFunds',
+      transferId, caixinhaId, fromUserId: sourceUserId, toUserId, amount
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: { transferId, caixinhaId, fromUserId: sourceUserId, toUserId, amount }
+    });
+  } catch (error) {
+    logger.error('Erro na transferência interna', {
+      controller: 'BankAccountController',
+      method: 'transferFunds',
+      caixinhaId, fromUserId: sourceUserId, toUserId, amount,
+      error: error.message,
+      action: 'FINANCIAL_OPERATION_FAILED'
+    });
+    return res.status(400).json({ message: error.message });
+  }
+};
+
+/**
+ * POST /api/banking/transaction/:id/cancel
+ * Cancela uma transação MercadoPago pendente.
+ * Apenas o owner (uid == transação.userId) ou admin pode cancelar.
+ */
+exports.cancelTransaction = async (req, res) => {
+  const { id: transactionId } = req.params;
+  const { uid } = req.user;
+
+  if (!transactionId) {
+    return res.status(400).json({ message: 'transactionId é obrigatório' });
+  }
+
+  logger.info('Cancelamento de transação solicitado', {
+    controller: 'BankAccountController',
+    method: 'cancelTransaction',
+    transactionId, userId: uid
+  });
+
+  try {
+    const result = await asaasService.cancelPayment(transactionId);
+
+    logger.info('Transação cancelada', {
+      controller: 'BankAccountController',
+      method: 'cancelTransaction',
+      transactionId, userId: uid
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: { transactionId, status: result?.status || 'cancelled', caixinhaId: result?.caixinhaId }
+    });
+  } catch (error) {
+    logger.error('Erro ao cancelar transação', {
+      controller: 'BankAccountController',
+      method: 'cancelTransaction',
+      transactionId, userId: uid,
+      error: error.message,
+      action: 'FINANCIAL_OPERATION_FAILED'
+    });
+    return res.status(400).json({ message: error.message });
   }
 };

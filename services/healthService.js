@@ -77,7 +77,7 @@ const checkPublicServices = async () => {
       invites: await checkInvitesService({ depth: 'basic' }),
       notifications: await checkNotificationsService({ depth: 'basic' }),
       asaas: await checkAsaasService({ depth: 'basic' }),
-      openai: await checkOpenAIService({ depth: 'basic' }),
+      openai: await checkDeepSeekService({ depth: 'basic' }), // Map DeepSeek to 'openai' key for compatibility with weights
       user: await checkUserService({ depth: 'basic' }),
       connections: await checkConnectionsService({ depth: 'basic' }),
       posts: await checkPostsService({ depth: 'basic' }),
@@ -90,6 +90,7 @@ const checkPublicServices = async () => {
 
     return {
       ...healthReport,
+      dependencies,
       server: {
         memoryUsage: {
           total: `${Math.round(totalMemory / (1024 * 1024 * 1024))} GB`,
@@ -126,29 +127,33 @@ const checkPublicServices = async () => {
 };
 
 /**
- * Check OpenAI Service connectivity
+ * Check DeepSeek AI Service connectivity
  */
-const checkOpenAIService = async (options = {}) => {
+const checkDeepSeekService = async (options = {}) => {
   const { depth = 'basic' } = options;
   const startTime = performance.now();
+  const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!apiKey) {
     return { status: 'error', message: 'API Key missing' };
   }
 
   try {
     const OpenAI = require('openai');
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 5000 });
+    const client = new OpenAI({ 
+      apiKey, 
+      baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+      timeout: 5000 
+    });
     
     if (depth === 'basic') {
-      // Just check if client can be instantiated and has key
       return { 
         status: 'healthy', 
         responseTime: `${(performance.now() - startTime).toFixed(2)}ms` 
       };
     }
 
-    // Detailed check: list models (lightweight request)
+    // Detailed check: list models
     await client.models.list();
     return { 
       status: 'healthy', 
@@ -1184,7 +1189,8 @@ const checkMessagesService = async (options = {}) => {
       let mensagemTeste;
       try {
         // Tenta buscar algumas mensagens (se existirem)
-        const mensagens = await Message.getByUserId(uidRemetenteTeste || 'teste', uidDestinatarioTeste || 'teste');
+        // Novo signature: getByUserId(userId, limit)
+        const mensagens = await Message.getByUserId(uidRemetenteTeste || 'teste', 10);
         mensagemTeste = mensagens && mensagens.length > 0 ? mensagens[0] : null;
       } catch (error) {
         return {

@@ -47,33 +47,46 @@ const processDisputeResult = async (caixinhaId, disputeId) => {
     };
     
     // Calcular quórum
-    const totalMembers = caixinha.members.length;
-    const totalVotes = dispute.votes.length;
+    const members = caixinha.members || [];
+    const votes = dispute.votes || [];
+    const totalMembers = members.length;
+    const totalVotes = votes.length;
     let quorumReached = false;
-    
+
+    if (totalMembers === 0) {
+      return dispute;
+    }
+
     if (governanceModel.quorumType === 'PERCENTAGE') {
       const quorumPercentage = (totalVotes / totalMembers) * 100;
       quorumReached = quorumPercentage >= governanceModel.quorumValue;
     } else { // COUNT
       quorumReached = totalVotes >= governanceModel.quorumValue;
     }
-    
+
     // Se não atingiu quórum, manter aberta
     if (!quorumReached) {
       return dispute;
     }
-    
+
+    // Normaliza votos: Supabase usa vote_type 'YES'/'NO'; Firestore legado usa vote: true/false
+    const normalizeVote = (v) => {
+      if (v.vote_type !== undefined) return v.vote_type === 'YES';
+      return v.vote === true;
+    };
+    const getVoterUserId = (v) => v.userId || v.user_id;
+
     // Calcular votos
-    const approvalVotes = dispute.votes.filter(vote => vote.vote === true).length;
-    const rejectionVotes = dispute.votes.filter(vote => vote.vote === false).length;
-    
+    const approvalVotes = votes.filter(v => normalizeVote(v)).length;
+    const rejectionVotes = votes.filter(v => !normalizeVote(v)).length;
+
     let isApproved = approvalVotes > rejectionVotes;
-    
+
     // Verificar empate com desempate do admin
     if (approvalVotes === rejectionVotes && governanceModel.adminHasTiebreaker) {
-      const adminVote = dispute.votes.find(vote => vote.userId === caixinha.adminId);
+      const adminVote = votes.find(v => getVoterUserId(v) === caixinha.adminId);
       if (adminVote) {
-        isApproved = adminVote.vote === true;
+        isApproved = normalizeVote(adminVote);
       }
     }
     
@@ -84,7 +97,31 @@ const processDisputeResult = async (caixinhaId, disputeId) => {
       status: newStatus,
       resolvedAt: now.toISOString()
     });
-    
+
+    // [GAME-COV-004] fire-and-forget — não bloqueia o fluxo principal
+    setImmediate(() => {
+      const gamificationService = require('./gamificationService');
+      gamificationService.triggerEvent('dispute_resolved', dispute.proposedBy)
+        .catch(err =>
+          logger.warn('Falha ao acionar gamificação em resolução de disputa', {
+            service: 'disputeService', userId: dispute.proposedBy, error: err.message
+          })
+        );
+
+      // Trust Passport — disputa resolvida (negativo permanente para o perdedor)
+      const trustPassportService = require('./trustPassportService');
+      const loserId = isApproved ? dispute.targetUserId : dispute.proposedBy;
+      if (loserId) {
+        trustPassportService.recordEvent(loserId, 'moderation', 'dispute_lost', -5, true, {
+          disputeId, caixinhaId, status: newStatus,
+        }).catch(err =>
+          logger.warn('Falha ao registrar trust event dispute_lost', {
+            service: 'disputeService', userId: loserId, error: err.message
+          })
+        );
+      }
+    });
+
     // Se aprovada, aplicar as mudanças
     if (isApproved) {
       await applyApprovedChanges(updatedDispute);
@@ -129,10 +166,48 @@ const applyApprovedChanges = async (dispute) => {
         await Caixinha.update(dispute.caixinhaId, ruleChanges);
         break;
         
-      case 'LOAN_APPROVAL':
-        // Implementar lógica para aprovação de empréstimo
-        // (Isso pode chamar o TransactionService existente)
+      case 'LOAN_APPROVAL': {
+        const loanService = require('./loanService');
+        const loanData = dispute.proposedChanges && dispute.proposedChanges.loan;
+
+        // Busca o empréstimo pelo disputeId (o loan é criado com disputeId apontando para esta disputa)
+        let loanId = loanData && loanData.id;
+        if (!loanId) {
+          try {
+            const { getFirestore } = require('../firebaseAdmin');
+            const fsDb = getFirestore();
+            const loanSnapshot = await fsDb
+              .collection('caixinhas')
+              .doc(dispute.caixinhaId)
+              .collection('emprestimos')
+              .where('disputeId', '==', dispute.id)
+              .limit(1)
+              .get();
+            if (!loanSnapshot.empty) {
+              loanId = loanSnapshot.docs[0].id;
+            }
+          } catch (findErr) {
+            logger.warn('Falha ao buscar loanId por disputeId', {
+              service: 'disputeService', disputeId: dispute.id, error: findErr.message
+            });
+          }
+        }
+
+        if (!loanId) {
+          logger.warn('LOAN_APPROVAL aprovada mas loanId não encontrado em proposedChanges', {
+            service: 'disputeService', disputeId: dispute.id
+          });
+          break;
+        }
+
+        await loanService.approveLoan(dispute.caixinhaId, loanId, { adminId: 'system-vote' });
+
+        logger.info('Empréstimo aprovado por votação', {
+          service: 'disputeService', disputeId: dispute.id, loanId,
+          caixinhaId: dispute.caixinhaId
+        });
         break;
+      }
         
       case 'MEMBER_REMOVAL':
         // Implementar lógica para remoção de membro
@@ -187,7 +262,8 @@ const checkDisputeRequirement = async (caixinhaId, changeType, userId) => {
     // Verificar casos especiais
     
     // Admin é o único membro - não precisa de disputa
-    if (caixinha.members.length === 1 && caixinha.members[0] === userId) {
+    const members = caixinha.members || [];
+    if (members.length === 1 && caixinha.adminId === userId) {
       return { requiresDispute: false, reason: 'ADMIN_ONLY_MEMBER' };
     }
     
@@ -329,16 +405,48 @@ const createDispute = async (caixinhaId, disputeData) => {
  */
 const voteOnDispute = async (caixinhaId, disputeId, voteData) => {
   try {
-    // Verificar se o usuário é membro da caixinha
+    // Verificar se o usuário é membro da caixinha — Supabase PRIMEIRO, fallback array Firestore
     const caixinha = await Caixinha.getById(caixinhaId);
-    
-    if (!caixinha.members.includes(voteData.userId)) {
+    let isMember = false;
+    try {
+      const { getSupabaseClient } = require('../config/supabase');
+      const sbClient = getSupabaseClient();
+      if (sbClient) {
+        const { data: sbMember } = await sbClient
+          .from('caixinha_members')
+          .select('user_id')
+          .eq('caixinha_id', caixinhaId)
+          .eq('user_id', voteData.userId)
+          .maybeSingle();
+        isMember = !!sbMember;
+      } else {
+        isMember = (caixinha.members || []).includes(voteData.userId);
+      }
+    } catch (sbErr) {
+      logger.warn('Supabase check de membro falhou em voteOnDispute, usando fallback', {
+        service: 'disputeService', method: 'voteOnDispute', error: sbErr.message
+      });
+      isMember = (caixinha.members || []).includes(voteData.userId);
+    }
+
+    if (!isMember) {
       throw new Error('Usuário não é membro desta caixinha');
     }
     
     // Registrar o voto
     await Dispute.addVote(caixinhaId, disputeId, voteData);
-    
+
+    // [GAME-COV-004] fire-and-forget — não bloqueia o fluxo principal
+    setImmediate(() => {
+      const gamificationService = require('./gamificationService');
+      gamificationService.triggerEvent('dispute_voted', voteData.userId)
+        .catch(err =>
+          logger.warn('Falha ao acionar gamificação em voto de disputa', {
+            service: 'disputeService', userId: voteData.userId, error: err.message
+          })
+        );
+    });
+
     // Processar resultado
     const updatedDispute = await processDisputeResult(caixinhaId, disputeId);
     

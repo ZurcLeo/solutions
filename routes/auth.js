@@ -264,7 +264,11 @@ router.route('/logout')
 *               $ref: '#/components/schemas/ErrorResponse'
 */
 router.route('/refresh-token')
- .post(rateLimiter, verifyToken, authController.refreshToken);
+ .post(rateLimiter, verifyToken, validate(authSchemas.schemas['refresh-token']), authController.refreshToken);
+
+// Alias para compatibilidade com frontend que chama /refresh
+router.route('/refresh')
+ .post(rateLimiter, verifyToken, validate(authSchemas.schemas['refresh-token']), authController.refreshToken);
 
  /**
 * @swagger
@@ -302,6 +306,7 @@ router.route('/refresh-token')
 // Autenticação/Login com análise de device
 router.route('/token')
  .post(
+   validate(authSchemas.schemas['token']), // BUG FIX: Validação de input
    deviceCheck,                         // Análise de dispositivo  
    velocityCheck('login'),              // Verificação de velocity de login
    (req, res, next) => {
@@ -370,8 +375,19 @@ router.route('/token')
 *             schema:
 *               $ref: '#/components/schemas/ErrorResponse'
 */
-router.route('/resend-verification-email')
- .post(rateLimiter, authController.resendVerificationEmail);
+// Verificação de email via OTP customizado (Resend API, template branded)
+// Substitui sendEmailVerification nativo do Firebase
+router.post('/send-email-verification',
+  rateLimiter,
+  verifyToken,
+  authController.sendEmailVerificationOtp
+);
+
+router.post('/confirm-email-verification',
+  authRateLimiter,
+  verifyToken,
+  authController.confirmEmailVerification
+);
 
 /**
 * @swagger
@@ -405,5 +421,204 @@ router.route('/resend-verification-email')
 */
 router.route('/me')
  .get(rateLimiter, verifyToken, authController.getCurrentUser);
+
+// Validação do OTP de step-up para login de alto risco
+// Recebe: { challengeToken, code } — sem verifyToken (usuário ainda não tem JWT)
+router.post('/verify-otp-challenge',
+  authRateLimiter,
+  authController.verifyOtpChallenge
+);
+
+// Marcar telefone como verificado após Firebase Phone Auth no frontend
+// Requer autenticação (verifyToken) — o usuário já tem JWT
+router.patch('/verify-phone',
+  rateLimiter,
+  verifyToken,
+  authController.verifyPhone
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Account Recovery via Phone — Endpoints PÚBLICOS (usuário está sem acesso)
+// Todos protegidos apenas por rate limiter (sem verifyToken)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Busca se telefone está registrado e verificado
+router.post('/recovery/lookup-phone',
+  authRateLimiter,
+  authController.lookupPhoneForRecovery
+);
+
+// Verifica ownership via Firebase Phone Auth + gera recovery ticket
+router.post('/recovery/verify-phone',
+  authRateLimiter,
+  authController.verifyPhoneForRecovery
+);
+
+// Altera email da conta (protegido por recovery ticket)
+router.post('/recovery/change-email',
+  authRateLimiter,
+  authController.recoveryChangeEmail
+);
+
+// Envia link de redefinição de senha (protegido por recovery ticket)
+router.post('/recovery/send-reset',
+  authRateLimiter,
+  authController.recoverySendReset
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Session Management — list, revoke single, revoke all others
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// List all active sessions for the authenticated user
+router.get('/sessions',
+  rateLimiter,
+  verifyToken,
+  authController.getSessions
+);
+
+// Revoke a specific session by ID
+router.delete('/sessions/:sessionId',
+  rateLimiter,
+  verifyToken,
+  authController.revokeSession
+);
+
+// Revoke all sessions except current (header x-session-id)
+router.delete('/sessions',
+  rateLimiter,
+  verifyToken,
+  authController.revokeAllSessions
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MFA — Autenticacao em dois fatores (2FA)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Configura TOTP (gera QR code) — requer autenticacao
+router.post('/mfa/setup-totp',
+  rateLimiter,
+  verifyToken,
+  authController.setupTOTP
+);
+
+// Confirma TOTP (codigo do app) — requer autenticacao
+router.post('/mfa/confirm-totp',
+  rateLimiter,
+  verifyToken,
+  authController.confirmTOTP
+);
+
+// Ativa 2FA via SMS — requer autenticacao
+router.post('/mfa/enable-sms',
+  rateLimiter,
+  verifyToken,
+  authController.enableSMS2FA
+);
+
+// Desativa MFA — requer autenticacao
+router.post('/mfa/disable',
+  rateLimiter,
+  verifyToken,
+  authController.disableMFA
+);
+
+// Status do MFA — requer autenticacao
+router.get('/mfa/status',
+  rateLimiter,
+  verifyToken,
+  authController.getMFAStatus
+);
+
+// Verificar codigo MFA durante login — PUBLICO (rate limited)
+router.post('/mfa/verify',
+  authRateLimiter,
+  authController.verifyMFA
+);
+
+// Enviar SMS OTP para MFA — PUBLICO (rate limited)
+router.post('/mfa/send-sms',
+  authRateLimiter,
+  authController.sendMFASms
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Passwordless Auth — Access Code + Magic Link (AUTH-PL-002)
+// Endpoints PÚBLICOS (usuário ainda não tem JWT)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Enviar código de acesso temporário (8-char, 24h) por email
+router.post('/passwordless/send-code',
+  authRateLimiter,
+  authController.sendAccessCode
+);
+
+// Verificar código e fazer login
+router.post('/passwordless/verify-code',
+  authRateLimiter,
+  authController.verifyAccessCode
+);
+
+// Enviar magic link por email (15min)
+router.post('/passwordless/send-link',
+  authRateLimiter,
+  authController.sendMagicLink
+);
+
+// Verificar magic link token e fazer login
+router.post('/passwordless/verify-link',
+  authRateLimiter,
+  authController.verifyMagicLink
+);
+
+// Registro passwordless — cria conta sem senha (AUTH-PL-005)
+// Sem firstAccess: não há Firebase token ainda (user criado server-side).
+// Convite validado é a prova de identidade — ja3Hash opcional.
+router.post('/passwordless/register',
+  authRateLimiter,
+  authController.passwordlessRegister
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WebAuthn / Passkeys — FIDO2 (AUTH-PL-003)
+// ═══════════════════════════════════════════════════════════════════════════════
+const webauthnController = require('../controllers/webauthnController');
+
+// Registro de passkey (requer autenticação — usuário logado adiciona passkey)
+router.post('/webauthn/register-options',
+  rateLimiter,
+  verifyToken,
+  webauthnController.getRegistrationOptions
+);
+
+router.post('/webauthn/register-verify',
+  rateLimiter,
+  verifyToken,
+  webauthnController.verifyRegistration
+);
+
+// Autenticação por passkey (público — login sem senha)
+router.post('/webauthn/auth-options',
+  authRateLimiter,
+  webauthnController.getAuthenticationOptions
+);
+
+router.post('/webauthn/auth-verify',
+  authRateLimiter,
+  webauthnController.verifyAuthentication
+);
+
+// Gerenciamento de passkeys (requer autenticação)
+router.get('/webauthn/credentials',
+  rateLimiter,
+  verifyToken,
+  webauthnController.listCredentials
+);
+
+router.delete('/webauthn/credentials/:credentialId',
+  rateLimiter,
+  verifyToken,
+  webauthnController.deleteCredential
+);
 
 module.exports = router;

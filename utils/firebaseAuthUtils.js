@@ -43,4 +43,41 @@ const userExistsByEmail = async (email) => {
   }
 };
 
-module.exports = { userExistsByEmail };
+/**
+ * Busca um usuário no Firebase Auth pelo email e retorna o UID.
+ * @async
+ * @function getUserByEmail
+ * @param {string} email - Email a buscar.
+ * @returns {Promise<{uid: string, email: string, displayName: string|null, photoURL: string|null}|null>}
+ *   Dados básicos do usuário ou null se não encontrado.
+ * @throws {Error} Propaga erros de rede ou do Firebase Admin.
+ */
+const getUserByEmail = async (email) => {
+  const auth = getAuth();
+  try {
+    const userRecord = await auth.getUserByEmail(email.toLowerCase());
+    logger.info('getUserByEmail: usuário encontrado no Firebase Auth', {
+      service: 'firebaseAuthUtils',
+      function: 'getUserByEmail',
+      uid: userRecord.uid,
+    });
+    return {
+      uid: userRecord.uid,
+      email: userRecord.email,
+      displayName: userRecord.displayName || null,
+      photoURL: userRecord.photoURL || null,
+    };
+  } catch (error) {
+    if (error.code === 'auth/user-not-found') {
+      return null;
+    }
+    logger.error('Erro ao buscar usuário por email no Firebase Auth', {
+      service: 'firebaseAuthUtils',
+      function: 'getUserByEmail',
+      errorCode: error.code || 'unknown',
+    });
+    throw error;
+  }
+};
+
+module.exports = { userExistsByEmail, getUserByEmail };

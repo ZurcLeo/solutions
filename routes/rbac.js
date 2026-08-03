@@ -11,6 +11,7 @@ const validate = require('../middlewares/validate');
 const rbacSchemas = require('../schemas/rbacSchema');
 const { logger } = require('../logger');
 const { healthCheck } = require('../middlewares/healthMiddleware');
+const userRoleService = require('../services/userRoleService');
 
 // Nome da rota para logging
 const ROUTE_NAME = 'rbac';
@@ -655,27 +656,63 @@ router.post('/validations/bank/:userId/init', userRoleController.initBankValidat
 router.post('/validations/bank/:userId/confirm', userRoleController.confirmBankValidation);
 
 // Endpoint de teste para verificação de permissões
-router.get('/check-permission/:permissionName', (req, res) => {
+router.get('/check-permission/:permissionName', async (req, res) => {
   const { permissionName } = req.params;
-  const { contextType, resourceId } = req.query;
+  const { contextType = 'global', resourceId = null } = req.query;
+  const userId = req.uid;
   
-  return res.status(200).json({
-    success: true,
-    hasPermission: true,
-    message: `Você tem permissão para: ${permissionName}`
-  });
+  try {
+    const hasPermission = await userRoleService.checkUserHasPermission(
+      userId, 
+      permissionName, 
+      contextType, 
+      resourceId
+    );
+    
+    return res.status(200).json({
+      success: true,
+      hasPermission,
+      message: hasPermission 
+        ? `Você tem permissão para: ${permissionName}` 
+        : `Você NÃO tem permissão para: ${permissionName}`
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao verificar permissão',
+      error: error.message
+    });
+  }
 });
 
 // Endpoint de teste para verificação de roles
-router.get('/check-role/:roleName', (req, res) => {
+router.get('/check-role/:roleName', async (req, res) => {
   const { roleName } = req.params;
-  const { contextType, resourceId } = req.query;
+  const { contextType = 'global', resourceId = null } = req.query;
+  const userId = req.uid;
   
-  return res.status(200).json({
-    success: true,
-    hasRole: true,
-    message: `Você tem a role: ${roleName}`
-  });
+  try {
+    const hasRole = await userRoleService.checkUserHasRole(
+      userId, 
+      roleName, 
+      contextType, 
+      resourceId
+    );
+    
+    return res.status(200).json({
+      success: true,
+      hasRole,
+      message: hasRole 
+        ? `Você tem a role: ${roleName}` 
+        : `Você NÃO tem a role: ${roleName}`
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao verificar role',
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;

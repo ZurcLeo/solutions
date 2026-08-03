@@ -1,111 +1,79 @@
-const { getFirestore } = require('../firebaseAdmin'); // getFirestore ainda será usado para o Firestore
-const { FieldValue } = require('firebase-admin/firestore');
+// models/BlackList.js — Supabase-first (migrado de Firestore em 2026-05-19)
+const { getSupabaseClient } = require('../config/supabase');
 const { logger } = require('../logger');
+
+const TABLE = 'jwt_blacklist';
+
+function sb() {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase client indisponível');
+  return client;
+}
 
 class Blacklist {
   constructor() {
-    this.blacklistRef = getFirestore().collection('blacklist'); // Garante que o Firestore está inicializado
+    // Purely static — no instance state needed
   }
 
   async addToBlacklist(token) {
-    logger.info(`Iniciando a adição do token ${token} à blacklist`, {
-      service: 'blacklistService',
-      function: 'addToBlacklist',
-     
-    });
-
     try {
-      const tokenDoc = this.blacklistRef.doc(token);
-      await tokenDoc.set({
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      const { error } = await sb()
+        .from(TABLE)
+        .upsert({ token }, { onConflict: 'token' });
 
-      logger.info(`Token ${token} adicionado à blacklist com sucesso`, {
-        service: 'blacklistService',
-        function: 'addToBlacklist',
-       
-      });
+      if (error) throw error;
+      logger.info('Token adicionado à blacklist', { service: 'blacklistService' });
     } catch (error) {
-      logger.error(`Erro ao adicionar o token ${token} à blacklist`, {
+      logger.error('Erro ao adicionar token à blacklist', {
         service: 'blacklistService',
-        function: 'addToBlacklist',
-       
         error: error.message,
       });
-
       throw new Error('Erro ao adicionar token à blacklist.');
     }
   }
 
   async isTokenBlacklisted(token) {
-    logger.info(`Verificando se o token ${token} está na blacklist`, {
-      service: 'blacklistService',
-      function: 'isTokenBlacklisted'
-    });
-
     try {
-      const tokenDoc = await this.blacklistRef.doc(token).get();
+      const { data, error } = await sb()
+        .from(TABLE)
+        .select('token')
+        .eq('token', token)
+        .maybeSingle();
 
-      if (tokenDoc.exists) {
-        logger.info(`Token ${token} está na blacklist`, {
+      if (error) {
+        // Fail-open: se a tabela não existe ou DB indisponível, não bloquear auth
+        logger.warn('Tabela jwt_blacklist indisponível — assumindo token válido', {
           service: 'blacklistService',
-          function: 'isTokenBlacklisted',
+          error: error.message,
         });
-      } else {
-        logger.warn(`Token ${token} não está na blacklist`, {
-          service: 'blacklistService',
-          function: 'isTokenBlacklisted',
-        });
+        return false;
       }
 
-      return tokenDoc.exists;
+      const found = !!data;
+      if (found) logger.info('Token está na blacklist', { service: 'blacklistService' });
+      return found;
     } catch (error) {
-      logger.error(`Erro ao verificar se o token ${token} está na blacklist`, {
+      // Fail-open: erro inesperado não deve bloquear autenticação
+      logger.warn('Erro ao verificar blacklist — assumindo token válido', {
         service: 'blacklistService',
-        function: 'isTokenBlacklisted',
         error: error.message,
       });
-
-      throw new Error('Erro ao verificar token na blacklist.');
+      return false;
     }
   }
 
   async removeExpiredTokens() {
-    logger.info('Iniciando a remoção de tokens expirados da blacklist', {
-      service: 'blacklistService',
-      function: 'removeExpiredTokens',
-    });
-
     try {
-      const now = admin.firestore.Timestamp.now();
-      const snapshot = await this.blacklistRef.where('createdAt', '<', now.toDate()).get();
-
-      if (snapshot.empty) {
-        logger.info('Nenhum token expirado encontrado para remoção', {
-          service: 'blacklistService',
-          function: 'removeExpiredTokens',
-        });
-        return;
-      }
-
-      const batch = getFirestore().batch(); // Continua usando getFirestore para inicializar o batch
-      snapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-
-      await batch.commit();
-
-      logger.info('Tokens expirados removidos com sucesso', {
-        service: 'blacklistService',
-        function: 'removeExpiredTokens',
-      });
+      // JWTs access token têm TTL de 15 min — remove tokens mais antigos que isso
+      const expiry = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const { error } = await sb().from(TABLE).delete().lt('created_at', expiry);
+      if (error) throw error;
+      logger.info('Tokens expirados removidos da blacklist', { service: 'blacklistService' });
     } catch (error) {
-      logger.error('Erro ao remover tokens expirados da blacklist', {
+      logger.error('Erro ao remover tokens expirados', {
         service: 'blacklistService',
-        function: 'removeExpiredTokens',
         error: error.message,
       });
-
       throw new Error('Erro ao remover tokens expirados.');
     }
   }

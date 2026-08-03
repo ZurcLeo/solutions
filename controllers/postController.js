@@ -1,151 +1,169 @@
 /**
- * @fileoverview Controller de posts - gerencia publicações, comentários, reações e presentes
+ * @fileoverview Controller de posts — delega toda a lógica ao postService
  * @module controllers/postController
  */
 
-const Post = require('../models/Post');
-const Comment = require('../models/Comment');
-const Reaction = require('../models/Reaction');
-const Gift = require('../models/Gift');
-const gamificationService = require('../services/gamificationService');
+const postService = require('../services/postService');
+const Post        = require('../models/Post');
+const { logger }  = require('../logger');
 
-/**
- * Busca um post específico com seus comentários, reações e presentes
- * @async
- * @function getPostById
- * @param {Object} req - Objeto de requisição Express
- * @param {string} req.params.id - ID do post
- * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Post completo com comentários, reações e presentes
- */
+exports.getFeed = async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+    const mode  = req.query.mode === 'trending' ? 'trending' : 'recent';
+    const result = await postService.getFeed({ limit, page, mode, userId: req.user?.uid });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.getPostById = async (req, res) => {
   try {
-    const post = await Post.getById(req.params.id);
-    post.comentarios = await Comment.getByPostId(req.params.id);
-    post.reacoes = await Reaction.getByPostId(req.params.id);
-    post.gifts = await Gift.getByPostId(req.params.id);
+    const post = await postService.getPostById(req.params.id, req.user?.uid);
     res.status(200).json(post);
   } catch (error) {
     res.status(404).json({ message: error.message });
   }
 };
 
-/**
- * Cria uma nova publicação
- * @async
- * @function createPost
- * @param {Object} req - Objeto de requisição Express
- * @param {Object} req.body - Dados do post a ser criado
- * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Post criado
- */
 exports.createPost = async (req, res) => {
   try {
-    const post = await Post.create(req.body);
+    const post = await postService.createPost(req.user.uid, req.body);
     res.status(201).json(post);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 };
 
-/**
- * Atualiza dados de um post existente
- * @async
- * @function updatePost
- * @param {Object} req - Objeto de requisição Express
- * @param {string} req.params.id - ID do post
- * @param {Object} req.body - Dados atualizados do post
- * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Post atualizado
- */
 exports.updatePost = async (req, res) => {
   try {
-    const post = await Post.update(req.params.id, req.body);
+    const post = await postService.updatePost(req.params.id, req.body);
     res.status(200).json(post);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 };
 
-/**
- * Remove um post do sistema
- * @async
- * @function deletePost
- * @param {Object} req - Objeto de requisição Express
- * @param {string} req.params.id - ID do post a ser deletado
- * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Confirmação da remoção
- */
 exports.deletePost = async (req, res) => {
   try {
-    await Post.delete(req.params.id);
+    await postService.deletePost(req.params.id);
     res.status(200).json({ message: 'Post deletado com sucesso.' });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 };
 
-/**
- * Adiciona um comentário a um post
- * @async
- * @function addComment
- * @param {Object} req - Objeto de requisição Express
- * @param {string} req.params.postId - ID do post
- * @param {Object} req.body - Dados do comentário
- * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Comentário criado
- */
 exports.addComment = async (req, res) => {
   try {
-    const comment = await Comment.create(req.params.postId, req.body);
+    const comment = await postService.addComment(req.params.postId, req.user.uid, req.body);
     res.status(201).json(comment);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 };
 
-/**
- * Adiciona uma reação (like, love, etc.) a um post
- * @async
- * @function addReaction
- * @param {Object} req - Objeto de requisição Express
- * @param {string} req.params.postId - ID do post
- * @param {Object} req.body - Dados da reação
- * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Reação criada
- */
 exports.addReaction = async (req, res) => {
-  try {
-    const reaction = await Reaction.create(req.params.postId, req.body);
-    res.status(201).json(reaction);
+  if (req.body.tipoDeReacao && req.body.tipoDeReacao !== 'heart') {
+    return res.status(400).json({ message: 'Apenas reações do tipo "heart" são permitidas.' });
+  }
+  req.body.tipoDeReacao = 'heart';
 
-    // Fire-and-forget: notifica o autor do post sobre a reação recebida
-    Post.getById(req.params.postId).then(post => {
-      const authorId = post.usuarioId;
-      if (authorId) {
-        gamificationService.triggerEvent('reaction_received', authorId, { amount: 1 }).catch(() => {});
-      }
-    }).catch(() => {});
+  try {
+    const reaction = await postService.addReaction(req.params.postId, req.user.uid, req.body);
+    res.status(201).json(reaction);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 };
 
-/**
- * Adiciona um presente virtual a um post
- * @async
- * @function addGift
- * @param {Object} req - Objeto de requisição Express
- * @param {string} req.params.postId - ID do post
- * @param {Object} req.body - Dados do presente
- * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Presente criado
- */
-exports.addGift = async (req, res) => {
+exports.getGenerosityRanking = async (req, res) => {
   try {
-    const gift = await Gift.create(req.params.postId, req.body);
-    res.status(201).json(gift);
+    const limit  = Math.min(parseInt(req.query.limit) || 5, 20);
+    const ranking = await Post.getGenerosityRanking(limit);
+    res.status(200).json({ ranking });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.getTrendingHashtags = async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 10, 30);
+    const days  = Math.min(parseInt(req.query.days)  || 7,  30);
+    const hashtags = await Post.getTrendingHashtags(limit, days);
+    res.status(200).json({ hashtags });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.toggleCommentLike = async (req, res) => {
+  try {
+    const result = await postService.toggleCommentLike(
+      req.params.postId,
+      req.params.commentId,
+      req.user.uid
+    );
+    res.status(200).json(result);
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+};
+
+exports.replyToComment = async (req, res) => {
+  try {
+    const reply = await postService.replyToComment(
+      req.params.postId,
+      req.params.commentId,
+      req.user.uid,
+      req.body
+    );
+    res.status(201).json(reply);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.addGift = async (req, res) => {
+  const { stickerId, receiverId, message } = req.body;
+  if (!stickerId)  return res.status(400).json({ message: 'stickerId é obrigatório.' });
+  if (!receiverId) return res.status(400).json({ message: 'receiverId é obrigatório.' });
+  if (message && message.length > 100) {
+    return res.status(400).json({ message: 'A mensagem deve ter no máximo 100 caracteres.' });
+  }
+
+  const { randomUUID } = require('crypto');
+
+  try {
+    const result = await postService.addGift(req.params.postId, req.user.uid, {
+      stickerId,
+      receiverId,
+      idempotencyKey: randomUUID(),
+      message: message || null,
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    const msg = error.message || '';
+    logger.error('[GIFT] Erro ao enviar gift', {
+      postId: req.params.postId,
+      senderId: req.user?.uid,
+      receiverId,
+      stickerId,
+      errorMessage: msg,
+      errorCode: error.code || error.statusCode || null,
+      errorDetails: error.details || null,
+    });
+    const status = msg.includes('insuficiente')       ? 402
+      : msg.includes('esgotado')                      ? 409
+      : msg.includes('limite')                        ? 409
+      : msg.includes('fora do período')                ? 409
+      : msg.includes('não encontrado')                 ? 404
+      : msg.includes('does not exist')                 ? 404
+      : msg.includes('maior que zero')                 ? 422
+      : msg.includes('schema cache')                   ? 502
+      : 400;
+    res.status(status).json({ message: msg });
   }
 };

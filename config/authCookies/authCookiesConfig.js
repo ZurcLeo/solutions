@@ -6,9 +6,8 @@ module.exports.createAuthCookies = (res, tokens) => {
       secure: true,
       path: '/',
       sameSite: process.env.NODE_ENV === 'production' ? 'Strict' : 'None',
-      domain: process.env.NODE_ENV === 'production' 
-        ? '.eloscloud.com.br' 
-        : 'localhost'
+      domain: process.env.COOKIE_DOMAIN ||
+        (process.env.NODE_ENV === 'production' ? '.eloscloud.com' : 'localhost')
     };
   
     res.cookie('accessToken', accessToken, {

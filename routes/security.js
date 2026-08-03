@@ -6,6 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const SecurityController = require('../controllers/securityController');
+const OtpController      = require('../controllers/otpController');
 const verifyToken = require('../middlewares/auth');
 const { checkPermission, checkRole } = require('../middlewares/rbac');
 const { readLimit, writeLimit } = require('../middlewares/rateLimiter');
@@ -333,5 +334,97 @@ router.get('/report', readLimit, checkRole('admin'), SecurityController.generate
  *         description: Server error
  */
 router.post('/action', writeLimit, checkPermission('security:execute_actions'), SecurityController.executeSecurityAction);
+
+// ─── OTP / Validação de Operações ─────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/security/otp/generate:
+ *   post:
+ *     summary: Gera um código OTP e envia por e-mail
+ *     tags: [Security]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [type]
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [login, saque, kyc, email_verify]
+ *               metadata:
+ *                 type: object
+ *                 description: Contexto extra (ex:{valor,caixinhaId} para saques)
+ *     responses:
+ *       200:
+ *         description: Código enviado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 expiresIn:
+ *                   type: integer
+ *                   description: Validade em segundos
+ *       400:
+ *         description: Tipo inválido ou usuário sem e-mail
+ *       500:
+ *         description: Falha no envio
+ */
+router.post('/otp/generate', writeLimit, OtpController.generate);
+
+/**
+ * @swagger
+ * /api/security/otp/validate:
+ *   post:
+ *     summary: Valida um código OTP
+ *     tags: [Security]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [type, code]
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [login, saque, kyc, email_verify]
+ *               code:
+ *                 type: string
+ *                 pattern: '^\d{6}$'
+ *     responses:
+ *       200:
+ *         description: Código válido
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 valid:
+ *                   type: boolean
+ *                 ticket:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     type:
+ *                       type: string
+ *                     metadata:
+ *                       type: object
+ *       400:
+ *         description: Código inválido ou expirado
+ *       429:
+ *         description: Bloqueado por muitas tentativas
+ */
+router.post('/otp/validate', writeLimit, OtpController.validate);
 
 module.exports = router;

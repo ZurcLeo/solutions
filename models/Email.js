@@ -1,5 +1,5 @@
 // models/Email.js
-const { getFirestore } = require('../firebaseAdmin');
+const { getSupabaseClient } = require('../config/supabase');
 const { logger } = require('../logger');
 
 class Email {
@@ -13,11 +13,55 @@ class Email {
     this.createdAt = data.createdAt || new Date();
     this.sentAt = data.sentAt || null;
     this.userId = data.userId || null;
-    this.reference = data.reference || null; // Reference to related entity (e.g., inviteId)
-    this.referenceType = data.referenceType || null; // Type of reference (e.g., 'invite')
-    this.messageId = data.messageId || null; // Message ID from the email provider
+    this.reference = data.reference || null;
+    this.referenceType = data.referenceType || null;
+    this.messageId = data.messageId || null;
     this.error = data.error || null;
     this.retryCount = data.retryCount || 0;
+  }
+
+  /**
+   * Mapeia objeto interno para colunas do Supabase (PostgreSQL)
+   */
+  toSupabaseObject() {
+    return {
+      recipient_to: this.to,
+      subject: this.subject,
+      template_type: this.templateType,
+      template_data: this.templateData,
+      status: this.status,
+      created_at: this.createdAt,
+      sent_at: this.sentAt,
+      user_id: this.userId,
+      reference_id: this.reference,
+      reference_type: this.referenceType,
+      message_id: this.messageId,
+      error_message: this.error,
+      retry_count: this.retryCount
+    };
+  }
+
+  /**
+   * Mapeia retorno do Supabase para objeto interno
+   */
+  static fromSupabase(row) {
+    if (!row) return null;
+    return new Email({
+      id: row.id,
+      to: row.recipient_to,
+      subject: row.subject,
+      templateType: row.template_type,
+      templateData: row.template_data,
+      status: row.status,
+      createdAt: row.created_at,
+      sentAt: row.sent_at,
+      userId: row.user_id,
+      reference: row.reference_id,
+      referenceType: row.reference_type,
+      messageId: row.message_id,
+      error: row.error_message,
+      retryCount: row.retry_count
+    });
   }
 
   toPlainObject() {
@@ -40,171 +84,114 @@ class Email {
   }
 
   static async create(emailData) {
-    const db = getFirestore();
-    try {
-      const emailRef = db.collection('emails').doc();
-      
-      // Set default values
-      const email = new Email({
-        ...emailData,
-        id: emailRef.id,
-        createdAt: new Date()
-      });
-      
-      await emailRef.set(email.toPlainObject());
-      
-      logger.info('Email record created', {
-        service: 'emailModel',
-        function: 'create',
-        emailId: emailRef.id
-      });
-      
-      return email;
-    } catch (error) {
-      logger.error('Error creating email record', {
-        service: 'emailModel',
-        function: 'create',
-        error: error.message
-      });
-      throw error;
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error('Supabase client not available');
     }
+
+    const { data, error } = await supabase
+      .from('email_logs')
+      .insert([{
+        recipient_to: emailData.to,
+        subject: emailData.subject,
+        template_type: emailData.templateType,
+        template_data: emailData.templateData || {},
+        status: emailData.status || 'pending',
+        user_id: emailData.userId,
+        reference_id: emailData.reference,
+        reference_type: emailData.referenceType,
+        created_at: new Date()
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    logger.info('Email record created in Supabase', { emailId: data.id });
+    return Email.fromSupabase(data);
   }
 
   static async getById(emailId) {
-    const db = getFirestore();
-    try {
-      const emailDoc = await db.collection('emails').doc(emailId).get();
-      
-      if (!emailDoc.exists) {
-        throw new Error('Email not found');
-      }
-      
-      return new Email({ ...emailDoc.data(), id: emailDoc.id });
-    } catch (error) {
-      logger.error('Error getting email by ID', {
-        service: 'emailModel',
-        function: 'getById',
-        emailId,
-        error: error.message
-      });
-      throw error;
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error('Supabase client not available');
     }
+
+    const { data, error } = await supabase
+      .from('email_logs')
+      .select('*')
+      .eq('id', emailId)
+      .single();
+
+    if (error) throw error;
+    if (!data) throw new Error('Email not found');
+
+    return Email.fromSupabase(data);
   }
 
-  static async updateStatus(emailId, status, data = {}) {
-    const db = getFirestore();
-    try {
-      const emailRef = db.collection('emails').doc(emailId);
-      
-      const updateData = {
-        status,
-        ...data
-      };
-      
-      // If status is 'sent', set sentAt
-      if (status === 'sent' && !data.sentAt) {
-        updateData.sentAt = new Date();
-      }
-      
-      // If status is 'error', increment retry count
-      if (status === 'error' && !data.retryCount) {
-        const emailDoc = await emailRef.get();
-        if (emailDoc.exists) {
-          updateData.retryCount = (emailDoc.data().retryCount || 0) + 1;
-        }
-      }
-      
-      await emailRef.update(updateData);
-      
-      logger.info('Email status updated', {
-        service: 'emailModel',
-        function: 'updateStatus',
-        emailId,
-        status
-      });
-      
-      return true;
-    } catch (error) {
-      logger.error('Error updating email status', {
-        service: 'emailModel',
-        function: 'updateStatus',
-        emailId,
-        status,
-        error: error.message
-      });
-      throw error;
+  static async updateStatus(emailId, status, extraData = {}) {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error('Supabase client not available');
     }
+
+    const sbData = {};
+    if (status) sbData.status = status;
+    if (extraData.messageId) sbData.message_id = extraData.messageId;
+    if (extraData.error) sbData.error_message = extraData.error;
+
+    if (status === 'sent' && !extraData.sentAt) {
+      sbData.sent_at = new Date();
+    } else if (extraData.sentAt) {
+      sbData.sent_at = extraData.sentAt;
+    }
+
+    const { error } = await supabase
+      .from('email_logs')
+      .update(sbData)
+      .eq('id', emailId);
+
+    if (error) throw error;
+
+    logger.info('Email status updated in Supabase', { emailId, status });
+    return true;
   }
 
   static async getByUser(userId, limit = 50) {
-    const db = getFirestore();
-    try {
-      const snapshot = await db.collection('emails')
-        .where('userId', '==', userId)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get();
-      
-      return snapshot.docs.map(doc => 
-        new Email({ ...doc.data(), id: doc.id })
-      );
-    } catch (error) {
-      logger.error('Error getting emails by user', {
-        service: 'emailModel',
-        function: 'getByUser',
-        userId,
-        error: error.message
-      });
-      throw error;
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error('Supabase client not available');
     }
+
+    const { data, error } = await supabase
+      .from('email_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    return (data || []).map(row => Email.fromSupabase(row));
   }
 
   static async getByReference(referenceType, referenceId, limit = 50) {
-    const db = getFirestore();
-    try {
-      const snapshot = await db.collection('emails')
-        .where('referenceType', '==', referenceType)
-        .where('reference', '==', referenceId)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get();
-      
-      return snapshot.docs.map(doc => 
-        new Email({ ...doc.data(), id: doc.id })
-      );
-    } catch (error) {
-      logger.error('Error getting emails by reference', {
-        service: 'emailModel',
-        function: 'getByReference',
-        referenceType,
-        referenceId,
-        error: error.message
-      });
-      throw error;
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error('Supabase client not available');
     }
-  }
 
-  static async getByStatus(status, limit = 100) {
-    const db = getFirestore();
-    try {
-      const snapshot = await db.collection('emails')
-        .where('status', '==', status)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get();
-      
-      return snapshot.docs.map(doc => 
-        new Email({ ...doc.data(), id: doc.id })
-      );
-    } catch (error) {
-      logger.error('Error getting emails by status', {
-        service: 'emailModel',
-        function: 'getByStatus',
-        status,
-        error: error.message
-      });
-      throw error;
-    }
+    const { data, error } = await supabase
+      .from('email_logs')
+      .select('*')
+      .eq('reference_type', referenceType)
+      .eq('reference_id', referenceId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    return (data || []).map(row => Email.fromSupabase(row));
   }
 }
 

@@ -23,6 +23,14 @@ const { generateToken, generateRefreshToken } = require('../services/authService
 const { logger } = require('../logger');
 const User = require('../models/User');
 const { isLocallyBlacklisted } = require('../utils/securityUtils');
+const SecurityTicketService = require('../services/SecurityTicketService');
+const emailService = require('../services/emailService');
+const gamificationService = require('../services/gamificationService');
+const mfaService = require('../services/mfaService');
+const sessionService = require('../services/sessionService');
+const accessCodeService = require('../services/accessCodeService');
+const magicLinkService = require('../services/magicLinkService');
+const crypto = require('crypto');
 
 /**
  * Verifica o estado atual da sessão do usuário
@@ -196,14 +204,31 @@ exports.checkSession = async (req, res) => {
 exports.getToken = async (req, res) => {
   try {
     const { firebaseToken } = req.body;
-    
+
     if (!firebaseToken) {
       return res.status(400).json({
         success: false,
         message: 'Token do Firebase não fornecido'
       });
     }
-    
+
+    // AUTH-PL-006: Verificar se login por senha está desabilitado após cutoff
+    const passwordTransitionService = require('../services/passwordTransitionService');
+    const deprecation = passwordTransitionService.getPasswordDeprecationStatus();
+    if (deprecation.disabled) {
+      // Verificar se o login veio do provider "password" (Firebase sign_in_provider)
+      // Somente bloquear logins com senha — OAuth e custom tokens continuam permitidos
+      const signInProvider = req.body.signInProvider || req.headers['x-sign-in-provider'];
+      if (signInProvider === 'password') {
+        return res.status(410).json({
+          success: false,
+          code: 'PASSWORD_LOGIN_DISABLED',
+          message: 'Login com senha foi desativado. Use biometria, link por email ou código de acesso.',
+          cutoffDate: deprecation.cutoffDate,
+        });
+      }
+    }
+
     // Verificar o token do Firebase
     const auth = getAuth();
     const decodedToken = await auth.verifyIdToken(firebaseToken);
@@ -220,65 +245,291 @@ exports.getToken = async (req, res) => {
     // Verificar se é o primeiro acesso (usando flag definida pelo middleware)
     const isFirstAccess = req.isFirstAccess || false;
     
-    // Buscar dados do usuário (ou usar dados básicos se for primeiro acesso)
-    let user;
+    // INVITE GATE: primeiro acesso via social login sem registro por convite
+    // Bloqueia acesso mas NÃO deleta o user do Firebase Auth — a sync com Supabase
+    // é assíncrona e deleteUser() causava race condition (user deletado antes da sync completar).
+    // O user fica no Firebase Auth sem perfil no Supabase, portanto sem acesso à plataforma.
     if (isFirstAccess) {
-      // Se for primeiro acesso, usar dados básicos do token
-      user = {
-        uid: userId,
-        email: decodedToken.email,
-        nome: decodedToken.name || decodedToken.email.split('@')[0],
-        emailVerified: decodedToken.email_verified || false,
-      };
-    } else {
-      // Buscar usuário completo do banco
-      user = await User.getById(userId);
+      logger.warn('[authController] INVITE GATE: primeiro acesso sem registro bloqueado (user mantido no Firebase)', {
+        service: 'authController', function: 'getToken', userId,
+      });
+      return res.status(403).json({
+        success: false,
+        code: 'INVITE_REQUIRED',
+        message: 'Registro requer convite. Use o link de convite para criar sua conta.',
+      });
     }
+
+    // Buscar dados do usuário completo do banco
+    const user = await User.getById(userId);
     
-    // Buscar roles do usuário
+    // ── Step-Up OTP: dispositivo novo ou velocidade suspeita ─────────────────
+    // req.requireEmailVerification é setado pelo smartSecurity middleware quando
+    // deviceCheck detecta risk > 0.7 em dispositivo desconhecido.
+    if (req.requireEmailVerification === true) {
+      const userEmail = decodedToken.email;
+      const userName  = decodedToken.name || (userEmail && userEmail.split('@')[0]) || 'usuário';
+      const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
+
+      const { code, expiresIn } = await SecurityTicketService.generateTicket(userId, 'login', {
+        ipAddress,
+        metadata: { email: userEmail, reason: 'new_device_high_risk' },
+      });
+
+      // Envia OTP por e-mail — código nunca vai para a resposta
+      if (!userEmail) {
+        logger.error('getToken: step-up OTP exigido mas usuário sem email', { userId });
+        return res.status(400).json({
+          success: false,
+          message: 'Nenhum email cadastrado para envio do código de verificação.',
+        });
+      }
+
+      const otpResult = await emailService.sendOTP({ to: userEmail, userName, code, type: 'login', expiresIn });
+
+      if (!otpResult.success) {
+        logger.error('getToken: falha ao enviar OTP', {
+          service: 'authController', userId, error: otpResult.error,
+        });
+
+        if (otpResult.error === 'otp_rate_limit_exceeded') {
+          return res.status(429).json({
+            success: false,
+            message: 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.',
+            retryAfterSeconds: otpResult.retryAfterSeconds || 900,
+          });
+        }
+
+        if (otpResult.error === 'recipient_suppressed') {
+          return res.status(422).json({
+            success: false,
+            message: 'Não conseguimos enviar para este email. Entre em contato com o suporte.',
+          });
+        }
+
+        return res.status(500).json({
+          success: false,
+          message: 'Erro ao enviar código de verificação. Tente novamente.',
+        });
+      }
+
+      // challengeToken: JWT de curta duração que identifica o usuário sem expor o UID
+      const challengeToken = jwt.sign(
+        { uid: userId, purpose: 'otp_challenge', type: 'login' },
+        process.env.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+
+      logger.warn('getToken: step-up OTP exigido (novo dispositivo/alto risco)', {
+        service: 'authController', userId, ip: ipAddress,
+      });
+
+      return res.status(202).json({
+        requiresOtp:    true,
+        challengeToken,
+        expiresIn,
+        message:        'Verificação adicional necessária. Código enviado para o seu e-mail.',
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── MFA: se o usuario tem 2FA ativo, exigir verificacao antes de emitir JWT ──
+    if (user && user.mfaEnabled) {
+      // challengeToken de curta duracao identifica o usuario no passo de verificacao MFA
+      const mfaChallengeToken = jwt.sign(
+        { uid: userId, purpose: 'mfa_challenge' },
+        process.env.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+
+      logger.info('getToken: MFA requerido', {
+        service: 'authController', userId, mfaMethod: user.mfaMethod,
+      });
+
+      return res.status(200).json({
+        success: true,
+        mfaRequired: true,
+        mfaMethod: user.mfaMethod, // 'sms', 'totp', 'both'
+        challengeToken: mfaChallengeToken,
+        hasBackupCodes: (user.backupCodesCount || 0) > 0,
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Buscar roles do usuário (fonte de verdade: Supabase user_roles)
     const roles = await userRoleService.getUserRoles(userId);
+
+    // Garantir que o user object reflita as roles do Supabase (e não o campo legado do Firestore)
+    if (user) user.roles = roles;
 
     // Gerar tokens JWT
     const tokens = authService.generateToken({
       uid: userId,
       email: decodedToken.email,
-      roles: roles
+      roles: roles,
+      username: user?.username || null
     });
 
     // Sincronizar silenciosamente com Supabase (Migração)
-    supabaseSyncService.syncUserToSupabase(user).catch(err => 
+    supabaseSyncService.syncUserToSupabase(user).catch(err =>
       logger.error('Erro na sincronização pós-login', { userId, error: err.message })
     );
-    
+
+    // [GAME-COV-001] Gamificação: acesso diário + email verificado (idempotente — RPCs ignoram se já completo)
+    gamificationService.triggerEvent('daily_access', userId).catch(() => {});
+    if (decodedToken.email_verified) {
+      gamificationService.triggerEvent('email_verified', userId).catch(() => {});
+    }
+
+    // Create session record (fire-and-forget safe, errors are logged)
+    let sessionId = null;
+    try {
+      const deviceInfo = sessionService.parseUserAgent(req.headers['user-agent'], req.ip);
+      sessionId = await sessionService.createSession(userId, tokens.refreshToken, deviceInfo);
+      if (sessionId) {
+        await sessionService.markCurrentSession(userId, sessionId);
+      }
+    } catch (sessErr) {
+      logger.error('getToken: falha ao criar sessão', { userId, error: sessErr.message });
+    }
+
     // Configurar cookies
     res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict'
     });
-    
+
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict'
     });
-    
-    return res.status(200).json({
+
+    // AUTH-PL-006: Incluir flag de deprecação se senha ainda funciona mas cutoff definido
+    const responsePayload = {
       success: true,
       isAuthenticated: true,
       isFirstAccess: isFirstAccess,
       user: user,
-      tokens: tokens
-    });
+      tokens: tokens,
+      sessionId: sessionId,
+    };
+
+    if (deprecation.deprecated) {
+      responsePayload.passwordDeprecated = true;
+      responsePayload.passwordCutoffDate = deprecation.cutoffDate;
+    }
+
+    return res.status(200).json(responsePayload);
   } catch (error) {
     logger.error('Erro ao gerar token', {
       error: error.message
     });
-    
+
     return res.status(401).json({
       success: false,
       message: 'Falha na autenticação',
       error: error.message
+    });
+  }
+};
+
+/**
+ * Verifica o desafio OTP emitido em login de alto risco e emite o JWT definitivo.
+ * Não requer verifyToken — o usuário ainda não possui JWT.
+ * Body: { challengeToken, code }
+ */
+exports.verifyOtpChallenge = async (req, res) => {
+  const { challengeToken, code } = req.body;
+
+  if (!challengeToken || !code) {
+    return res.status(400).json({ success: false, message: 'challengeToken e code são obrigatórios.' });
+  }
+
+  if (!/^\d{6}$/.test(String(code).trim())) {
+    return res.status(400).json({ success: false, message: 'Código inválido. Deve conter 6 dígitos.' });
+  }
+
+  try {
+    // 1. Decodifica e valida o challengeToken (JWT de curta duração)
+    let payload;
+    try {
+      payload = jwt.verify(challengeToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ success: false, message: 'Desafio expirado ou inválido. Faça login novamente.' });
+    }
+
+    if (payload.purpose !== 'otp_challenge' || payload.type !== 'login') {
+      return res.status(401).json({ success: false, message: 'Token de desafio inválido.' });
+    }
+
+    const userId = payload.uid;
+
+    // 2. Bloquear usuários na blacklist
+    if (isLocallyBlacklisted(userId)) {
+      return res.status(401).json({ error: 'TOKEN_REVOKED' });
+    }
+
+    // 3. Valida o OTP — marca ticket como 'used' no Supabase
+    await SecurityTicketService.validateTicket(userId, 'login', String(code).trim());
+
+    // 4. Buscar dados completos para gerar JWT
+    const user  = await User.getById(userId);
+    const roles = await userRoleService.getUserRoles(userId);
+
+    const tokens = authService.generateToken({
+      uid:      userId,
+      email:    user?.email,
+      roles,
+      username: user?.username || null,
+    });
+
+    // [GAME-COV-001] Gamificação: acesso diário via login step-up
+    gamificationService.triggerEvent('daily_access', userId).catch(() => {});
+
+    // Create session record (fire-and-forget safe)
+    let sessionId = null;
+    try {
+      const deviceInfo = sessionService.parseUserAgent(req.headers['user-agent'], req.ip);
+      sessionId = await sessionService.createSession(userId, tokens.refreshToken, deviceInfo);
+      if (sessionId) await sessionService.markCurrentSession(userId, sessionId);
+    } catch (sessErr) {
+      logger.error('verifyOtpChallenge: falha ao criar sessão', { userId, error: sessErr.message });
+    }
+
+    res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+
+    logger.info('verifyOtpChallenge: autenticação step-up concluída', {
+      service: 'authController', userId,
+    });
+
+    return res.status(200).json({
+      success:         true,
+      isAuthenticated: true,
+      isFirstAccess:   false,
+      user,
+      tokens,
+      sessionId,
+    });
+
+  } catch (err) {
+    const isBruteForce = err.message?.includes('Muitas tentativas');
+    logger.warn('verifyOtpChallenge: falha na verificação', {
+      service: 'authController', error: err.message,
+    });
+    return res.status(isBruteForce ? 429 : 400).json({
+      success: false,
+      message: err.message || 'Código inválido ou expirado.',
     });
   }
 };
@@ -300,10 +551,36 @@ exports.getToken = async (req, res) => {
 exports.register = async (req, res) => {
   const auth = getAuth();
   const ja3Hash = req.ja3Hash;
-  const { firebaseToken: bodyToken, inviteId, profileData } = req.body;
+  const { firebaseToken: bodyToken, inviteId, profileData, nome: rawNome } = req.body;
   // Frontend envia o ID token no header Authorization; fallback para o body
   const firebaseToken = bodyToken
     || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+
+  // Validação server-side do nome: allowlist — letras, espaços, acentos, hifens (2-120 chars)
+  const nome = typeof rawNome === 'string'
+    ? rawNome.trim().substring(0, 120)
+    : undefined;
+  if (nome && (nome.length < 2 || !/^[\p{L}\s'.\-]+$/u.test(nome))) {
+    return res.status(400).json({ success: false, message: 'Nome inválido. Use apenas letras, espaços e acentos.' });
+  }
+
+  // Pré-validação: ja3Hash é marcador de segurança obrigatório
+  if (!ja3Hash) {
+    logger.warn('Registro bloqueado: ja3Hash ausente', {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      hasFingerprint: !!req.headers['x-browser-fingerprint'],
+      hasBodyToken: !!bodyToken,
+      hasAuthHeader: !!(req.headers.authorization)
+    });
+    return res.status(400).json({
+      success: false,
+      code: 'FINGERPRINT_REQUIRED',
+      message: 'Fingerprint de segurança não disponível. Atualize o aplicativo e tente novamente.'
+    });
+  }
+
+  let userId = null;
 
   try {
     if (!firebaseToken) {
@@ -312,8 +589,7 @@ exports.register = async (req, res) => {
 
     // 1. Verificar o token do Firebase
     const decodedToken = await auth.verifyIdToken(firebaseToken);
-    const userId = decodedToken.uid;
-    // const ja3hash = calculateJA3Hash(req.)
+    userId = decodedToken.uid;
 
     // 3. Criar ou atualizar perfil do usuário
     const userData = {
@@ -321,16 +597,30 @@ exports.register = async (req, res) => {
       email: decodedToken.email,
       emailVerified: decodedToken.email_verified,
       ja3Hash,
-      ...profileData,
+      nome: nome || decodedToken.name || decodedToken.email?.split('@')[0],  // fallback seguro
+      ...profileData,   // sobrescreve nome se profileData tiver um nome melhor
       dataCriacao: Date.now()
     };
     
     const user = await userService.addUser(userData);
     
-    // Sincronizar silenciosamente com Supabase (Migração)
-    supabaseSyncService.syncUserToSupabase(user).catch(err => 
-      logger.error('Erro na sincronização pós-registro', { userId, error: err.message })
-    );
+    // Sincronizar com Supabase de forma SÍNCRONA no registro — o user DEVE existir
+    // no Supabase ANTES de qualquer chamada a getToken(), caso contrário o middleware
+    // firstAccess detecta "primeiro acesso" e bloqueia o login (INVITE GATE race condition).
+    try {
+      await supabaseSyncService.syncUserToSupabase(user);
+      logger.info('Sincronização pós-registro com Supabase concluída', { userId });
+    } catch (syncErr) {
+      // Logar erro mas NÃO falhar o registro — user já existe no Firebase Auth
+      // e poderá ser sincronizado em login subsequente via getToken()
+      logger.error('Erro na sincronização pós-registro com Supabase (não-fatal)', {
+        userId,
+        error: syncErr.message,
+      });
+    }
+
+    // [GAME-COV-001] Gamificação: novo usuário criado
+    gamificationService.triggerEvent('user_created', userId).catch(() => {});
 
     // 2. Verificar e invalidar o convite (se fornecido)
     if (inviteId) {
@@ -346,6 +636,11 @@ exports.register = async (req, res) => {
       }
     }
 
+    // [BIZ-004] Processar business invites pendentes para este email (porta de entrada D6)
+    const businessInviteService = require('../services/businessInviteService');
+    businessInviteService.processRegistrationInvites(decodedToken.email, userId)
+      .catch(err => logger.error('processRegistrationInvites falhou', { error: err.message, userId }));
+
     // Buscar roles do usuário
     const roles = await userRoleService.getUserRoles(userId);
     user.roles = roles; // BUG FIX: Anexar roles ao usuário para o frontend
@@ -357,26 +652,37 @@ exports.register = async (req, res) => {
       roles: roles
     });
     
-    // 5. Definir cookies de autenticação
+    // 5. Create session record (fire-and-forget safe)
+    let sessionId = null;
+    try {
+      const deviceInfo = sessionService.parseUserAgent(req.headers['user-agent'], req.ip);
+      sessionId = await sessionService.createSession(userId, tokens.refreshToken, deviceInfo);
+      if (sessionId) await sessionService.markCurrentSession(userId, sessionId);
+    } catch (sessErr) {
+      logger.error('register: falha ao criar sessão', { userId, error: sessErr.message });
+    }
+
+    // 6. Definir cookies de autenticação
     res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict'
     });
-    
+
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict'
     });
-    
+
     return res.status(200).json({
       success: true,
       message: 'Registro concluído com sucesso',
       isAuthenticated: true,
       isFirstAccess: true,
       user,
-      tokens
+      tokens,
+      sessionId
     });
   } catch (error) {
     logger.error('Erro no registro', {
@@ -384,7 +690,20 @@ exports.register = async (req, res) => {
       inviteId,
       profileData
     });
-    
+
+    // Cleanup: deletar Firebase Auth user órfão para evitar conta presa
+    if (userId) {
+      try {
+        await auth.deleteUser(userId);
+        logger.info('Firebase Auth user órfão deletado após falha no registro', { userId });
+      } catch (cleanupErr) {
+        logger.error('Falha ao limpar Firebase Auth user órfão', {
+          userId,
+          error: cleanupErr.message
+        });
+      }
+    }
+
     return res.status(500).json({
       success: false,
       message: 'Erro ao processar registro',
@@ -507,13 +826,144 @@ exports.logout = async (req, res) => {
  * @returns {Promise<Object>} Resultado do reenvio do email
  * @description Solicita novo envio de email de verificação através do authService
  */
-exports.resendVerificationEmail = async (req, res) => {
+/**
+ * Envia OTP de verificação de email via nosso emailService (Resend).
+ * Substitui o sendEmailVerification nativo do Firebase — permite template branded.
+ * Requer autenticação (verifyToken).
+ */
+exports.sendEmailVerificationOtp = async (req, res) => {
   try {
-    const response = await authService.resendVerificationEmail();
-    res.status(200).json(response);
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Usuário não autenticado.' });
+    }
+
+    const user = await User.getById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+    }
+
+    if (!user.email) {
+      return res.status(400).json({ success: false, message: 'Nenhum email cadastrado.' });
+    }
+
+    // Gera OTP via SecurityTicketService (HMAC-SHA256, anti-brute-force)
+    const { code, expiresIn } = await SecurityTicketService.generateTicket(
+      userId,
+      'email_verify',
+      {
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
+        metadata: { email: user.email },
+      }
+    );
+
+    // Envia via nosso emailService (Resend API, template branded)
+    const emailResult = await emailService.sendOTP({
+      to: user.email,
+      userName: user.nome || user.full_name || user.username || 'usuário',
+      code,
+      type: 'email_verify',
+      expiresIn,
+    });
+
+    if (!emailResult.success) {
+      logger.error('sendEmailVerificationOtp: falha ao enviar email', {
+        service: 'authController', userId, error: emailResult.error,
+      });
+
+      if (emailResult.error === 'otp_rate_limit_exceeded') {
+        return res.status(429).json({
+          success: false,
+          message: 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.',
+          retryAfterSeconds: emailResult.retryAfterSeconds || 900,
+        });
+      }
+
+      if (emailResult.error === 'recipient_suppressed') {
+        return res.status(422).json({
+          success: false,
+          message: 'Não conseguimos enviar para este email. Entre em contato com o suporte.',
+        });
+      }
+
+      return res.status(500).json({ success: false, message: 'Erro ao enviar email de verificação.' });
+    }
+
+    logger.info('sendEmailVerificationOtp: OTP enviado', {
+      service: 'authController', userId, messageId: emailResult.messageId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Código de verificação enviado para seu email.',
+      expiresIn,
+    });
   } catch (error) {
-    logger.error(`Erro ao reenviar email de verificação: ${error.message}`);
-    res.status(500).json({ message: 'Erro ao reenviar email de verificação', error: error.message });
+    logger.error(`sendEmailVerificationOtp: ${error.message}`, {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro ao enviar email de verificação.' });
+  }
+};
+
+/**
+ * Confirma o OTP de verificação de email.
+ * Marca emailVerified = true no Supabase e no Firebase Auth.
+ * Requer autenticação (verifyToken).
+ */
+exports.confirmEmailVerification = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Usuário não autenticado.' });
+    }
+
+    const { code } = req.body;
+    if (!code || !/^\d{6}$/.test(String(code).trim())) {
+      return res.status(400).json({ success: false, message: 'Código inválido. Deve conter 6 dígitos.' });
+    }
+
+    // Valida OTP (marca ticket como 'used', anti-brute-force)
+    await SecurityTicketService.validateTicket(userId, 'email_verify', String(code).trim());
+
+    // Marca emailVerified no Supabase
+    const { getSupabaseClient } = require('../config/supabase');
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      await supabase
+        .from('users')
+        .update({ email_verified: true, email_verified_at: new Date().toISOString() })
+        .eq('id', userId);
+    }
+
+    // Marca emailVerified no Firebase Auth
+    try {
+      const auth = getAuth();
+      await auth.updateUser(userId, { emailVerified: true });
+    } catch (fbErr) {
+      logger.warn('confirmEmailVerification: falha ao atualizar Firebase Auth', {
+        service: 'authController', userId, error: fbErr.message,
+      });
+      // Não bloqueia — Supabase é fonte de verdade
+    }
+
+    logger.info('confirmEmailVerification: email verificado com sucesso', {
+      service: 'authController', userId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email verificado com sucesso!',
+    });
+  } catch (error) {
+    const isBruteForce = error.message?.includes('Muitas tentativas');
+    logger.warn('confirmEmailVerification: falha na verificação', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(isBruteForce ? 429 : 400).json({
+      success: false,
+      message: error.message || 'Código inválido ou expirado.',
+    });
   }
 };
 
@@ -579,6 +1029,12 @@ exports.refreshToken = async (req, res) => {
     if (!newTokens) {
       return res.status(403).json({ message: 'Token inválido ou expirado' });
     }
+
+    // Touch session — update last_active_at (fire-and-forget)
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    sessionService.touchSession(tokenHash).catch(err =>
+      logger.error('refreshToken: falha ao touch session', { error: err.message })
+    );
 
     res.status(200).json({
       accessToken: newTokens.accessToken,
@@ -742,5 +1198,1520 @@ exports.verifyResetToken = async (req, res) => {
   } catch (error) {
     logger.error('Erro ao verificar token de redefinição de senha', { service: 'authController', function: 'verifyResetToken', error: error.message });
     res.status(500).json({ message: 'Erro ao verificar token', error: error.message });
+  }
+};
+
+/**
+ * Marks a user's phone as verified after client-side Firebase Phone Auth
+ * @async
+ * @function verifyPhone
+ * @param {Object} req - Express request object
+ * @param {Object} req.user - Authenticated user (set by verifyToken middleware)
+ * @param {Object} req.body - Request body
+ * @param {boolean} req.body.phoneVerified - Must be true
+ * @param {string} req.body.telefone - E.164 formatted phone number
+ * @param {Object} res - Express response object
+ * @returns {Promise<Object>} Updated user data
+ * @description Updates phone_verified in Supabase and optionally links phone to Firebase Auth
+ */
+exports.verifyPhone = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Não autorizado' });
+    }
+
+    const { phoneVerified, telefone } = req.body;
+    if (!phoneVerified || !telefone) {
+      return res.status(400).json({
+        success: false,
+        message: 'phoneVerified e telefone são obrigatórios',
+      });
+    }
+
+    // Validate E.164 format
+    if (!/^\+\d{10,15}$/.test(telefone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Telefone deve estar no formato E.164 (ex: +5511987654321)',
+      });
+    }
+
+    // 1. Update Supabase user record
+    const updatedUser = await User.update(userId, {
+      telefone,
+      phoneVerified: true,
+      phoneVerifiedAt: new Date().toISOString(),
+    });
+
+    // 2. Link phone number in Firebase Auth (best-effort)
+    try {
+      const auth = getAuth();
+      await auth.updateUser(userId, { phoneNumber: telefone });
+      logger.info('verifyPhone: phone linked in Firebase Auth', {
+        service: 'authController', userId,
+      });
+    } catch (firebaseErr) {
+      // Non-critical: Firebase phone link may fail if already linked or provider issue
+      logger.warn('verifyPhone: failed to link phone in Firebase Auth (non-critical)', {
+        service: 'authController', userId, error: firebaseErr.message,
+      });
+    }
+
+    // [GAME-COV-001] Gamificação: telefone verificado
+    gamificationService.triggerEvent('phone_verified', userId).catch(() => {});
+
+    logger.info('verifyPhone: phone verified successfully', {
+      service: 'authController', userId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Telefone verificado com sucesso',
+      user: updatedUser,
+    });
+  } catch (error) {
+    logger.error('verifyPhone: error', {
+      service: 'authController',
+      error: error.message,
+    });
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao verificar telefone',
+      error: error.message,
+    });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ACCOUNT RECOVERY VIA PHONE — Endpoints públicos para usuários sem acesso ao email
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Mascara um email para exibição pública.
+ * "alice@gmail.com" -> "a***@gmail.com"
+ * @param {string} email
+ * @returns {string}
+ */
+function maskEmail(email) {
+  if (!email || !email.includes('@')) return '***';
+  const [local, domain] = email.split('@');
+  if (local.length <= 1) return `${local}***@${domain}`;
+  return `${local[0]}***@${domain}`;
+}
+
+/**
+ * Limpa telefone para apenas dígitos.
+ * @param {string} phone
+ * @returns {string}
+ */
+function cleanPhone(phone) {
+  return (phone || '').replace(/\D/g, '');
+}
+
+/**
+ * POST /api/auth/recovery/lookup-phone
+ * Public endpoint — verifica se um telefone está registrado e verificado.
+ * Retorna: { found: boolean, maskedEmail: "a***@gmail.com" }
+ * NÃO retorna userId nem email completo por segurança.
+ */
+exports.lookupPhoneForRecovery = async (req, res) => {
+  const { telefone } = req.body;
+
+  if (!telefone) {
+    return res.status(400).json({ success: false, message: 'Telefone é obrigatório.' });
+  }
+
+  try {
+    const digits = cleanPhone(telefone);
+    if (digits.length < 10) {
+      return res.status(400).json({ success: false, message: 'Número de telefone inválido.' });
+    }
+
+    const { getSupabaseClient } = require('../config/supabase');
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ success: false, message: 'Serviço temporariamente indisponível.' });
+    }
+
+    // Busca por telefone verificado — usa LIKE para match com/sem formatação
+    const { data: users, error: dbError } = await supabase
+      .from('users')
+      .select('id, email')
+      .like('telefone', `%${digits.slice(-10)}%`)
+      .eq('phone_verified', true)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (dbError) {
+      logger.error('lookupPhoneForRecovery: erro no Supabase', {
+        service: 'authController', error: dbError.message,
+      });
+      return res.status(500).json({ success: false, message: 'Erro ao buscar conta.' });
+    }
+
+    if (!users || users.length === 0) {
+      // Resposta genérica para não vazar informações
+      return res.status(200).json({ success: true, found: false });
+    }
+
+    const user = users[0];
+    return res.status(200).json({
+      success: true,
+      found: true,
+      maskedEmail: maskEmail(user.email),
+    });
+
+  } catch (error) {
+    logger.error('lookupPhoneForRecovery: erro inesperado', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+/**
+ * POST /api/auth/recovery/verify-phone
+ * Public endpoint — após verificação Firebase Phone Auth,
+ * valida ownership do telefone e retorna um recovery ticket.
+ * Body: { telefone, firebaseIdToken }
+ */
+exports.verifyPhoneForRecovery = async (req, res) => {
+  const { telefone, firebaseIdToken } = req.body;
+
+  if (!telefone || !firebaseIdToken) {
+    return res.status(400).json({
+      success: false,
+      message: 'Telefone e token de verificação são obrigatórios.',
+    });
+  }
+
+  try {
+    const digits = cleanPhone(telefone);
+
+    // 1. Verificar o Firebase ID token da sessão de phone auth
+    const auth = getAuth();
+    let decodedToken;
+    try {
+      decodedToken = await auth.verifyIdToken(firebaseIdToken);
+    } catch (tokenErr) {
+      logger.warn('verifyPhoneForRecovery: token Firebase inválido', {
+        service: 'authController', error: tokenErr.message,
+      });
+      return res.status(401).json({
+        success: false,
+        message: 'Verificação de telefone inválida ou expirada.',
+      });
+    }
+
+    // Verificar que o token realmente veio de phone auth
+    const tokenPhone = cleanPhone(decodedToken.phone_number || '');
+    if (!tokenPhone || !tokenPhone.endsWith(digits.slice(-10))) {
+      return res.status(401).json({
+        success: false,
+        message: 'O telefone verificado não corresponde ao informado.',
+      });
+    }
+
+    // 2. Buscar o usuário dono desse telefone verificado
+    const { getSupabaseClient } = require('../config/supabase');
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ success: false, message: 'Serviço temporariamente indisponível.' });
+    }
+
+    const { data: users, error: dbError } = await supabase
+      .from('users')
+      .select('id, email, recovery_email, recovery_email_verified')
+      .like('telefone', `%${digits.slice(-10)}%`)
+      .eq('phone_verified', true)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (dbError || !users || users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Conta não encontrada com este telefone verificado.',
+      });
+    }
+
+    const user = users[0];
+
+    // 3. Gerar recovery ticket de curta duração
+    const { code, expiresIn } = await SecurityTicketService.generateTicket(
+      user.id,
+      'account_recovery',
+      {
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
+        metadata: { telefone: digits, purpose: 'account_recovery' },
+      }
+    );
+
+    logger.info('verifyPhoneForRecovery: ticket de recovery gerado', {
+      service: 'authController', userId: user.id,
+    });
+
+    const hasRecoveryEmail = !!(user.recovery_email && user.recovery_email_verified);
+
+    return res.status(200).json({
+      success: true,
+      recoveryTicket: code,
+      expiresIn,
+      options: ['change_email', 'reset_password'],
+      hasRecoveryEmail,
+      maskedEmail: maskEmail(user.email),
+      maskedRecoveryEmail: hasRecoveryEmail ? maskEmail(user.recovery_email) : null,
+    });
+
+  } catch (error) {
+    logger.error('verifyPhoneForRecovery: erro inesperado', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+/**
+ * POST /api/auth/recovery/change-email
+ * Protegido por recovery ticket — altera o email principal da conta.
+ * Body: { recoveryTicket, newEmail, telefone }
+ */
+exports.recoveryChangeEmail = async (req, res) => {
+  const { recoveryTicket, newEmail, telefone } = req.body;
+
+  if (!recoveryTicket || !newEmail || !telefone) {
+    return res.status(400).json({
+      success: false,
+      message: 'Recovery ticket, novo email e telefone são obrigatórios.',
+    });
+  }
+
+  // Validação básica de email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(newEmail)) {
+    return res.status(400).json({ success: false, message: 'Email inválido.' });
+  }
+
+  try {
+    const digits = cleanPhone(telefone);
+
+    const { getSupabaseClient } = require('../config/supabase');
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ success: false, message: 'Serviço temporariamente indisponível.' });
+    }
+
+    // 1. Buscar o usuário pelo telefone verificado
+    const { data: users, error: lookupErr } = await supabase
+      .from('users')
+      .select('id, email')
+      .like('telefone', `%${digits.slice(-10)}%`)
+      .eq('phone_verified', true)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (lookupErr || !users || users.length === 0) {
+      return res.status(404).json({ success: false, message: 'Conta não encontrada.' });
+    }
+
+    const user = users[0];
+
+    // 2. Validar recovery ticket
+    try {
+      await SecurityTicketService.validateTicket(user.id, 'account_recovery', recoveryTicket);
+    } catch (ticketErr) {
+      return res.status(401).json({
+        success: false,
+        message: ticketErr.message || 'Ticket de recuperação inválido ou expirado.',
+      });
+    }
+
+    // 3. Verificar se o novo email já está em uso
+    const { data: existingUsers } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', newEmail.toLowerCase())
+      .neq('id', user.id)
+      .limit(1);
+
+    if (existingUsers && existingUsers.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Este email já está em uso por outra conta.',
+      });
+    }
+
+    // 4. Atualizar email no Firebase Auth
+    const auth = getAuth();
+    try {
+      await auth.updateUser(user.id, { email: newEmail.toLowerCase() });
+    } catch (fbErr) {
+      logger.error('recoveryChangeEmail: falha ao atualizar Firebase Auth', {
+        service: 'authController', userId: user.id, error: fbErr.message,
+      });
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao atualizar email. Tente novamente.',
+      });
+    }
+
+    // 5. Atualizar email no Supabase
+    const { error: updateErr } = await supabase
+      .from('users')
+      .update({ email: newEmail.toLowerCase(), updated_at: new Date().toISOString() })
+      .eq('id', user.id);
+
+    if (updateErr) {
+      logger.error('recoveryChangeEmail: falha ao atualizar Supabase', {
+        service: 'authController', userId: user.id, error: updateErr.message,
+      });
+      // Firebase já foi atualizado — logar mas não falhar
+    }
+
+    logger.info('recoveryChangeEmail: email alterado com sucesso', {
+      service: 'authController', userId: user.id,
+      oldEmail: maskEmail(user.email), newEmail: maskEmail(newEmail),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email alterado com sucesso. Faça login com o novo email.',
+    });
+
+  } catch (error) {
+    logger.error('recoveryChangeEmail: erro inesperado', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+/**
+ * POST /api/auth/recovery/send-reset
+ * Protegido por recovery ticket — envia link de redefinição de senha.
+ * Body: { recoveryTicket, telefone, useRecoveryEmail }
+ */
+exports.recoverySendReset = async (req, res) => {
+  const { recoveryTicket, telefone, useRecoveryEmail } = req.body;
+
+  if (!recoveryTicket || !telefone) {
+    return res.status(400).json({
+      success: false,
+      message: 'Recovery ticket e telefone são obrigatórios.',
+    });
+  }
+
+  try {
+    const digits = cleanPhone(telefone);
+
+    const { getSupabaseClient } = require('../config/supabase');
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(503).json({ success: false, message: 'Serviço temporariamente indisponível.' });
+    }
+
+    // 1. Buscar o usuário pelo telefone verificado
+    const { data: users, error: lookupErr } = await supabase
+      .from('users')
+      .select('id, email, recovery_email, recovery_email_verified')
+      .like('telefone', `%${digits.slice(-10)}%`)
+      .eq('phone_verified', true)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (lookupErr || !users || users.length === 0) {
+      return res.status(404).json({ success: false, message: 'Conta não encontrada.' });
+    }
+
+    const user = users[0];
+
+    // 2. Validar recovery ticket
+    try {
+      await SecurityTicketService.validateTicket(user.id, 'account_recovery', recoveryTicket);
+    } catch (ticketErr) {
+      return res.status(401).json({
+        success: false,
+        message: ticketErr.message || 'Ticket de recuperação inválido ou expirado.',
+      });
+    }
+
+    // 3. Determinar email de destino
+    let targetEmail;
+    if (useRecoveryEmail && user.recovery_email && user.recovery_email_verified) {
+      targetEmail = user.recovery_email;
+    } else {
+      targetEmail = user.email;
+    }
+
+    if (!targetEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nenhum email disponível para envio.',
+      });
+    }
+
+    // 4. Gerar link de redefinição via Firebase Admin
+    const auth = getAuth();
+    let resetLink;
+    try {
+      resetLink = await auth.generatePasswordResetLink(targetEmail);
+    } catch (fbErr) {
+      logger.error('recoverySendReset: falha ao gerar link Firebase', {
+        service: 'authController', userId: user.id, error: fbErr.message,
+      });
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao gerar link de redefinição. Tente novamente.',
+      });
+    }
+
+    // 5. Enviar por email via emailService
+    try {
+      await emailService.sendEmail({
+        to: targetEmail,
+        subject: 'Redefinição de senha - ElosCloud',
+        templateType: 'password_reset',
+        templateData: {
+          userName: 'Usuário',
+          resetLink,
+          expiresIn: '1 hora',
+        },
+      });
+    } catch (emailErr) {
+      logger.warn('recoverySendReset: falha ao enviar email via emailService, link já gerado', {
+        service: 'authController', userId: user.id, error: emailErr.message,
+      });
+      // O link já foi gerado — Firebase envia o seu próprio email de redefinição
+    }
+
+    logger.info('recoverySendReset: link de redefinição enviado', {
+      service: 'authController', userId: user.id,
+      sentTo: maskEmail(targetEmail),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Link de redefinição enviado com sucesso.',
+      sentTo: maskEmail(targetEmail),
+    });
+
+  } catch (error) {
+    logger.error('recoverySendReset: erro inesperado', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Session Management — Active sessions list, revoke single, revoke all others
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Lists all active (non-revoked, non-expired) sessions for the authenticated user
+ * @async
+ * @function getSessions
+ */
+exports.getSessions = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Não autenticado.' });
+    }
+
+    const sessions = await sessionService.getUserSessions(userId);
+    return res.status(200).json({ success: true, sessions });
+  } catch (error) {
+    logger.error('getSessions: erro ao listar sessões', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro ao listar sessões.' });
+  }
+};
+
+/**
+ * Revokes a specific session by ID (soft-delete via revoked_at)
+ * @async
+ * @function revokeSession
+ */
+exports.revokeSession = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Não autenticado.' });
+    }
+
+    const { sessionId } = req.params;
+    if (!sessionId) {
+      return res.status(400).json({ success: false, message: 'sessionId é obrigatório.' });
+    }
+
+    const session = await sessionService.revokeSession(userId, sessionId);
+
+    // Log the revocation for audit
+    if (session?.refresh_token_hash) {
+      logger.info('revokeSession: sessão revogada', {
+        service: 'authController', userId, sessionId,
+      });
+    }
+
+    return res.status(200).json({ success: true, message: 'Sessão encerrada.' });
+  } catch (error) {
+    logger.error('revokeSession: erro ao revogar sessão', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro ao encerrar sessão.' });
+  }
+};
+
+/**
+ * Revokes all sessions except the current one
+ * @async
+ * @function revokeAllSessions
+ */
+exports.revokeAllSessions = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Não autenticado.' });
+    }
+
+    const currentSessionId = req.headers['x-session-id'] || null;
+    await sessionService.revokeAllOtherSessions(userId, currentSessionId);
+
+    logger.info('revokeAllSessions: todas as outras sessões revogadas', {
+      service: 'authController', userId, keptSessionId: currentSessionId,
+    });
+
+    return res.status(200).json({ success: true, message: 'Todas as outras sessões foram encerradas.' });
+  } catch (error) {
+    logger.error('revokeAllSessions: erro ao revogar sessões', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro ao encerrar sessões.' });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MFA — Autenticacao em dois fatores (2FA)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /api/auth/mfa/setup-totp
+ * Gera segredo TOTP + QR code para configuracao do app autenticador.
+ * Requer autenticacao (verifyToken).
+ */
+exports.setupTOTP = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Nao autorizado.' });
+    }
+
+    const user = await User.getById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuario nao encontrado.' });
+    }
+
+    const setup = await mfaService.generateTOTPSetup(userId, user.email);
+
+    // Armazena segredo criptografado temporariamente (usuario ainda nao confirmou)
+    await User.update(userId, { totp_secret: setup.secret });
+
+    logger.info('setupTOTP: QR code gerado', { service: 'authController', userId });
+
+    return res.json({
+      success: true,
+      qrCode: setup.qrCode,
+      manualKey: setup.manualKey,
+    });
+  } catch (error) {
+    logger.error('setupTOTP: erro', { service: 'authController', error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro ao configurar autenticador.' });
+  }
+};
+
+/**
+ * POST /api/auth/mfa/confirm-totp
+ * Usuario digita codigo do app autenticador para confirmar setup.
+ * Gera codigos de backup e ativa MFA.
+ * Body: { code }
+ */
+exports.confirmTOTP = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Nao autorizado.' });
+    }
+
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Codigo e obrigatorio.' });
+    }
+
+    const user = await User.getById(userId);
+    if (!user || !user.totpSecret) {
+      return res.status(400).json({ success: false, message: 'TOTP nao configurado. Inicie o setup primeiro.' });
+    }
+
+    // Verificar codigo
+    const valid = mfaService.verifyTOTPCode(user.totpSecret, code);
+    if (!valid) {
+      return res.status(400).json({ success: false, message: 'Codigo invalido. Tente novamente.' });
+    }
+
+    // Gerar codigos de backup
+    const backupCodes = mfaService.generateBackupCodes();
+    const encryptedCodes = mfaService.encryptBackupCodes(backupCodes);
+
+    // Ativar MFA
+    const currentMethod = user.mfaMethod;
+    const method = currentMethod === 'sms' ? 'both' : 'totp';
+
+    await User.update(userId, {
+      mfa_enabled: true,
+      mfa_method: method,
+      backup_codes: encryptedCodes,
+      backup_codes_count: 10,
+      mfa_enabled_at: new Date().toISOString(),
+    });
+
+    logger.info('confirmTOTP: MFA TOTP ativado', { service: 'authController', userId, method });
+
+    // Gamificacao: 2FA ativado
+    gamificationService.triggerEvent('mfa_enabled', userId).catch(() => {});
+
+    return res.json({
+      success: true,
+      backupCodes,
+      method,
+    });
+  } catch (error) {
+    logger.error('confirmTOTP: erro', { service: 'authController', error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro ao confirmar autenticador.' });
+  }
+};
+
+/**
+ * POST /api/auth/mfa/enable-sms
+ * Ativa 2FA via SMS (requer telefone verificado).
+ */
+exports.enableSMS2FA = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Nao autorizado.' });
+    }
+
+    const user = await User.getById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuario nao encontrado.' });
+    }
+
+    if (!user.phoneVerified) {
+      return res.status(400).json({ success: false, message: 'Telefone nao verificado. Verifique seu telefone primeiro.' });
+    }
+
+    let backupCodes = null;
+
+    if (!user.mfaEnabled) {
+      // Primeira vez ativando MFA — gerar codigos de backup
+      const codes = mfaService.generateBackupCodes();
+      backupCodes = codes;
+      const encryptedCodes = mfaService.encryptBackupCodes(codes);
+
+      await User.update(userId, {
+        mfa_enabled: true,
+        mfa_method: 'sms',
+        backup_codes: encryptedCodes,
+        backup_codes_count: 10,
+        mfa_enabled_at: new Date().toISOString(),
+      });
+
+      logger.info('enableSMS2FA: MFA SMS ativado (primeiro metodo)', { service: 'authController', userId });
+    } else {
+      // Ja tem MFA — adicionar SMS como metodo
+      const method = user.mfaMethod === 'totp' ? 'both' : 'sms';
+      await User.update(userId, { mfa_method: method });
+      logger.info('enableSMS2FA: SMS adicionado como metodo', { service: 'authController', userId, method });
+    }
+
+    // Gamificacao: 2FA ativado
+    gamificationService.triggerEvent('mfa_enabled', userId).catch(() => {});
+
+    return res.json({
+      success: true,
+      backupCodes,
+      method: user.mfaEnabled ? (user.mfaMethod === 'totp' ? 'both' : 'sms') : 'sms',
+    });
+  } catch (error) {
+    logger.error('enableSMS2FA: erro', { service: 'authController', error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro ao ativar 2FA por SMS.' });
+  }
+};
+
+/**
+ * POST /api/auth/mfa/disable
+ * Desativa um metodo MFA ou todos.
+ * Body: { method } — 'sms', 'totp', ou 'all'
+ */
+exports.disableMFA = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Nao autorizado.' });
+    }
+
+    const { method } = req.body;
+    if (!method || !['sms', 'totp', 'all'].includes(method)) {
+      return res.status(400).json({ success: false, message: 'Metodo invalido. Use: sms, totp ou all.' });
+    }
+
+    const user = await User.getById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuario nao encontrado.' });
+    }
+
+    if (method === 'all' || !user.mfaMethod || user.mfaMethod === method) {
+      await User.update(userId, {
+        mfa_enabled: false,
+        mfa_method: null,
+        totp_secret: null,
+        backup_codes: null,
+        backup_codes_count: 0,
+        mfa_enabled_at: null,
+      });
+      logger.info('disableMFA: todos os metodos desativados', { service: 'authController', userId });
+    } else if (method === 'sms' && user.mfaMethod === 'both') {
+      await User.update(userId, { mfa_method: 'totp' });
+      logger.info('disableMFA: SMS removido, TOTP mantido', { service: 'authController', userId });
+    } else if (method === 'totp' && user.mfaMethod === 'both') {
+      await User.update(userId, { mfa_method: 'sms', totp_secret: null });
+      logger.info('disableMFA: TOTP removido, SMS mantido', { service: 'authController', userId });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    logger.error('disableMFA: erro', { service: 'authController', error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro ao desativar 2FA.' });
+  }
+};
+
+/**
+ * GET /api/auth/mfa/status
+ * Retorna status atual do MFA para o usuario autenticado.
+ */
+exports.getMFAStatus = async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Nao autorizado.' });
+    }
+
+    const user = await User.getById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuario nao encontrado.' });
+    }
+
+    return res.json({
+      success: true,
+      mfaEnabled: user.mfaEnabled || false,
+      mfaMethod: user.mfaMethod || null,
+      backupCodesCount: user.backupCodesCount || 0,
+      mfaEnabledAt: user.mfaEnabledAt || null,
+      phoneVerified: user.phoneVerified || false,
+    });
+  } catch (error) {
+    logger.error('getMFAStatus: erro', { service: 'authController', error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro ao obter status MFA.' });
+  }
+};
+
+/**
+ * POST /api/auth/mfa/verify
+ * Verifica codigo MFA durante o login (endpoint publico com rate limit).
+ * Body: { challengeToken, code, method } — method: 'totp', 'sms', ou 'backup'
+ */
+exports.verifyMFA = async (req, res) => {
+  const { challengeToken, code, method } = req.body;
+
+  if (!challengeToken || !code || !method) {
+    return res.status(400).json({
+      success: false,
+      message: 'challengeToken, code e method sao obrigatorios.',
+    });
+  }
+
+  if (!['totp', 'sms', 'backup'].includes(method)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Metodo invalido. Use: totp, sms ou backup.',
+    });
+  }
+
+  try {
+    // 1. Decodificar challengeToken
+    let payload;
+    try {
+      payload = jwt.verify(challengeToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({
+        success: false,
+        message: 'Desafio expirado ou invalido. Faca login novamente.',
+      });
+    }
+
+    if (payload.purpose !== 'mfa_challenge') {
+      return res.status(401).json({ success: false, message: 'Token de desafio invalido.' });
+    }
+
+    const userId = payload.uid;
+
+    // 2. Bloquear usuarios na blacklist
+    if (isLocallyBlacklisted(userId)) {
+      return res.status(401).json({ error: 'TOKEN_REVOKED' });
+    }
+
+    // 3. Buscar usuario
+    const user = await User.getById(userId);
+    if (!user || !user.mfaEnabled) {
+      return res.status(400).json({ success: false, message: 'MFA nao esta ativo para este usuario.' });
+    }
+
+    // 4. Verificar codigo conforme metodo
+    if (method === 'totp') {
+      if (!user.totpSecret) {
+        return res.status(400).json({ success: false, message: 'TOTP nao configurado.' });
+      }
+      const valid = mfaService.verifyTOTPCode(user.totpSecret, code);
+      if (!valid) {
+        return res.status(400).json({ success: false, message: 'Codigo invalido.' });
+      }
+    } else if (method === 'backup') {
+      if (!user.backupCodes) {
+        return res.status(400).json({ success: false, message: 'Codigos de backup nao configurados.' });
+      }
+      const result = mfaService.useBackupCode(user.backupCodes, code);
+      if (!result.valid) {
+        return res.status(400).json({ success: false, message: 'Codigo de backup invalido.' });
+      }
+      await User.update(userId, {
+        backup_codes: result.remaining,
+        backup_codes_count: result.count,
+      });
+    } else if (method === 'sms') {
+      // SMS verification handled via SecurityTicketService (OTP)
+      try {
+        await SecurityTicketService.validateTicket(userId, 'mfa_sms', String(code).trim());
+      } catch (ticketErr) {
+        const isBruteForce = ticketErr.message?.includes('Muitas tentativas');
+        return res.status(isBruteForce ? 429 : 400).json({
+          success: false,
+          message: ticketErr.message || 'Codigo SMS invalido ou expirado.',
+        });
+      }
+    }
+
+    // 5. Gerar JWT tokens (mesmo fluxo do login normal)
+    const roles = await userRoleService.getUserRoles(userId);
+    if (user) user.roles = roles;
+
+    const tokens = authService.generateToken({
+      uid: userId,
+      email: user.email,
+      roles,
+      username: user?.username || null,
+    });
+
+    // Gamificacao: acesso diario
+    gamificationService.triggerEvent('daily_access', userId).catch(() => {});
+
+    // Create session record (fire-and-forget safe)
+    let sessionId = null;
+    try {
+      const deviceInfo = sessionService.parseUserAgent(req.headers['user-agent'], req.ip);
+      sessionId = await sessionService.createSession(userId, tokens.refreshToken, deviceInfo);
+      if (sessionId) await sessionService.markCurrentSession(userId, sessionId);
+    } catch (sessErr) {
+      logger.error('verifyMFA: falha ao criar sessão', { userId, error: sessErr.message });
+    }
+
+    // Configurar cookies
+    res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+
+    logger.info('verifyMFA: autenticacao MFA concluida', {
+      service: 'authController', userId, method,
+    });
+
+    return res.status(200).json({
+      success: true,
+      isAuthenticated: true,
+      user,
+      tokens,
+      sessionId,
+    });
+  } catch (error) {
+    logger.error('verifyMFA: erro inesperado', {
+      service: 'authController', error: error.message,
+    });
+    return res.status(500).json({ success: false, message: 'Erro ao verificar MFA.' });
+  }
+};
+
+/**
+ * POST /api/auth/mfa/send-sms
+ * Envia OTP por email para verificacao MFA durante login.
+ * Body: { challengeToken }
+ */
+exports.sendMFASms = async (req, res) => {
+  const { challengeToken } = req.body;
+
+  if (!challengeToken) {
+    return res.status(400).json({ success: false, message: 'challengeToken e obrigatorio.' });
+  }
+
+  try {
+    let payload;
+    try {
+      payload = jwt.verify(challengeToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ success: false, message: 'Desafio expirado. Faca login novamente.' });
+    }
+
+    if (payload.purpose !== 'mfa_challenge') {
+      return res.status(401).json({ success: false, message: 'Token invalido.' });
+    }
+
+    const userId = payload.uid;
+    const user = await User.getById(userId);
+
+    if (!user || !user.mfaEnabled) {
+      return res.status(400).json({ success: false, message: 'MFA nao ativo.' });
+    }
+
+    if (!user.email) {
+      return res.status(400).json({ success: false, message: 'Email nao encontrado.' });
+    }
+
+    // Gera OTP via SecurityTicketService e envia por email
+    const { code, expiresIn } = await SecurityTicketService.generateTicket(userId, 'mfa_sms', {
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
+      metadata: { purpose: 'mfa_sms_verification' },
+    });
+
+    const otpResult = await emailService.sendOTP({
+      to: user.email,
+      userName: user.nome || 'usuario',
+      code,
+      type: 'mfa_sms',
+      expiresIn,
+    });
+
+    if (!otpResult.success) {
+      logger.error('sendMFASms: falha ao enviar OTP', { userId, error: otpResult.error });
+
+      if (otpResult.error === 'otp_rate_limit_exceeded') {
+        return res.status(429).json({
+          success: false,
+          message: 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.',
+          retryAfterSeconds: otpResult.retryAfterSeconds || 900,
+        });
+      }
+
+      if (otpResult.error === 'recipient_suppressed') {
+        return res.status(422).json({
+          success: false,
+          message: 'Não conseguimos enviar para este email. Entre em contato com o suporte.',
+        });
+      }
+
+      return res.status(500).json({ success: false, message: 'Erro ao enviar codigo.' });
+    }
+
+    logger.info('sendMFASms: OTP enviado', { service: 'authController', userId });
+
+    return res.json({ success: true, expiresIn });
+  } catch (error) {
+    logger.error('sendMFASms: erro', { service: 'authController', error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro ao enviar codigo.' });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Passwordless Auth — Access Code + Magic Link (AUTH-PL-002)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Helper: completa login passwordless após verificação bem-sucedida.
+ * Gera Firebase custom token, JWT, sessão e cookies.
+ * Exportado para uso pelo webauthnController.
+ */
+async function _completePasswordlessLogin(userId, req, res) {
+  // 1. Blacklist check
+  if (isLocallyBlacklisted(userId)) {
+    return res.status(401).json({ error: 'TOKEN_REVOKED' });
+  }
+
+  // 2. Buscar dados do usuário
+  const user = await User.getById(userId);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+  }
+
+  // 3. Buscar roles
+  const roles = await userRoleService.getUserRoles(userId);
+  if (user) user.roles = roles;
+
+  // 4. Gerar Firebase custom token (para frontend sincronizar Firebase Auth)
+  let firebaseCustomToken = null;
+  try {
+    const auth = getAuth();
+    firebaseCustomToken = await auth.createCustomToken(userId);
+  } catch (fbErr) {
+    logger.warn('Passwordless: falha ao gerar Firebase custom token (prosseguindo)', {
+      userId, error: fbErr.message,
+    });
+  }
+
+  // 5. Gerar JWT tokens
+  const tokens = authService.generateToken({
+    uid: userId,
+    email: user?.email,
+    roles,
+    username: user?.username || null,
+  });
+
+  // 6. Sync Supabase (fire-and-forget)
+  supabaseSyncService.syncUserToSupabase(user).catch(err =>
+    logger.error('Erro na sincronização pós-login passwordless', { userId, error: err.message })
+  );
+
+  // 7. Gamificação: acesso diário
+  gamificationService.triggerEvent('daily_access', userId).catch(() => {});
+
+  // 8. Criar sessão
+  let sessionId = null;
+  try {
+    const deviceInfo = sessionService.parseUserAgent(req.headers['user-agent'], req.ip);
+    sessionId = await sessionService.createSession(userId, tokens.refreshToken, deviceInfo);
+    if (sessionId) {
+      await sessionService.markCurrentSession(userId, sessionId);
+    }
+  } catch (sessErr) {
+    logger.error('Passwordless: falha ao criar sessão', { userId, error: sessErr.message });
+  }
+
+  // 9. Cookies
+  res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+  });
+
+  res.cookie('refreshToken', tokens.refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+  });
+
+  return res.status(200).json({
+    success: true,
+    isAuthenticated: true,
+    user,
+    tokens,
+    sessionId,
+    firebaseCustomToken,
+  });
+}
+
+/**
+ * POST /auth/passwordless/send-code
+ * Envia código de acesso temporário (8-char, 24h) por email.
+ * Body: { email }
+ */
+exports.sendAccessCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ success: false, message: 'Email é obrigatório.' });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Email inválido.' });
+    }
+
+    const result = await accessCodeService.sendAccessCode(email);
+
+    if (!result.success) {
+      if (result.error === 'account_locked') {
+        return res.status(429).json({
+          success: false,
+          message: 'Conta temporariamente bloqueada por tentativas excessivas.',
+          locked_until: result.locked_until,
+        });
+      }
+      return res.status(500).json({ success: false, message: 'Erro ao enviar código.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Se este email estiver cadastrado, um código de acesso será enviado.',
+      expiresAt: result.expiresAt,
+    });
+  } catch (error) {
+    logger.error('sendAccessCode: erro', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+/**
+ * POST /auth/passwordless/verify-code
+ * Verifica código de acesso e faz login.
+ * Body: { email, code }
+ */
+exports.verifyAccessCode = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({ success: false, message: 'Email e código são obrigatórios.' });
+    }
+
+    const result = await accessCodeService.verifyAccessCode(email, code);
+
+    if (!result.success) {
+      if (result.error === 'account_locked') {
+        return res.status(429).json({
+          success: false,
+          message: 'Conta temporariamente bloqueada por tentativas excessivas.',
+          locked_until: result.locked_until,
+        });
+      }
+      return res.status(401).json({ success: false, message: 'Código inválido ou expirado.' });
+    }
+
+    // Login bem-sucedido → gerar tokens e sessão
+    return _completePasswordlessLogin(result.userId, req, res);
+  } catch (error) {
+    logger.error('verifyAccessCode: erro', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+/**
+ * POST /auth/passwordless/send-link
+ * Envia magic link de login por email.
+ * Body: { email }
+ */
+exports.sendMagicLink = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ success: false, message: 'Email é obrigatório.' });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Email inválido.' });
+    }
+
+    const result = await magicLinkService.sendMagicLink(email, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    if (!result.success) {
+      if (result.error === 'account_locked') {
+        return res.status(429).json({
+          success: false,
+          message: 'Conta temporariamente bloqueada por tentativas excessivas.',
+          locked_until: result.locked_until,
+        });
+      }
+      return res.status(500).json({ success: false, message: 'Erro ao enviar link.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Se este email estiver cadastrado, um link de acesso será enviado.',
+      expiresAt: result.expiresAt,
+    });
+  } catch (error) {
+    logger.error('sendMagicLink: erro', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+/**
+ * POST /auth/passwordless/verify-link
+ * Verifica magic link token e faz login.
+ * Body: { token }
+ */
+exports.verifyMagicLink = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Token é obrigatório.' });
+    }
+
+    const result = await magicLinkService.verifyMagicLink(token);
+
+    if (!result.success) {
+      if (result.error === 'account_locked') {
+        return res.status(429).json({
+          success: false,
+          message: 'Conta temporariamente bloqueada por tentativas excessivas.',
+          locked_until: result.locked_until,
+        });
+      }
+      return res.status(401).json({ success: false, message: 'Link inválido ou expirado.' });
+    }
+
+    // Login bem-sucedido → gerar tokens e sessão
+    return _completePasswordlessLogin(result.userId, req, res);
+  } catch (error) {
+    logger.error('verifyMagicLink: erro', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Erro interno.' });
+  }
+};
+
+/**
+ * POST /auth/passwordless/register
+ * Registro sem senha — cria Firebase user via Admin SDK (sem password),
+ * persiste no DB, invalida convite, gera JWT + Firebase custom token.
+ *
+ * Body: { inviteId, username, nome, telefone, dataNascimento, fotoDoPerfil?, phoneVerified? }
+ * Email vem do convite (fonte de verdade).
+ */
+exports.passwordlessRegister = async (req, res) => {
+  const auth = getAuth();
+  const ja3Hash = req.ja3Hash;
+  const {
+    inviteId, username, nome: rawNome, telefone,
+    dataNascimento, fotoDoPerfil, phoneVerified,
+  } = req.body;
+
+  // Validação básica
+  if (!inviteId) {
+    return res.status(400).json({ success: false, message: 'Convite é obrigatório.' });
+  }
+  // [HANDLE-003] Regex com hifen — espelha handleService.HANDLE_REGEX
+  if (!username || !/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(username) || /--/.test(username)) {
+    return res.status(400).json({ success: false, message: 'Username inválido.' });
+  }
+
+  const nome = typeof rawNome === 'string' ? rawNome.trim().substring(0, 120) : undefined;
+  if (!nome || nome.length < 2 || !/^[\p{L}\s'.\-]+$/u.test(nome)) {
+    return res.status(400).json({ success: false, message: 'Nome inválido. Use apenas letras, espaços e acentos.' });
+  }
+
+  // ja3Hash é opcional no registro passwordless — convite validado é a prova de identidade.
+  // firstAccess middleware não roda aqui (não há Firebase token no body).
+  if (!ja3Hash) {
+    logger.info('Registro passwordless sem ja3Hash (esperado — convite é prova de identidade)', { ip: req.ip });
+  }
+
+  let userId = null;
+
+  try {
+    // 1. Validar convite e obter email
+    const invite = await inviteService.getInviteById(inviteId);
+    if (!invite || invite.status !== 'validated') {
+      return res.status(400).json({ success: false, message: 'Convite inválido ou não validado.' });
+    }
+    const email = invite.recipientEmail || invite.email;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email do convite não encontrado.' });
+    }
+
+    // 2. Criar Firebase Auth user SEM senha (Admin SDK)
+    let firebaseUser;
+    try {
+      firebaseUser = await auth.createUser({
+        email,
+        displayName: nome,
+        emailVerified: true, // convite = email validado (D1)
+      });
+      userId = firebaseUser.uid;
+    } catch (fbErr) {
+      if (fbErr.code === 'auth/email-already-exists') {
+        return res.status(409).json({ success: false, message: 'Email já cadastrado. Faça login.' });
+      }
+      throw fbErr;
+    }
+
+    // 3. Persistir usuário no DB
+    const userData = {
+      uid: userId,
+      email,
+      emailVerified: true,
+      ja3Hash,
+      nome,
+      username,
+      telefone: telefone || null,
+      dataNascimento: dataNascimento || null,
+      fotoDoPerfil: fotoDoPerfil || null,
+      phoneVerified: phoneVerified || false,
+      dataCriacao: Date.now(),
+    };
+    const user = await userService.addUser(userData);
+
+    // 4. Sync Supabase (síncrono — user DEVE existir antes de getToken)
+    try {
+      await supabaseSyncService.syncUserToSupabase(user);
+      logger.info('Passwordless register: Supabase sync OK', { userId });
+    } catch (syncErr) {
+      logger.error('Passwordless register: Supabase sync falhou (não-fatal)', {
+        userId, error: syncErr.message,
+      });
+    }
+
+    // 5. Gamificação: novo usuário
+    gamificationService.triggerEvent('user_created', userId).catch(() => {});
+
+    // 6. Invalidar convite
+    if (inviteId) {
+      const inviteResult = await inviteService.invalidateInvite(inviteId, userId);
+      if (inviteResult.caxinhaInviteId && inviteResult.caixinhaId) {
+        await caixinhaInviteService.linkToRegisteredUser(
+          inviteResult.caxinhaInviteId,
+          inviteResult.caixinhaId,
+          userId
+        );
+      }
+    }
+
+    // 7. Business invites
+    const businessInviteService = require('../services/businessInviteService');
+    businessInviteService.processRegistrationInvites(email, userId)
+      .catch(err => logger.error('processRegistrationInvites falhou', { error: err.message, userId }));
+
+    // 8. Buscar roles
+    const roles = await userRoleService.getUserRoles(userId);
+    if (user) user.roles = roles;
+
+    // 9. Firebase custom token (para frontend sincronizar Firebase Auth)
+    let firebaseCustomToken = null;
+    try {
+      firebaseCustomToken = await auth.createCustomToken(userId);
+    } catch (fbErr) {
+      logger.warn('Passwordless register: falha ao gerar custom token', { userId, error: fbErr.message });
+    }
+
+    // 10. Gerar JWT
+    const tokens = authService.generateToken({ uid: userId, email, roles, username });
+
+    // 11. Criar sessão
+    let sessionId = null;
+    try {
+      const deviceInfo = sessionService.parseUserAgent(req.headers['user-agent'], req.ip);
+      sessionId = await sessionService.createSession(userId, tokens.refreshToken, deviceInfo);
+      if (sessionId) await sessionService.markCurrentSession(userId, sessionId);
+    } catch (sessErr) {
+      logger.error('Passwordless register: falha ao criar sessão', { userId, error: sessErr.message });
+    }
+
+    // 12. Cookies
+    res.cookie('authorization', `Bearer ${tokens.accessToken}`, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Registro concluído com sucesso',
+      isAuthenticated: true,
+      isFirstAccess: true,
+      user,
+      tokens,
+      sessionId,
+      firebaseCustomToken,
+    });
+  } catch (error) {
+    logger.error('Erro no registro passwordless', { error: error.message, inviteId });
+
+    // Cleanup: deletar Firebase Auth user órfão
+    if (userId) {
+      try {
+        await auth.deleteUser(userId);
+        logger.info('Firebase Auth user órfão deletado após falha no registro passwordless', { userId });
+      } catch (cleanupErr) {
+        logger.error('Falha ao limpar Firebase Auth user órfão', { userId, error: cleanupErr.message });
+      }
+    }
+
+    return res.status(500).json({ success: false, message: 'Erro ao processar registro.' });
+  }
+};
+
+// Exportar helper para uso pelo webauthnController
+exports._completePasswordlessLogin = _completePasswordlessLogin;
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH-PL-006: Admin — Transição passwordless
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * POST /api/admin/auth/password-transition/start
+ * Dispara batch de emails de transição para users não notificados.
+ */
+exports.startPasswordTransition = async (req, res) => {
+  const fn = 'authController.startPasswordTransition';
+  try {
+    const Joi = require('joi');
+    const schema = Joi.object({
+      batchSize: Joi.number().integer().min(1).max(500).optional(),
+      dryRun: Joi.boolean().optional(),
+    });
+    const { error: valErr, value } = schema.validate(req.body || {});
+    if (valErr) {
+      return res.status(400).json({ success: false, message: valErr.message });
+    }
+
+    const passwordTransitionService = require('../services/passwordTransitionService');
+    const result = await passwordTransitionService.sendTransitionBatch(value);
+
+    logger.info(`[${fn}] Batch executado`, { ...result, admin: req.user?.uid });
+
+    return res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    logger.error(`[${fn}] Erro`, { error: err.message });
+    return res.status(500).json({ success: false, message: 'Erro ao executar batch de transição.' });
+  }
+};
+
+/**
+ * GET /api/admin/auth/password-transition/stats
+ * Retorna estatísticas da transição passwordless.
+ */
+exports.getPasswordTransitionStats = async (req, res) => {
+  const fn = 'authController.getPasswordTransitionStats';
+  try {
+    const passwordTransitionService = require('../services/passwordTransitionService');
+    const stats = await passwordTransitionService.getTransitionStats();
+
+    return res.status(200).json({ success: true, ...stats });
+  } catch (err) {
+    logger.error(`[${fn}] Erro`, { error: err.message });
+    return res.status(500).json({ success: false, message: 'Erro ao buscar estatísticas.' });
   }
 };

@@ -8,6 +8,7 @@ const Emprestimos = require('../models/Emprestimos');
 const BankAccount = require('../models/BankAccount');
 const Dispute = require('../models/Dispute');
 const { logger } = require('../logger');
+const { getSupabaseClient } = require('../config/supabase');
 
 class SupportContextBuilder {
   static async buildContext(userId, category, module, issueType, additionalData = {}) {
@@ -76,20 +77,26 @@ class SupportContextBuilder {
       if (!user) return { id: userId, status: 'not_found' };
 
       // Safely handle potentially undefined values
+      // isVerified: User model usa kycStatus/kycLevel, não isVerified diretamente
+      const isVerified = user.kycStatus === 'verified' || (user.kycLevel && user.kycLevel !== 'none') || false;
+
       const userInfo = {
         id: userId,
         name: user.nome || user.displayName || 'Usuário',
         email: user.email || '',
         phone: user.telefone || '',
         photoURL: user.fotoDoPerfil || '',
-        isVerified: user.isVerified || false,
+        isVerified,
+        kycStatus: user.kycStatus || 'none',
+        kycLevel:  user.kycLevel  || 'none',
         roles: user.roles || [],
         status: user.status || 'active'
       };
 
-      // Only include createdAt if it's not undefined
-      if (user.createdAt) {
-        userInfo.createdAt = user.createdAt;
+      // dataCriacao é o campo correto no User model (mapeado de created_at do Supabase)
+      const createdAt = user.dataCriacao || user.createdAt;
+      if (createdAt) {
+        userInfo.createdAt = createdAt;
       }
 
       return userInfo;
@@ -196,17 +203,47 @@ class SupportContextBuilder {
     try {
       const user = await User.getById(userId);
       if (user) {
+        const isVerified = user.kycStatus === 'verified' || (user.kycLevel && user.kycLevel !== 'none') || false;
         context.accountInfo = {
-          accountAge: this.calculateAccountAge(user.createdAt),
-          verificationStatus: user.isVerified,
-          lastLogin: user.lastLogin,
-          profileCompletion: this.calculateProfileCompletion(user)
+          accountAge:         this.calculateAccountAge(user.dataCriacao || user.createdAt),
+          verificationStatus: isVerified,
+          kycStatus:          user.kycStatus || 'none',
+          kycLevel:           user.kycLevel  || 'none',
+          lastLogin:          user.lastLogin || null,
+          profileCompletion:  this.calculateProfileCompletion(user)
         };
       }
-
     } catch (error) {
       logger.error('Error building account context', { error: error.message, userId, module });
       context.error = 'Failed to load account data';
+    }
+
+    // Resumo de caixinhas — disponível para todos os tickets de category='account'
+    try {
+      const sb = getSupabaseClient();
+      if (sb) {
+        const { data: memberships } = await sb
+          .from('caixinha_members')
+          .select('id, role')
+          .eq('user_id', userId);
+
+        const total    = memberships?.length || 0;
+        const asAdmin  = memberships?.filter(m => m.role === 'admin').length || 0;
+        const asMember = total - asAdmin;
+
+        context.loanSummary = {
+          totalLoans:   total,
+          activeLoans:  asMember,
+          overdueLoans: asAdmin,  // reaproveitamos o slot "overdue" para mostrar "criadas"
+          _labels: {
+            totalLoans:   'Total Caixinhas',
+            activeLoans:  'Participa como membro',
+            overdueLoans: 'Criadas por mim',
+          },
+        };
+      }
+    } catch (caixinhaErr) {
+      logger.warn('Failed to load caixinha summary for account context', { userId, error: caixinhaErr.message });
     }
 
     return context;
@@ -445,6 +482,46 @@ class SupportContextBuilder {
   static async getUserMembershipInCaixinha(caixinhaId, userId) {
     // TODO: Implement membership details retrieval
     return {};
+  }
+
+  /**
+   * Busca dados do Passaporte de Confiança do usuário para contextualizar o suporte.
+   * @param {string} userId
+   * @returns {Promise<Object|null>}
+   */
+  static async getTrustPassport(userId) {
+    try {
+      const sb = getSupabaseClient();
+      if (!sb) return null;
+
+      const { data, error } = await sb
+        .from('trust_passports')
+        .select('trust_level, active_domains, validators, progress_pct, next_level_actions')
+        .eq('user_id', userId)
+        .single();
+
+      if (error || !data) return null;
+
+      const levelNames = {
+        1: 'Novato',
+        2: 'Conhecido',
+        3: 'Vizinho de Confiança',
+        4: 'Pilar da Comunidade',
+        5: 'Guardião'
+      };
+
+      return {
+        nivel: data.trust_level,
+        nome_nivel: levelNames[data.trust_level] || 'Novato',
+        verticais_ativas: data.active_domains || [],
+        progresso_proximo_nivel: Math.round(data.progress_pct || 0),
+        proximas_acoes: data.next_level_actions?.slice(0, 3) || [],
+        validadores: (data.validators || []).map(v => v.label || v)
+      };
+    } catch (error) {
+      logger.warn('Failed to get trust passport for support context', { userId, error: error.message });
+      return null;
+    }
   }
 
   // Utility method to clean undefined values recursively

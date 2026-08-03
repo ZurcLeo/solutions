@@ -1,30 +1,32 @@
-const admin = require('firebase-admin');
-const { getFirestore } = require('../firebaseAdmin')
+// controllers/ja3Controller.js — Supabase-first (migrado de Firestore em 2026-05-19)
+const { getSupabaseClient } = require('../config/supabase');
 const { createHash } = require('crypto');
 
-
-const db = getFirestore();
-
 exports.calculateJA3 = async (req, res) => {
-    // OPTIONS requests are handled by CORS middleware
-    if (req.method === 'OPTIONS') {
-        return res.status(204).send('');
-    }
+    if (req.method === 'OPTIONS') return res.status(204).send('');
 
     try {
         const { version, cipherSuites, extensions, ellipticCurves, ellipticCurvePointFormats, userId } = req.body;
+        const supabase = getSupabaseClient();
 
-        const userRef = db.collection('usuario').doc(userId);
-        const userDoc = await userRef.get();
+        if (supabase && userId) {
+            const { data: user } = await supabase
+                .from('users')
+                .select('ja3_hash')
+                .eq('id', userId)
+                .maybeSingle();
 
-        if (userDoc.exists && userDoc.data().ja3Hash) {
-            return res.status(200).json({ ja3Hash: userDoc.data().ja3Hash });
+            if (user?.ja3_hash) {
+                return res.status(200).json({ ja3Hash: user.ja3_hash });
+            }
         }
 
         const ja3String = `${version},${cipherSuites.join('-')},${extensions.join('-')},${ellipticCurves.join('-')},${ellipticCurvePointFormats.join('-')}`;
         const ja3Hash = createHash('md5').update(ja3String).digest('hex');
 
-        await userRef.set({ ja3Hash }, { merge: true });
+        if (supabase && userId) {
+            await supabase.from('users').update({ ja3_hash: ja3Hash }).eq('id', userId);
+        }
 
         return res.status(200).json({ ja3Hash });
     } catch (error) {

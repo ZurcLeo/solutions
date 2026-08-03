@@ -7,7 +7,7 @@
 
 const { logger } = require('../../../logger');
 const socketManager = require('../socketManager');
-const { MESSAGE_EVENTS, CHAT_ROOM_EVENTS, TYPING_EVENTS } = require('../socketEvents');
+const { MESSAGE_EVENTS, CHAT_ROOM_EVENTS, TYPING_EVENTS, SYSTEM_EVENTS } = require('../socketEvents');
 const messageService = require('../../../services/messageService'); // Adapte ao caminho real do serviço
 
 /**
@@ -159,9 +159,12 @@ function registerMessageHandlers(socket, userId) {
       // Persistir a mensagem usando o serviço
       try {
         const savedMessage = await messageService.createMessage({
-          uidDestinatario: messageData.recipient,
-          conteudo: messageData.content,
-          tipo: messageData.type || 'text'
+          sender: userId,
+          recipient: messageData.recipient,
+          content: messageData.content,
+          type: messageData.type || 'text',
+          replyTo: messageData.replyTo || null,
+          attachments: messageData.attachments || []
         });
 
         // Determinar o ID da conversação (consistente com o frontend)
@@ -173,9 +176,11 @@ function registerMessageHandlers(socket, userId) {
           conversationId,
           sender: userId,
           recipient: messageData.recipient,
-          content: savedMessage.conteudo,
-          type: savedMessage.tipo,
+          content: savedMessage.content,
+          type: savedMessage.type,
           timestamp: savedMessage.timestamp,
+          replyTo: savedMessage.replyTo || null,
+          attachments: savedMessage.attachments || [],
           status: {
             delivered: true,
             read: false
@@ -190,8 +195,18 @@ function registerMessageHandlers(socket, userId) {
           });
         }
 
-        // Emitir para todos os sockets na sala (incluindo o remetente para multi-dispositivos)
+        // Emitir para todos na sala (quem já fez join_chat com este conversationId)
         socketManager.emitToRoom(conversationId, MESSAGE_EVENTS.NEW_MESSAGE, formattedMessage);
+
+        // Fallback: entregar diretamente ao destinatário APENAS se ele não está na sala.
+        // Evita duplicate delivery para quem já recebeu o evento via room.
+        const recipientSockets = socketManager.getUserSockets(messageData.recipient);
+        const recipientInRoom = recipientSockets.some(
+          s => s.rooms && s.rooms.has(conversationId)
+        );
+        if (!recipientInRoom) {
+          socketManager.emitToUser(messageData.recipient, MESSAGE_EVENTS.NEW_MESSAGE, formattedMessage);
+        }
 
         // Registrar sucesso
         logger.info('Mensagem processada e distribuída com sucesso', {
@@ -329,6 +344,70 @@ function registerMessageHandlers(socket, userId) {
         function: 'deleteMessage',
         userId,
         error: error.message
+      });
+    }
+  });
+
+  // Handler para reações em mensagens (toggle: adiciona ou remove)
+  socket.on(MESSAGE_EVENTS.REACT_MESSAGE, async (reactionData) => {
+    try {
+      if (!reactionData || !reactionData.messageId || !reactionData.emoji) {
+        socket.emit(SYSTEM_EVENTS.VALIDATION_ERROR, {
+          error: 'Dados de reação inválidos (messageId e emoji obrigatórios)'
+        });
+        return;
+      }
+
+      logger.info('Reação recebida via socket', {
+        service: 'socket',
+        function: 'reactMessage',
+        userId,
+        messageId: reactionData.messageId,
+        emoji: reactionData.emoji
+      });
+
+      const Message = require('../../../models/Message');
+      const { action, reactionId } = await Message.toggleReaction(
+        reactionData.messageId,
+        userId,
+        reactionData.emoji
+      );
+
+      // Buscar conversationId para broadcast
+      const conversationId = await Message.getMessageConversationId(reactionData.messageId);
+
+      const reactionEvent = {
+        messageId: reactionData.messageId,
+        emoji: reactionData.emoji,
+        userId,
+        action,
+        reactionId,
+        timestamp: Date.now()
+      };
+
+      // Broadcast para todos na sala
+      socketManager.emitToRoom(conversationId, MESSAGE_EVENTS.REACTION_UPDATED, reactionEvent);
+
+      // Confirmar ao remetente
+      socket.emit(MESSAGE_EVENTS.REACTION_UPDATED, reactionEvent);
+
+      logger.info('Reação processada', {
+        service: 'socket',
+        function: 'reactMessage',
+        action,
+        messageId: reactionData.messageId,
+        conversationId
+      });
+    } catch (error) {
+      logger.error('Erro ao processar react_message', {
+        service: 'socket',
+        function: 'reactMessage',
+        userId,
+        error: error.message
+      });
+      socket.emit(SYSTEM_EVENTS.SERVER_ERROR, {
+        error: 'Erro ao processar reação',
+        messageId: reactionData?.messageId
       });
     }
   });

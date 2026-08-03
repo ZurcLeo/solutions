@@ -5,17 +5,22 @@ const FirestoreService = require('../utils/firestoreService');
 const dbServiceUser = FirestoreService.collection('usuario');
 const { calculateJA3Hash } = require('../services/ja3Service');
 const { initializeFirstAdmin } = require('../config/scripts/initializeLocalData');
+const { getSupabaseClient } = require('../config/supabase');
 
 const firstAccess = async (req, res, next) => {
-  // Só verificar se o token foi fornecido
-  if (!req.body.firebaseToken) {
+  // Extrair token: body.firebaseToken OU Authorization header (usado pelo registerWithEmail)
+  const firebaseToken = req.body.firebaseToken
+    || (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
+    || null;
+
+  if (!firebaseToken) {
     return next();
   }
 
   try {
     // Verificar o token do Firebase
     const auth = getAuth();
-    const decodedToken = await auth.verifyIdToken(req.body.firebaseToken);
+    const decodedToken = await auth.verifyIdToken(firebaseToken);
     const userId = decodedToken.uid;
 
     let fingerPrintRawData = req.headers['x-browser-fingerprint'] ? 
@@ -43,26 +48,48 @@ const firstAccess = async (req, res, next) => {
       }
     }
 
-    // Verificar se o usuário já existe
+    // Verificar se o usuário já existe (Supabase primeiro, Firestore fallback)
     try {
-      const userDoc = await dbServiceUser.doc(userId).get();
-      
-      if (!userDoc.exists) {
+      let userExists = false;
+      let userData = null;
+
+      // 1. Supabase (fonte primária)
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data: sbUser, error: sbErr } = await supabase
+          .from('users')
+          .select('id, email, is_active')
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (!sbErr && sbUser) {
+          userExists = true;
+          userData = { email: sbUser.email };
+        }
+      }
+
+      // 2. Firestore fallback (legado)
+      if (!userExists) {
+        const userDoc = await dbServiceUser.doc(userId).get();
+        if (userDoc.exists) {
+          userExists = true;
+          userData = userDoc.data();
+        }
+      }
+
+      if (!userExists) {
         // Novo usuário - marcar como primeiro acesso
         req.isFirstAccess = true;
       } else {
         // Usuário existente
         req.isFirstAccess = false;
-        
-        // Obter dados do usuário
-        const userData = userDoc.data();
-        
+
         // Inicializar primeiro admin se aplicável
         if (userData && userData.email) {
           await initializeFirstAdmin(userData.email);
         }
-        
-        // Verificar se o usuário tem o campo 'roles' e o injeta na requisição
+
+        // Roles legadas do Firestore (transitório)
         if (userData && userData.roles) {
           req.userRoles = userData.roles;
         }

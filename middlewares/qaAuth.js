@@ -4,10 +4,14 @@ const { logger } = require('../logger');
 
 // Rate limiter dedicado APENAS para POST /api/qa/run (disparo de runs).
 // GET /api/qa/runs e /api/qa/runs/:runId não são limitados (leitura).
-// - IP externo: 5 runs/hora
-// - IP interno do Fly.io: 12 runs/hora
-const externalLimiter = new RateLimiterMemory({ points: 5,  duration: 3600 });
-const internalLimiter = new RateLimiterMemory({ points: 12, duration: 3600 });
+// - IP externo: 15 runs/hora (default)
+// - IP interno do Fly.io: 30 runs/hora (default)
+const externalPoints = parseInt(process.env.QA_RATE_LIMIT_POINTS_EXTERNAL) || 15;
+const internalPoints = parseInt(process.env.QA_RATE_LIMIT_POINTS_INTERNAL) || 30;
+const duration       = parseInt(process.env.QA_RATE_LIMIT_DURATION)        || 3600;
+
+const externalLimiter = new RateLimiterMemory({ points: externalPoints, duration });
+const internalLimiter = new RateLimiterMemory({ points: internalPoints, duration });
 
 function isInternalFlyRequest(req) {
   // Requests da rede privada do Fly.io não chegam com x-forwarded-for
@@ -17,10 +21,11 @@ function isInternalFlyRequest(req) {
 }
 
 module.exports = async function qaAuth(req, res, next) {
-  const token = req.headers['x-qa-token'];
+  // EventSource (SSE) não suporta custom headers — aceita token via query param para GET /api/qa/stream
+  const token = req.headers['x-qa-token'] || req.query.token;
 
   if (!token) {
-    return res.status(401).json({ error: 'x-qa-token header obrigatório' });
+    return res.status(401).json({ error: 'x-qa-token header ou query param ?token obrigatório' });
   }
 
   // Timing-safe comparison — nunca compare tokens em plaintext

@@ -2,6 +2,20 @@
 const supportService = require('../services/SupportService');
 const SupportTicket = require('../models/SupportTicket');
 const { logger } = require('../logger');
+const socketManager = require('../config/socket/socketManager');
+const { SUPPORT_EVENTS } = require('../config/socket/socketEvents');
+
+// Helper: emite evento de suporte para a sala de agentes e, opcionalmente, para o dono do ticket
+function _emitSupportEvent(eventName, payload, ownerUserId = null) {
+  try {
+    socketManager.emitToRoom('support-agents', eventName, payload);
+    if (ownerUserId) {
+      socketManager.emitToUser(ownerUserId, eventName, payload);
+    }
+  } catch (err) {
+    logger.warn('_emitSupportEvent failed (non-critical)', { eventName, error: err.message });
+  }
+}
 
 // Utility function to add agent info to ticket data
 async function addAgentInfoToTicket(ticket) {
@@ -55,9 +69,20 @@ class SupportController {
       };
 
       const result = await supportService.createTicket(ticketRequest);
+
+      // Notificar agentes em tempo real
+      _emitSupportEvent(SUPPORT_EVENTS.TICKET_CREATED, {
+        ticketId: result.ticket?.id,
+        category: category,
+        priority: result.ticket?.priority,
+        title: result.ticket?.title,
+        userId,
+        timestamp: Date.now(),
+      });
+
       res.status(200).json(result);
     } catch (error) {
-      logger.error('Error in SupportController.createTicket', { 
+      logger.error('Error in SupportController.createTicket', {
         error: error.message, 
         userId, 
         category, 
@@ -147,6 +172,26 @@ class SupportController {
 
     try {
       const analytics = await supportService.getTicketAnalytics(parseInt(timeRange) || 30);
+
+      // Enriquecer agentWorkload com nome e foto de cada agente
+      if (analytics.agentWorkload?.length) {
+        const User = require('../models/User');
+        analytics.agentWorkload = await Promise.all(
+          analytics.agentWorkload.map(async (item) => {
+            try {
+              const user = await User.getById(item.agentId);
+              return {
+                ...item,
+                agentName:  user?.nome || user?.displayName || item.agentId,
+                agentPhoto: user?.fotoDoPerfil || null,
+              };
+            } catch {
+              return { ...item, agentName: item.agentId, agentPhoto: null };
+            }
+          })
+        );
+      }
+
       res.status(200).json({ success: true, data: analytics });
     } catch (error) {
       logger.error('Error in SupportController.getAnalytics', { error: error.message });
@@ -195,6 +240,14 @@ class SupportController {
 
       const updatedTicket = await SupportTicket.update(ticketId, updateData);
       const ticketWithAgentInfo = await addAgentInfoToTicket(updatedTicket);
+
+      _emitSupportEvent(SUPPORT_EVENTS.TICKET_STATUS_CHANGED, {
+        ticketId,
+        agentId,
+        status,
+        timestamp: Date.now(),
+      }, updatedTicket.userId);
+
       res.status(200).json({ success: true, data: ticketWithAgentInfo });
     } catch (error) {
       logger.error('Error in SupportController.updateTicketStatus', { error: error.message, ticketId, status });
@@ -257,6 +310,18 @@ class SupportController {
     }
   }
 
+  async getTicketsAtSLARisk(req, res) {
+    try {
+      const withinHours = parseFloat(req.query.withinHours) || 2;
+      const limit = parseInt(req.query.limit) || 50;
+      const tickets = await supportService.getTicketsAtSLARisk(withinHours, limit);
+      res.json({ success: true, tickets, total: tickets.length });
+    } catch (error) {
+      logger.error('Error in SupportController.getTicketsAtSLARisk', { error: error.message });
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
   async getAgentTickets(req, res) {
     // TODO: Add RBAC
     const agentId = req.user.uid; // Assuming agent is fetching their own tickets
@@ -306,15 +371,26 @@ class SupportController {
   async assignTicket(req, res) {
     // TODO: Add RBAC
     const { ticketId } = req.params;
-    const agentId = req.user.uid; // Agent assigning to themselves, or admin can specify in body
-    // const { agentIdToAssign } = req.body; // If admin assigns to a specific agent
+    const requestingAgentId = req.user.uid;
+    const { agentIdToAssign } = req.body; // Admin can assign to a specific agent
+    // Only admin can assign to another agent; otherwise, always assigns to self
+    const isAdmin = req.user.roles?.includes('admin');
+    const agentId = (isAdmin && agentIdToAssign) ? agentIdToAssign : requestingAgentId;
 
     try {
       if (!ticketId) {
         return res.status(400).json({ success: false, message: 'Ticket ID is required.' });
       }
-      const ticket = await supportService.assignTicket(ticketId, agentId /* or agentIdToAssign */);
+      const ticket = await supportService.assignTicket(ticketId, agentId);
       const ticketWithAgentInfo = await addAgentInfoToTicket(ticket);
+
+      _emitSupportEvent(SUPPORT_EVENTS.TICKET_ASSIGNED, {
+        ticketId,
+        agentId,
+        status: ticket.status,
+        timestamp: Date.now(),
+      }, ticket.userId);
+
       res.status(200).json({ success: true, data: ticketWithAgentInfo });
     } catch (error) {
       logger.error('Error in SupportController.assignTicket', { error: error.message, ticketId, agentId });
@@ -332,9 +408,17 @@ class SupportController {
         return res.status(400).json({ success: false, message: 'Ticket ID is required.' });
       }
       
-      // Enhanced resolution with summary
-      const ticket = await supportService.resolveTicket(ticketId, agentId, resolutionNotes, resolutionSummary);
+      // Enhanced resolution with summary + email notification
+      const ticket = await supportService.resolveTicketWithEmail(ticketId, agentId, resolutionNotes, resolutionSummary);
       const ticketWithAgentInfo = await addAgentInfoToTicket(ticket);
+
+      _emitSupportEvent(SUPPORT_EVENTS.TICKET_RESOLVED, {
+        ticketId,
+        agentId,
+        resolutionSummary,
+        timestamp: Date.now(),
+      }, ticket.userId);
+
       res.status(200).json({ success: true, data: ticketWithAgentInfo });
     } catch (error) {
       logger.error('Error in SupportController.resolveTicket', { error: error.message, ticketId, agentId });
@@ -395,11 +479,13 @@ class SupportController {
         currentInternalNotes: ticket.internalNotes
       });
 
-      // Check if agent can access this ticket (assigned to them or has general permission)
-      const canAccess = ticket.assignedTo === agentId || 
+      // Check if agent can access this ticket (assigned to them, support role, or admin)
+      const canAccess = ticket.assignedTo === agentId ||
                        req.user.roles?.includes('admin') ||
+                       req.user.roles?.includes('support') ||
+                       req.user.roles?.includes('support_agent') ||
                        req.user.permissions?.includes('support:manage_all_tickets');
-      
+
       if (!canAccess) {
         return res.status(403).json({ success: false, message: 'Access denied. You can only update tickets assigned to you.' });
       }
@@ -434,8 +520,21 @@ class SupportController {
           type: 'agent_note'
         };
         updateData.notes = [...currentNotes, legacyNoteEntry];
-        
-        logger.info('SupportController.updateTicket - Adding note to conversation history and notes', { 
+
+        // Transição automática para in_progress quando agente responde
+        const nonTerminalStatuses = ['open', 'pending', 'assigned'];
+        if (nonTerminalStatuses.includes(ticket.status)) {
+          updateData.status = 'in_progress';
+        }
+
+        // Marcar SLA de primeiro atendimento (apenas na primeira nota pública)
+        if (!ticket.firstRespondedAt) {
+          updateData.firstRespondedAt = new Date();
+          updateData.slaFirstResponseBreached =
+            ticket.firstResponseDueAt ? new Date() > new Date(ticket.firstResponseDueAt) : false;
+        }
+
+        logger.info('SupportController.updateTicket - Adding note to conversation history and notes', {
           ticketId,
           noteEntry,
           legacyNoteEntry,
@@ -493,18 +592,44 @@ class SupportController {
 
       // Update the ticket
       const updatedTicket = await SupportTicket.update(ticketId, updateData);
-      
-      logger.info('SupportController.updateTicket - Ticket updated successfully', { 
+
+      // Notificar usuário por email quando agente adiciona nota pública
+      if (noteContent) {
+        try {
+          await supportService._sendTicketUpdateEmail(updatedTicket, { email: ticket.userEmail, nome: ticket.userName }, {
+            previousStatus: ticket.status,
+            newStatus: updatedTicket.status,
+            agentName: agentInfo.name,
+            note: noteContent
+          });
+        } catch (emailError) {
+          logger.warn('SupportController.updateTicket - Failed to send update email', {
+            ticketId, error: emailError.message
+          });
+        }
+      }
+
+      logger.info('SupportController.updateTicket - Ticket updated successfully', {
         ticketId,
         updatedConversationHistoryLength: updatedTicket.conversationHistory?.length,
         updatedNotesLength: updatedTicket.notes?.length,
         updatedInternalNotesLength: updatedTicket.internalNotes?.length
       });
-      
+
+      // Emit realtime event (only for public notes — internal notes are not broadcast to ticket owner)
+      // noteContent already declared above as `const noteContent = notes || note`
+      _emitSupportEvent(SUPPORT_EVENTS.TICKET_UPDATED, {
+        ticketId,
+        agentId,
+        status: updatedTicket.status,
+        hasNote: !!noteContent,
+        timestamp: Date.now(),
+      }, noteContent ? ticket.userId : null);  // notify owner only for public notes
+
       const ticketWithAgentInfo = await addAgentInfoToTicket(updatedTicket);
-      
-      res.status(200).json({ 
-        success: true, 
+
+      res.status(200).json({
+        success: true,
         data: ticketWithAgentInfo,
         message: 'Ticket updated successfully.'
       });
@@ -518,6 +643,235 @@ class SupportController {
         hasInternalNotes: !!internalNotes 
       });
       res.status(500).json({ success: false, message: error.message || 'Failed to update ticket.' });
+    }
+  }
+
+  // ── CSAT ─────────────────────────────────────────────────────────────────
+  // Rota PÚBLICA — autenticada apenas pelo token UUID no path
+
+  async submitCsat(req, res) {
+    const { token } = req.params;
+    const { score, comment } = req.body;
+
+    try {
+      if (!token) {
+        return res.status(400).json({ success: false, message: 'Survey token is required.' });
+      }
+      const parsedScore = parseInt(score, 10);
+      if (!parsedScore || parsedScore < 1 || parsedScore > 5) {
+        return res.status(400).json({ success: false, message: 'score must be an integer between 1 and 5.' });
+      }
+
+      await supportService.submitCsat(token, parsedScore, comment || null);
+      return res.status(200).json({ success: true, message: 'Obrigado pelo feedback!' });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      logger.error('Error in SupportController.submitCsat', { error: error.message, token });
+      return res.status(statusCode).json({ success: false, message: error.message || 'Failed to submit CSAT.' });
+    }
+  }
+
+  // ── Vínculos entre tickets (SUPP-LINK-001) ───────────────────────────────────
+
+  async createTicketLink(req, res) {
+    const { ticketId } = req.params;
+    const { linkedTicketId, linkType } = req.body;
+    const agentId = req.user.uid;
+
+    try {
+      if (!linkedTicketId || !linkType) {
+        return res.status(400).json({ success: false, message: 'linkedTicketId e linkType são obrigatórios.' });
+      }
+      if (!['duplicate', 'related', 'parent'].includes(linkType)) {
+        return res.status(400).json({ success: false, message: 'linkType deve ser: duplicate, related ou parent.' });
+      }
+      if (ticketId === linkedTicketId) {
+        return res.status(400).json({ success: false, message: 'Não é possível vincular um ticket a si mesmo.' });
+      }
+
+      const [ticket, linkedTicket] = await Promise.all([
+        SupportTicket.getById(ticketId),
+        SupportTicket.getById(linkedTicketId),
+      ]);
+      if (!ticket)       return res.status(404).json({ success: false, message: 'Ticket não encontrado.' });
+      if (!linkedTicket) return res.status(404).json({ success: false, message: 'Ticket vinculado não encontrado.' });
+
+      const link = await SupportTicket.createLink(ticketId, linkedTicketId, linkType, agentId);
+      return res.status(201).json({ success: true, data: link });
+    } catch (error) {
+      if (error.code === '23505') {
+        return res.status(409).json({ success: false, message: 'Este vínculo já existe.' });
+      }
+      logger.error('Error in SupportController.createTicketLink', { error: error.message, ticketId });
+      return res.status(500).json({ success: false, message: error.message || 'Failed to create link.' });
+    }
+  }
+
+  async getTicketLinks(req, res) {
+    const { ticketId } = req.params;
+    try {
+      const links = await SupportTicket.getLinks(ticketId);
+
+      const enriched = await Promise.all(links.map(async (link) => {
+        try {
+          const linked = await SupportTicket.getById(link.linked_ticket_id);
+          return {
+            ...link,
+            linkedTicket: linked ? {
+              id: linked.id,
+              title: linked.title,
+              status: linked.status,
+              priority: linked.priority,
+              category: linked.category,
+            } : null,
+          };
+        } catch {
+          return { ...link, linkedTicket: null };
+        }
+      }));
+
+      return res.status(200).json({ success: true, data: enriched });
+    } catch (error) {
+      logger.error('Error in SupportController.getTicketLinks', { error: error.message, ticketId });
+      return res.status(500).json({ success: false, message: error.message || 'Failed to fetch links.' });
+    }
+  }
+
+  async deleteTicketLink(req, res) {
+    const { linkId } = req.params;
+    try {
+      await SupportTicket.deleteLink(linkId);
+      return res.status(200).json({ success: true, message: 'Vínculo removido.' });
+    } catch (error) {
+      logger.error('Error in SupportController.deleteTicketLink', { error: error.message, linkId });
+      return res.status(500).json({ success: false, message: error.message || 'Failed to delete link.' });
+    }
+  }
+
+  // ── Macros ────────────────────────────────────────────────────────────────
+
+  async getMacros(req, res) {
+    try {
+      const { category } = req.query;
+      const macros = await supportService.getMacros(category || null);
+      res.json({ success: true, data: macros });
+    } catch (error) {
+      logger.error('Error in SupportController.getMacros', { error: error.message });
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  // ── Ação contextual do ticket (approve_or_reject, etc.) ──────────────────────
+  // POST /api/support/tickets/:ticketId/action
+  // Body: { decision: 'approve' | 'reject' | 'request_info', reason?: string }
+  async executeTicketAction(req, res) {
+    const { ticketId } = req.params;
+    const agentId = req.user.uid;
+    const { decision, reason } = req.body;
+
+    if (!decision) {
+      return res.status(400).json({ success: false, message: 'decision é obrigatório.' });
+    }
+
+    try {
+      const ticket = await SupportTicket.getById(ticketId);
+      if (!ticket) {
+        return res.status(404).json({ success: false, message: 'Ticket não encontrado.' });
+      }
+
+      // sellerProfileId/actionRequired podem estar na raiz de context OU em context.additionalData
+      // (SupportContextBuilder move o contexto original para additionalData)
+      const ctx = ticket.context || {};
+      const actionRequired  = ctx.actionRequired  ?? ctx.additionalData?.actionRequired;
+      const sellerProfileId = ctx.sellerProfileId ?? ctx.additionalData?.sellerProfileId;
+
+      if (actionRequired === 'approve_or_reject') {
+        if (!sellerProfileId) {
+          return res.status(400).json({ success: false, message: 'sellerProfileId ausente no contexto do ticket.' });
+        }
+        if (!['approve', 'reject', 'request_info'].includes(decision)) {
+          return res.status(400).json({ success: false, message: 'decision deve ser: approve, reject ou request_info.' });
+        }
+
+        if (decision === 'request_info') {
+          // Coloca em waiting_user_response com nota pública
+          const noteContent = reason || 'Por favor, forneça mais informações para prosseguir com a análise da sua loja.';
+          const updated = await SupportTicket.update(ticketId, {
+            status: 'waiting_user_response',
+            conversationHistory: [
+              ...(ticket.conversationHistory || []),
+              {
+                type: 'agent_note',
+                content: noteContent,
+                timestamp: new Date().toISOString(),
+                agentId,
+                isPublic: true,
+              },
+            ],
+          });
+
+          _emitSupportEvent(SUPPORT_EVENTS.TICKET_STATUS_CHANGED, {
+            ticketId, agentId, status: 'waiting_user_response', timestamp: Date.now(),
+          }, ticket.userId);
+
+          logger.info('executeTicketAction: request_info enviado', { ticketId, agentId });
+          return res.status(200).json({ success: true, data: updated.toPlainObject(), action: 'request_info' });
+        }
+
+        // approve ou reject → chama marketplaceService
+        const marketplaceService = require('../services/marketplaceService');
+        const profile = await marketplaceService.approveSellerProfile(sellerProfileId, {
+          approved: decision === 'approve',
+          reason: reason || '',
+          agentUserId: agentId,
+        });
+
+        const resolutionNote = decision === 'approve'
+          ? `Loja "${profile.business_name}" aprovada no Mercado Local.`
+          : `Solicitação de loja "${profile.business_name}" rejeitada. Motivo: ${reason || 'Não informado.'}`;
+
+        const resolvedTicket = await supportService.resolveTicket(
+          ticketId,
+          agentId,
+          resolutionNote,
+          decision === 'approve' ? 'Loja aprovada.' : 'Loja rejeitada.'
+        );
+
+        _emitSupportEvent(SUPPORT_EVENTS.TICKET_RESOLVED, {
+          ticketId, agentId, action: decision, sellerProfileId, timestamp: Date.now(),
+        }, resolvedTicket.userId);
+
+        logger.info(`executeTicketAction: loja ${decision}d`, { ticketId, agentId, sellerProfileId });
+        return res.status(200).json({
+          success: true,
+          data: resolvedTicket.toPlainObject(),
+          action: decision,
+          sellerProfile: profile,
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: `Ação "${actionRequired}" não tem handler automático. Use os endpoints do domínio diretamente.`,
+      });
+    } catch (err) {
+      logger.error('Error in SupportController.executeTicketAction', { error: err.message, ticketId, agentId });
+      res.status(500).json({ success: false, message: err.message || 'Erro ao executar ação do ticket.' });
+    }
+  }
+
+  async createMacro(req, res) {
+    const { title, body, category } = req.body;
+    const agentId = req.user.uid;
+    try {
+      if (!title || !body) {
+        return res.status(400).json({ success: false, message: 'title and body are required.' });
+      }
+      const macro = await supportService.createMacro({ title, body, category }, agentId);
+      res.status(201).json({ success: true, data: macro });
+    } catch (error) {
+      logger.error('Error in SupportController.createMacro', { error: error.message });
+      res.status(500).json({ success: false, message: error.message });
     }
   }
 }

@@ -222,61 +222,173 @@
     <!-- Run Detail Modal -->
     <div id="modal-run-detail" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center z-[100] p-4">
         <div class="glass rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col modal-enter">
-            <div class="p-6 border-b border-slate-700 flex justify-between items-center sticky top-0 bg-slate-900/50">
-                <div>
-                    <h3 id="detail-run-id" class="text-xl font-bold text-indigo-400 font-mono">Run ID: --</h3>
-                    <p id="detail-run-date" class="text-xs text-slate-500 mt-1">Data: --</p>
+            <div class="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-indigo-500/20 rounded-xl flex items-center justify-center">
+                        <i data-lucide="file-text" class="w-6 h-6 text-indigo-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-white">Relatório de Execução</h3>
+                        <p id="detail-run-id" class="text-xs text-slate-500 font-mono">run_--</p>
+                    </div>
                 </div>
-                <button onclick="closeRunDetail()" class="p-2 hover:bg-slate-800 rounded-full transition-all">
+                <button onclick="closeRunDetail()" class="p-2 hover:bg-slate-800 rounded-lg transition-all">
                     <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
             </div>
             
-            <div class="p-6 overflow-y-auto space-y-8">
-                <!-- AI Summary -->
-                <div class="bg-indigo-500/10 border border-indigo-500/20 p-5 rounded-2xl">
-                    <h4 class="text-sm font-bold text-indigo-300 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <i data-lucide="bot" class="w-4 h-4"></i> Relatório da IA (Claude)
-                    </h4>
-                    <p id="detail-summary" class="text-lg leading-relaxed italic">--</p>
-                </div>
-
-                <!-- Critical Bugs -->
-                <div>
-                    <h4 class="text-sm font-bold text-red-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <i data-lucide="bug" class="w-4 h-4"></i> Bugs Críticos Detectados
-                    </h4>
-                    <div id="detail-bugs-list" class="space-y-4">
-                        <!-- Bugs items -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-8">
+                <!-- Summary Section -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="md:col-span-2 space-y-4">
+                        <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                            <i data-lucide="sparkles" class="w-4 h-4 text-amber-400"></i>
+                            Sumário de Inteligência
+                        </h4>
+                        <div id="detail-summary" class="bg-indigo-500/5 border border-indigo-500/20 p-4 rounded-2xl text-slate-300 text-sm leading-relaxed">
+                            Carregando interpretação da IA...
+                        </div>
+                    </div>
+                    <div class="space-y-4">
+                        <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest">Informações</h4>
+                        <div class="glass p-4 rounded-2xl space-y-3">
+                            <div>
+                                <span class="text-[10px] text-slate-500 block uppercase">Data de Execução</span>
+                                <span id="detail-run-date" class="text-sm font-medium">--</span>
+                            </div>
+                            <div>
+                                <span class="text-[10px] text-slate-500 block uppercase">Ambiente</span>
+                                <span class="text-sm font-medium flex items-center gap-1">
+                                    <span class="w-2 h-2 bg-green-500 rounded-full"></span> Production (Isolated)
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- All Steps -->
-                <div>
-                    <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <i data-lucide="list" class="w-4 h-4"></i> Rastro de Execução (Steps)
+                <!-- Bugs & Issues -->
+                <div class="space-y-4">
+                    <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="bug" class="w-4 h-4 text-red-400"></i>
+                        Problemas Identificados
                     </h4>
-                    <div class="overflow-x-auto">
+                    <div id="detail-bugs-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Bugs will be injected here -->
+                    </div>
+                </div>
+
+                <!-- Steps Table -->
+                <div class="space-y-4">
+                    <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="list" class="w-4 h-4 text-indigo-400"></i>
+                        Timeline de Passos
+                    </h4>
+                    <div class="glass rounded-2xl overflow-hidden">
                         <table class="w-full text-left text-sm">
-                            <thead class="text-slate-500 border-b border-slate-800">
+                            <thead class="bg-slate-800/50 text-slate-500">
                                 <tr>
-                                    <th class="py-2">Status</th>
-                                    <th>Flow / Step</th>
-                                    <th>Duração</th>
-                                    <th>Correlation ID</th>
+                                    <th class="py-3 px-4 w-10"></th>
+                                    <th class="py-3 px-2">Flow / Step</th>
+                                    <th class="py-3 px-2">Duração</th>
+                                    <th class="py-3 px-2">Correlation ID</th>
                                 </tr>
                             </thead>
                             <tbody id="detail-steps-table">
-                                <!-- Step rows -->
+                                <!-- Steps will be injected here -->
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
+
+            <div class="p-6 border-t border-slate-700 bg-slate-900/50 flex justify-end gap-3">
+                <button onclick="closeRunDetail()" class="px-6 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl font-semibold transition-all">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QA Progress View Modal (Fase 1) -->
+    <div id="modal-qa-progress" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center z-[110] p-4">
+        <div class="glass rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col modal-enter">
+            <div class="p-6 border-b border-slate-700 bg-slate-900/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center animate-pulse">
+                        <i data-lucide="rocket" class="w-5 h-5 text-white"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-white">QA em andamento...</h3>
+                        <p id="progress-run-id" class="text-[10px] text-slate-500 font-mono mt-0.5">run_--</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="progress-container" class="p-6 overflow-y-auto space-y-6">
+                <!-- Flows will be injected here -->
+            </div>
+
+            <div class="p-4 border-t border-slate-700 bg-slate-900/30 text-center">
+                <p id="progress-status-msg" class="text-xs text-slate-400 italic">Inicializando suite de testes isolados...</p>
+            </div>
         </div>
     </div>
 
     <script>
+        // Catalog for friendly labels
+        const QA_STEP_LABELS = {
+          health: {
+            _flow: { emoji: '🏥', label: 'Saúde da Infraestrutura' },
+            check_public_health:       { emoji: '💓', label: 'Checando se o servidor está vivo' },
+            validate_dependency_pings: { emoji: '🔌', label: 'Testando dependências externas' },
+            verify_monitoring_active:  { emoji: '📡', label: 'Confirmando monitoramento ativo' },
+          },
+          auth: {
+            _flow: { emoji: '🔐', label: 'Autenticação' },
+            exchange_custom_token: { emoji: '🎫', label: 'Trocando token de sessão' },
+            get_current_user:      { emoji: '👤', label: 'Identificando usuário' },
+            refresh_token:         { emoji: '🔄', label: 'Renovando credenciais' },
+          },
+          invite: {
+            _flow: { emoji: '✉️', label: 'Fluxo de Convites' },
+            create_invite:         { emoji: '📝', label: 'Gerando novo convite' },
+            validate_invite_token: { emoji: '🔍', label: 'Validando token de convite' },
+            accept_invite:         { emoji: '🤝', label: 'Aceitando convite' },
+          },
+          caixinha: {
+            _flow: { emoji: '📦', label: 'Gerenciamento de Caixinhas' },
+            create_caixinha:       { emoji: '🆕', label: 'Criando nova caixinha' },
+            get_caixinha_details:  { emoji: '📋', label: 'Buscando detalhes' },
+            invite_member:         { emoji: '👥', label: 'Convidando membro' },
+            approve_member:        { emoji: '✅', label: 'Aprovando novo membro' },
+          },
+          financial: {
+            _flow: { emoji: '💰', label: 'Operações Financeiras' },
+            simulate_pix_deposit:  { emoji: '💸', label: 'Simulando depósito PIX' },
+            verify_ledger_balance: { emoji: '📊', label: 'Conferindo saldo no ledger' },
+            create_and_buy_raffle: { emoji: '🎰', label: 'Criando e comprando rifa' },
+          },
+          loan: {
+            _flow: { emoji: '🎟️', label: 'Empréstimos' },
+            request_loan:          { emoji: '🙋', label: 'Solicitando empréstimo' },
+            approve_loan:          { emoji: '✍️', label: 'Aprovando solicitação' },
+            pay_loan_installment:  { emoji: '💳', label: 'Pagando parcela' },
+          },
+          webhook: {
+            _flow: { emoji: '🪝', label: 'Integrações (Webhooks)' },
+            receive_pix_event:     { emoji: '📥', label: 'Recebendo evento PIX' },
+            process_payment_sync:  { emoji: '🔄', label: 'Sincronizando pagamento' },
+          },
+          social: {
+            _flow: { emoji: '💬', label: 'Interações Sociais' },
+            send_message:          { emoji: '✉️', label: 'Enviando mensagem' },
+            list_conversations:    { emoji: '📱', label: 'Listando conversas' },
+          },
+          notification: {
+            _flow: { emoji: '🔔', label: 'Sistema de Notificações' },
+            trigger_notif:         { emoji: '🚀', label: 'Disparando notificação' },
+            verify_delivery:       { emoji: '📦', label: 'Verificando entrega' },
+          }
+        };
+
         // Lucide
         lucide.createIcons();
 
@@ -384,7 +496,39 @@
         }
 
         // Modals Management
-        async function openRunDetail(runId) {
+        async function handleCorrelationClick(correlationId) {
+            if (!correlationId || correlationId === '--') return;
+
+            // Se for um QA Run ID (ex: qa_run_2026...), abre o detalhe do run correspondente
+            if (correlationId.startsWith('qa_run_')) {
+                const parts = correlationId.split('_');
+                // runId formato: run_2026-05-12T05-57-13-958Z_1833108d
+                // correlationId formato: qa_run_DATE_UUID_FLOW_STEP
+                if (parts.length >= 4) {
+                    const runId = `${parts[1]}_${parts[2]}_${parts[3]}`;
+                    openRunDetail(runId, correlationId);
+                    return;
+                }
+            }
+
+            // Para outros correlationIds, tenta encontrar e destacar nos logs SRE
+            const sreSection = document.getElementById('sre-logs-list');
+            if (sreSection) {
+                // Scroll suave até a seção de logs
+                sreSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Highlight visual (opcional)
+                const rows = sreSection.querySelectorAll('tr');
+                rows.forEach(row => {
+                    if (row.innerText.includes(correlationId)) {
+                        row.classList.add('bg-indigo-500/20');
+                        setTimeout(() => row.classList.remove('bg-indigo-500/20'), 3000);
+                    }
+                });
+            }
+        }
+
+        async function openRunDetail(runId, correlationToHighlight = null) {
             elements.modalRunDetail.classList.remove('hidden');
             const res = await fetch(`/api/qa/runs/${runId}`, { headers: { 'x-qa-token': qaToken } });
             const run = await res.json();
@@ -417,8 +561,9 @@
             const stepsTable = document.getElementById('detail-steps-table');
             stepsTable.innerHTML = '';
             (run.steps || []).forEach(step => {
+                const isHighlighted = correlationToHighlight && step.correlationId === correlationToHighlight;
                 const row = document.createElement('tr');
-                row.className = 'border-b border-slate-800/50 hover:bg-white/5 transition-all';
+                row.className = `border-b border-slate-800/50 hover:bg-white/5 transition-all ${isHighlighted ? 'bg-indigo-500/20' : ''}`;
                 row.innerHTML = `
                     <td class="py-3 px-1">
                         <i data-lucide="${step.success ? 'check-circle' : 'x-circle'}" class="w-4 h-4 ${step.success ? 'text-green-500' : 'text-red-500'}"></i>
@@ -428,9 +573,16 @@
                         <div class="text-xs">${step.stepName}</div>
                     </td>
                     <td class="text-xs text-slate-400">${step.duration}ms</td>
-                    <td class="text-[10px] font-mono text-slate-500">${step.correlationId || '--'}</td>
+                    <td class="text-[10px] font-mono">
+                        ${step.correlationId ? `
+                            <button onclick="handleCorrelationClick('${step.correlationId}')" class="text-indigo-400 hover:underline hover:text-indigo-300 transition-all">
+                                ${step.correlationId}
+                            </button>
+                        ` : '--'}
+                    </td>
                 `;
                 stepsTable.appendChild(row);
+                if (isHighlighted) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
             });
             lucide.createIcons();
         }
@@ -579,7 +731,9 @@
                             <td class="p-3">
                                 <div class="flex flex-col">
                                     <span class="text-xs font-mono text-slate-300">${log.method} ${log.path}</span>
-                                    <span class="text-[9px] text-slate-500 mt-0.5">Correlation: ${log.correlation_id.substring(0,8)}...</span>
+                                    <button onclick="handleCorrelationClick('${log.correlation_id}')" class="text-[9px] text-slate-500 mt-0.5 hover:text-indigo-400 text-left transition-all">
+                                        Correlation: ${log.correlation_id.substring(0,8)}...
+                                    </button>
                                 </div>
                             </td>
                             <td class="p-3 font-bold ${statusColor}">${log.status_code}</td>
@@ -642,15 +796,24 @@
                     ${renderDiff(fix.bug.proposedFix.patch.oldCode, fix.bug.proposedFix.patch.newCode)}
                 </div>` : '';
 
+            const correlationId = fix.bug?.correlationId;
+            const correlationLink = correlationId ? `
+                <div class="mt-2">
+                    <button onclick="handleCorrelationClick('${correlationId}')" class="text-[10px] text-indigo-400 hover:underline flex items-center gap-1">
+                        <i data-lucide="link" class="w-3 h-3"></i> Ver correspondência: ${correlationId.substring(0, 20)}...
+                    </button>
+                </div>` : '';
+
             card.innerHTML = `
-                <div class="flex justify-between items-start mb-3">
+                <div class="flex justify-between items-start mb-1">
                     <div>
                         <h4 class="font-bold text-amber-200">Ref: ${escHtml(fix.bug?.flow)} / ${escHtml(fix.bug?.step)}</h4>
                         ${refinedBadge}
                     </div>
                     ${statusLabel}
                 </div>
-                <p class="text-sm text-slate-400 mb-3">${escHtml(fix.reason)}</p>
+                ${correlationLink}
+                <p class="text-sm text-slate-400 mb-3 mt-3">${escHtml(fix.reason)}</p>
                 <div class="bg-black/40 p-3 rounded-lg mb-4">
                     <span class="text-[10px] text-slate-500 font-bold uppercase">Fix sugerido pela IA:</span>
                     <pre class="text-xs text-indigo-300 mt-2 whitespace-pre-wrap">${escHtml(fix.bug?.suggestedFix)}</pre>
@@ -825,15 +988,122 @@
         });
         elements.btnRunQA.addEventListener('click', async () => {
             if (!qaToken) return showToast('Token necessário');
-            elements.btnRunQA.disabled = true;
-            try {
-                const res = await fetch('/api/qa/run', { method: 'POST', headers: { 'x-qa-token': qaToken } });
-                if (res.ok) {
-                    refreshData(); // atualiza lista imediatamente (run aparecerá em andamento)
-                    setTimeout(refreshData, 30000); // atualiza novamente após ~30s (run concluído)
-                } else showToast('Erro ao iniciar run');
-            } finally { elements.btnRunQA.disabled = false; }
+            startStreamingRun();
         });
+
+        async function startStreamingRun() {
+            elements.btnRunQA.disabled = true;
+            const modal = document.getElementById('modal-qa-progress');
+            const container = document.getElementById('progress-container');
+            const statusMsg = document.getElementById('progress-status-msg');
+            const runIdEl = document.getElementById('progress-run-id');
+
+            container.innerHTML = '';
+            statusMsg.innerText = 'Conectando ao orquestrador...';
+            modal.classList.remove('hidden');
+
+            const eventSource = new EventSource(`/api/qa/stream?token=${qaToken}`);
+            const flows = new Map();
+
+            eventSource.addEventListener('run_start', (e) => {
+                const data = JSON.parse(e.data);
+                runIdEl.innerText = data.runId;
+                statusMsg.innerText = 'Usuário isolado criado. Iniciando flows...';
+            });
+
+            eventSource.addEventListener('flow_start', (e) => {
+                const data = JSON.parse(e.data);
+                const flowId = data.flow;
+                const label = QA_STEP_LABELS[flowId]?._flow || { emoji: '⚙️', label: `Flow: ${flowId}` };
+                
+                const flowEl = document.createElement('div');
+                flowEl.className = 'space-y-2';
+                flowEl.innerHTML = `
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-lg">${label.emoji}</span>
+                            <span class="font-bold text-sm text-slate-200">${label.label}</span>
+                        </div>
+                        <span id="flow-status-${flowId}" class="text-[10px] text-slate-500 italic">em execução...</span>
+                    </div>
+                    <div id="steps-${flowId}" class="pl-7 space-y-1"></div>
+                `;
+                container.appendChild(flowEl);
+                flows.set(flowId, flowEl);
+                flowEl.scrollIntoView({ behavior: 'smooth' });
+            });
+
+            eventSource.addEventListener('step_start', (e) => {
+                const data = JSON.parse(e.data);
+                const flowId = data.flow;
+                const stepId = data.step;
+                const stepsContainer = document.getElementById(`steps-${flowId}`);
+                const label = QA_STEP_LABELS[flowId]?.[stepId] || { emoji: '🔹', label: stepId };
+
+                const stepEl = document.createElement('div');
+                stepEl.id = `step-${flowId}-${stepId}`;
+                stepEl.className = 'flex items-center justify-between group';
+                stepEl.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs">${label.emoji}</span>
+                        <span class="text-xs text-slate-400 group-hover:text-slate-300 transition-all">${label.label}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-indigo-500 rounded-full animate-ping"></div>
+                    </div>
+                `;
+                stepsContainer.appendChild(stepEl);
+            });
+
+            eventSource.addEventListener('step_done', (e) => {
+                const data = JSON.parse(e.data);
+                const stepEl = document.getElementById(`step-${data.flow}-${data.step}`);
+                if (!stepEl) return;
+
+                stepEl.querySelector('.animate-ping').parentElement.innerHTML = `
+                    <span class="text-[10px] text-slate-500 mr-2">${data.duration}ms</span>
+                    <i data-lucide="${data.success ? 'check-circle' : 'x-circle'}" class="w-3.5 h-3.5 ${data.success ? 'text-green-500' : 'text-red-500'}"></i>
+                `;
+                lucide.createIcons();
+            });
+
+            eventSource.addEventListener('flow_done', (e) => {
+                const data = JSON.parse(e.data);
+                const statusEl = document.getElementById(`flow-status-${data.flow}`);
+                if (statusEl) {
+                    statusEl.innerText = data.passed ? 'concluído' : 'falhou';
+                    statusEl.className = `text-[10px] italic ${data.passed ? 'text-green-500' : 'text-red-500'}`;
+                }
+            });
+
+            eventSource.addEventListener('complete', (e) => {
+                const data = JSON.parse(e.data);
+                statusMsg.innerText = 'Run completo! Gerando relatório final...';
+                
+                setTimeout(() => {
+                    eventSource.close();
+                    modal.classList.add('hidden');
+                    elements.btnRunQA.disabled = false;
+                    openRunDetail(data.runId);
+                    refreshData();
+                }, 1500);
+            });
+
+            eventSource.addEventListener('error', (e) => {
+                const data = e.data ? JSON.parse(e.data) : { error: 'Conexão interrompida' };
+                statusMsg.innerText = `Erro: ${data.error}`;
+                statusMsg.className = 'text-xs text-red-400 italic';
+                eventSource.close();
+                elements.btnRunQA.disabled = false;
+                setTimeout(() => modal.classList.add('hidden'), 5000);
+            });
+
+            eventSource.onerror = (err) => {
+                console.error('SSE Error:', err);
+                eventSource.close();
+                elements.btnRunQA.disabled = false;
+            };
+        }
 
         // Init
         refreshData();

@@ -19,8 +19,8 @@ const { logger }   = require('../../logger');
  * @param {TestUser} [secondUser] - Usuário convidado. Se omitido, cria internamente.
  */
 class CaixinhaFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('caixinha', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('caixinha', 'api', runId, backendUrl, qaToken, onProgress);
     this._secondUserCreatedInternally = false;
   }
 
@@ -50,6 +50,30 @@ class CaixinhaFlow extends BaseFlow {
           artifacts: [],
         });
       }
+    } else if (!secondUser.accessToken) {
+      // Usuário fornecido pelo Orchestrator, mas sem token (exchange falhou no Orchestrator)
+      // Tenta obter o token novamente aqui para não bloquear o step accept_caixinha_invite
+      try {
+        const customToken = await TestUserFactory.createCustomToken(secondUser.uid);
+        const tokenResult = await this._exchangeToken(customToken);
+        secondUser.accessToken  = tokenResult.accessToken;
+        secondUser.refreshToken = tokenResult.refreshToken;
+        logger.info('CaixinhaFlow: token re-obtido para segundo usuário externo', {
+          service: 'CaixinhaFlow', uid: secondUser.uid,
+        });
+      } catch (err) {
+        logger.warn('CaixinhaFlow: falha ao re-obter token para segundo usuário externo', {
+          service: 'CaixinhaFlow', uid: secondUser.uid, error: err.message,
+        });
+        this.steps.push({
+          name:    'setup_second_user_token',
+          success: false,
+          duration: 0,
+          correlationId: `qa_${this.runId}_caixinha_setup_second_user_token`,
+          error:   `Token exchange falhou para secondUser (uid: ${secondUser.uid}): ${err.message}`,
+          artifacts: [],
+        });
+      }
     }
 
     const auth1 = { Authorization: `Bearer ${testUser.accessToken}` };
@@ -70,11 +94,17 @@ class CaixinhaFlow extends BaseFlow {
         duracaoMeses:       12,
         distribuicaoTipo:   'MENSAL',
         dataCriacao:        new Date().toISOString(),
-        permiteEmprestimos: false,
+        permiteEmprestimos: true, // Habilitado para testar fluxo completo
         diaVencimento:      10,
+        valorMulta:         5,
+        valorJuros:         1
       }, { headers: auth1 });
 
-      caixinhaId = res.data?.id || res.data?.caixinhaId || null;
+      caixinhaId = res.data?.data?.id || res.data?.id || res.data?.caixinhaId || null;
+
+      if (!caixinhaId) {
+        throw new Error('Falha crítica: caixinhaId não retornado pela API');
+      }
 
       return {
         statusCode:   res.status,
@@ -83,10 +113,7 @@ class CaixinhaFlow extends BaseFlow {
       };
     });
 
-    if (!caixinhaId) {
-      // Sem caixinha criada, todos os próximos steps são skipped
-      return this._skipRemaining('create_caixinha falhou — caixinhaId não retornado');
-    }
+    if (!caixinhaId) return this.result();
 
     // ── Passo 2: Buscar caixinha por ID ───────────────────────────────────
     await this.step('get_caixinha_by_id', async ({ axios: ax }) => {
@@ -158,7 +185,15 @@ class CaixinhaFlow extends BaseFlow {
           { headers: auth1 }
         );
 
-        caixinhaInviteId = res.data?.inviteId || res.data?.id || null;
+        caixinhaInviteId = res.data?.inviteId || 
+                           res.data?.caxinhaInviteId || 
+                           res.data?.data?.id || 
+                           res.data?.id || 
+                           null;
+
+        if (!caixinhaInviteId) {
+          throw new Error('Falha ao obter ID do convite de caixinha (verificar typo caxinhaInviteId)');
+        }
 
         return {
           statusCode:     res.status,

@@ -38,7 +38,7 @@ module.exports = {
     
     // Terceiros
     asaas: { category: 'THIRD_PARTY', impact: 0.9, latencyThreshold: 2000 },
-    openai: { category: 'THIRD_PARTY', impact: 0.4, latencyThreshold: 5000 },
+    openai: { category: 'THIRD_PARTY', label: 'DeepSeek AI', impact: 0.4, latencyThreshold: 5000 },
     
     // Social
     user: { category: 'SOCIAL_ENGAGEMENT', impact: 0.3, latencyThreshold: 800 },

@@ -7,6 +7,9 @@ const ActiveConnection = require('../models/ActiveConnection');
 const InactiveConnection = require('../models/InactiveConnection');
 const RequestedConnection = require('../models/RequestedConnection');
 const connectionService = require('../services/connectionService')
+const gamificationService = require('../services/gamificationService');
+const NotificationDispatcher = require('../services/NotificationDispatcher');
+const User = require('../models/User');
 const { logger } = require('../logger');
 
 /**
@@ -107,13 +110,13 @@ exports.getActiveConnectionById = async (req, res) => {
   const userId = req.user.uid;
   logger.info('loggando o usuario nas conexoes', userId);
   try {
-    const connections = await ActiveConnection.getById(userId);
+    const { friends, bestFriends } = await ActiveConnection.getConnectionsByUserId(userId);
     const sentRequests = await RequestedConnection.getRequestsSentByUser(userId);
     const receivedRequests = await RequestedConnection.getPendingRequestsForUser(userId);
 
     const connection = {
-      friends: connections.friends,
-      bestFriends: connections.bestFriends,
+      friends,
+      bestFriends,
       sentRequests,
       receivedRequests
     };
@@ -170,6 +173,25 @@ exports.acceptConnectionRequest = async (req, res) => {
   try {
     const result = await RequestedConnection.acceptConnectionRequest(receiverId, senderId);
     
+    // Fire-and-forget: gamificação para ambos os usuários
+    gamificationService.triggerEvent('connection_made', receiverId).catch(() => {});
+    gamificationService.triggerEvent('connection_made', senderId).catch(() => {});
+
+    // Fire-and-forget: notificação para o remetente informando que foi aceito
+    User.getById(receiverId).then(receiver => {
+      const receiverName = receiver.full_name
+        || receiver.username
+        || (receiver.email ? receiver.email.split('@')[0] : null)
+        || 'Um usuário';
+      NotificationDispatcher.dispatch({
+        userId: senderId,
+        type: 'connection_accepted',
+        importance: 'low',
+        data: { receiverId, receiverName },
+        metadata: { triggeredBy: receiverId }
+      }).catch(() => {});
+    }).catch(() => {});
+
     return res.status(200).json({ 
       message: 'Solicitação de amizade aceita com sucesso.',
       connection: result
@@ -178,8 +200,8 @@ exports.acceptConnectionRequest = async (req, res) => {
     logger.error('Erro ao aceitar solicitação de amizade', {
       service: 'connectionsController',
       method: 'acceptConnectionRequest',
-      userId,
-      requestId,
+      receiverId,
+      senderId,
       error: error.message
     });
     
@@ -200,37 +222,43 @@ exports.acceptConnectionRequest = async (req, res) => {
 };
 
 exports.createActiveConnection = async (req, res) => {
-  // Este método deveria ser deprecado ou usado apenas para fins administrativos
-  // Uma mensagem de aviso para os desenvolvedores:
-  logger.warn('O método createActiveConnection foi chamado diretamente. Para aceitar solicitações de amizade, use acceptConnectionRequest.', {
+  // Deprecated: use acceptConnectionRequest instead
+  logger.warn('createActiveConnection is deprecated. Use acceptConnectionRequest.', {
     service: 'connectionsController',
     method: 'createActiveConnection',
     userId: req.user?.uid
   });
-  
-  try {
-    const connection = await ActiveConnection.create(req.body);
-    res.status(201).json(connection);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  return res.status(410).json({ message: 'Endpoint deprecado. Use POST /connections/requests/:senderId/accept.' });
 };
 
 exports.updateActiveConnection = async (req, res) => {
-  try {
-    const connection = await ActiveConnection.update(req.params.id, req.body);
-    res.status(200).json(connection);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  // Deprecated: use addBestFriend/removeBestFriend for specific updates
+  return res.status(410).json({ message: 'Endpoint deprecado. Use PUT/DELETE /connections/active/bestfriend/:friendId.' });
 };
 
 exports.deleteActiveConnection = async (req, res) => {
+  // Deprecated: use deleteFriendConnection instead
+  return res.status(410).json({ message: 'Endpoint deprecado. Use DELETE /connections/:userId/friends/:friendId.' });
+};
+
+exports.deleteFriendConnection = async (req, res) => {
+  const { friendId } = req.params;
+  const userId = req.user.uid;
+
+  if (userId !== req.params.userId) {
+    return res.status(403).json({ message: 'Acesso negado.' });
+  }
+
+  if (!friendId) {
+    return res.status(400).json({ message: 'friendId é obrigatório.' });
+  }
+
   try {
-    await ActiveConnection.delete(req.params.friendId);
-    res.status(204).end();
+    await ActiveConnection.deleteByUserAndFriend(userId, friendId);
+    return res.status(204).end();
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    logger.error('Erro ao remover conexão', { userId, friendId, error: error.message });
+    return res.status(500).json({ message: error.message });
   }
 };
 
@@ -340,6 +368,21 @@ exports.createRequestedConnection = async (req, res) => {
 
     // 4. Criar a solicitação se não existir nenhuma das condições acima
     const connection = await RequestedConnection.create(userId, friendId);
+
+    // Fire-and-forget: notificação para o destinatário informando sobre o novo pedido
+    User.getById(userId).then(sender => {
+      const senderName = sender.full_name
+        || sender.username
+        || (sender.email ? sender.email.split('@')[0] : null)
+        || 'Um usuário';
+      NotificationDispatcher.dispatch({
+        userId: friendId,
+        type: 'connection_requested',
+        importance: 'low',
+        data: { senderId: userId, senderName },
+        metadata: { triggeredBy: userId }
+      }).catch(() => {});
+    }).catch(() => {});
 
     logger.info('Solicitação de conexão criada com sucesso', {
       service: 'connectionsController',

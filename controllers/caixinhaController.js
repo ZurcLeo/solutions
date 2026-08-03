@@ -5,6 +5,8 @@ const CaixinhaService = require('../services/caixinhaService');
 const ContribuicaoService = require('../services/contribuicaoService');
 const MembrosService = require('../services/membrosService');
 const TransactionService = require('../services/transactionService');
+const ledgerService = require('../services/ledgerService');
+const { getFirestore } = require('../firebaseAdmin');
 
 /**
  * Busca todas as caixinhas para o usuário atual
@@ -49,7 +51,7 @@ const getCaixinhas = async (req, res) => {
         method: 'getCaixinhas',
         error: error.message,
         stack: error.stack,
-        userId: req.user?.ucaixinhaId
+        userId: req.user?.uid
       });
   
       return res.status(500).json({
@@ -74,7 +76,7 @@ const getCaixinhas = async (req, res) => {
         caixinhaId,
         acao,
         emprestimoId,
-        userId: req.user.ucaixinhaId
+        userId: req.user.uid
       });
 
       let resultado;
@@ -115,7 +117,7 @@ const getCaixinhas = async (req, res) => {
           break;
 
         default:
-          throw new Error('Ação inválcaixinhaIda');
+          throw new Error('Ação inválida');
       }
 
       res.status(200).json(resultado);
@@ -140,7 +142,12 @@ const getCaixinhas = async (req, res) => {
    */
  const gerarRelatorio = async (req, res) => {
     const { caixinhaId } = req.params;
-    const { tipo, filtros } = req.query;
+    const { tipo = 'geral', startDate, endDate } = req.query;
+
+    // Monta objeto de filtros a partir dos query params
+    const filtros = {};
+    if (startDate) { filtros.inicio = startDate; filtros.dataInicial = startDate; }
+    if (endDate) { filtros.fim = endDate; filtros.dataFinal = endDate; }
 
     try {
       logger.info('Gerando relatório', {
@@ -149,7 +156,7 @@ const getCaixinhas = async (req, res) => {
         caixinhaId,
         tipo,
         filtros,
-        userId: req.user.ucaixinhaId
+        userId: req.user.uid
       });
 
       let relatorio;
@@ -172,7 +179,7 @@ const getCaixinhas = async (req, res) => {
           break;
 
         default:
-          throw new Error('Tipo de relatório inválcaixinhaIdo');
+          throw new Error('Tipo de relatório inválido');
       }
 
       res.status(200).json(relatorio);
@@ -203,7 +210,7 @@ const getCaixinhas = async (req, res) => {
         controller: 'CaixinhaController',
         method: 'verificarConfiguracoes',
         caixinhaId,
-        userId: req.user.ucaixinhaId
+        userId: req.user.uid
       });
 
       const configuracoes = await CaixinhaService.getConfiguracoes(caixinhaId);
@@ -232,7 +239,7 @@ const getCaixinhas = async (req, res) => {
     const { caixinhaId } = req.params;
   
     if (!caixinhaId || typeof caixinhaId !== 'string' || !caixinhaId.trim()) {
-      logger.warn('ID da caixinha ausente ou inválcaixinhaIdo', { controller: 'CaixinhaController', method: 'getCaixinhaById' });
+      logger.warn('ID da caixinha ausente ou inválido', { controller: 'CaixinhaController', method: 'getCaixinhaById' });
       return res.status(400).json({ message: 'ID da caixinha é obrigatório.' });
     }
 
@@ -293,19 +300,27 @@ const getCaixinhas = async (req, res) => {
       logger.info('Atualizando caixinha', {
         controller: 'CaixinhaController',
         method: 'updateCaixinha',
-        caixinhaId: caixinhaId,
-        userId: req.user.ucaixinhaId,
+        caixinhaId,
+        userId: req.user.uid,
         data: req.body
       });
 
-      const caixinha = await CaixinhaService.updateCaixinha(caixinhaId, req.body);
-      
+      const caixinha = await CaixinhaService.updateCaixinha(caixinhaId, req.body, req.user.uid);
+
       res.status(200).json(caixinha);
     } catch (error) {
+      if (error.requiresDispute) {
+        return res.status(422).json({
+          requiresDispute: true,
+          field: error.field,
+          message: error.message,
+        });
+      }
+
       logger.error('Erro ao atualizar caixinha', {
         controller: 'CaixinhaController',
         method: 'updateCaixinha',
-        caixinhaId: caixinhaId,
+        caixinhaId,
         error: error.message,
         stack: error.stack
       });
@@ -328,12 +343,12 @@ const getCaixinhas = async (req, res) => {
         controller: 'CaixinhaController',
         method: 'deleteCaixinha',
         caixinhaId: caixinhaId,
-        userId: req.user.ucaixinhaId
+        userId: req.user.uid
       });
 
       await CaixinhaService.deleteCaixinha(caixinhaId);
       
-      res.status(200).json({ message: 'Caixinha removcaixinhaIda com sucesso' });
+      res.status(200).json({ message: 'Caixinha removida com sucesso' });
     } catch (error) {
       logger.error('Erro ao remover caixinha', {
         controller: 'CaixinhaController',
@@ -426,11 +441,17 @@ const gerenciarMembros = async (req, res) => {
         caixinhaId,
         acao,
         membroId,
-        userId: req.user?.ucaixinhaId // Verificação segura do UID do usuário
+        userId: req.user?.uid // Verificação segura do UID do usuário
       });
   
       let resultado;
-  
+
+      // Ações que requerem admin (gerente não pode executar)
+      const adminOnlyActions = ['remover', 'atualizar', 'transferir', 'alterar_role'];
+      if (adminOnlyActions.includes(acao) && req.caixinhaRole !== 'admin') {
+        return res.status(403).json({ error: 'Apenas o administrador pode executar esta ação.' });
+      }
+
       // Verificação da ação solicitada
       switch (acao) {
         case 'adicionar': // Adicionar membro
@@ -444,7 +465,7 @@ const gerenciarMembros = async (req, res) => {
           resultado = await MembrosService.atualizarStatusMembro(
             caixinhaId,
             membroId,
-            dados?.novoStatus, // Novo status forneccaixinhaIdo
+            dados?.novoStatus, // Novo status fornecido
             dados?.motivo // Motivo da alteração
           );
           break;
@@ -453,7 +474,7 @@ const gerenciarMembros = async (req, res) => {
           resultado = await MembrosService.removerMembro(
             caixinhaId,
             membroId,
-            dados?.motivo // Motivo da remoção, se forneccaixinhaIdo
+            dados?.motivo // Motivo da remoção, se fornecido
           );
           break;
   
@@ -461,12 +482,21 @@ const gerenciarMembros = async (req, res) => {
           resultado = await MembrosService.transferirAdministracao(
             caixinhaId,
             membroId,
-            dados?.motivo // Motivo da transferência, se forneccaixinhaIdo
+            dados?.motivo // Motivo da transferência, se fornecido
           );
           break;
-  
-        default: // Ação inválcaixinhaIda
-          throw new Error('Ação inválcaixinhaIda'); // Lança erro para ações não reconheccaixinhaIdas
+
+        case 'alterar_role': // Alterar role do membro (gerente/membro)
+          resultado = await MembrosService.alterarRoleMembro(
+            caixinhaId,
+            membroId,
+            dados?.novaRole,
+            req.user?.uid || req.uid
+          );
+          break;
+
+        default: // Ação inválida
+          throw new Error('Ação inválida'); // Lança erro para ações não reconhecidas
       }
   
       // Log de sucesso e resposta para o cliente
@@ -541,6 +571,72 @@ const gerenciarMembros = async (req, res) => {
     }
   };
 
+/**
+ * Retorna os dados do usuário autenticado dentro de uma caixinha específica,
+ * incluindo seu saldoVirtual no ledger.
+ * GET /api/caixinha/:caixinhaId/me
+ */
+const getMyMemberData = async (req, res) => {
+  const { caixinhaId } = req.params;
+  const userId = req.user.uid;
+
+  logger.info('Buscando dados do membro autenticado na caixinha', {
+    controller: 'CaixinhaController',
+    method: 'getMyMemberData',
+    caixinhaId,
+    userId
+  });
+
+  try {
+    const db = getFirestore();
+
+    // Buscar documento do membro na subcoleção (userId é campo, não doc ID)
+    const membrosSnap = await db
+      .collection('caixinhas')
+      .doc(caixinhaId)
+      .collection('membros')
+      .where('userId', '==', userId)
+      .limit(1)
+      .get();
+
+    if (membrosSnap.empty) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuário não é membro desta caixinha'
+      });
+    }
+
+    const membroDoc = membrosSnap.docs[0];
+    const membroData = { id: membroDoc.id, ...membroDoc.data() };
+
+    // Buscar saldo virtual no ledger
+    const saldoVirtual = await ledgerService.getMemberBalance(caixinhaId, userId);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...membroData,
+        saldoVirtual
+      }
+    });
+  } catch (error) {
+    logger.error('Erro ao buscar dados do membro na caixinha', {
+      controller: 'CaixinhaController',
+      method: 'getMyMemberData',
+      caixinhaId,
+      userId,
+      error: error.message,
+      stack: error.stack
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao buscar dados do membro',
+      error: error.message
+    });
+  }
+};
+
   module.exports = {
     getCaixinhas,
     gerenciarEmprestimos,
@@ -553,5 +649,6 @@ const gerenciarMembros = async (req, res) => {
     addContribuicao,
     getContribuicoes,
     getMembers,
-    gerenciarMembros
+    gerenciarMembros,
+    getMyMemberData
   }

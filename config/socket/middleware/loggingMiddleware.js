@@ -72,54 +72,9 @@ function socketLoggingMiddleware(socket, next) {
       });
     });
 
-    // Monitorar eventos (somente em ambiente de desenvolvimento ou configurável)
-    if (process.env.NODE_ENV !== 'production' || process.env.SOCKET_DEBUG === 'true') {
-      // Interceptar eventos recebidos para logging
-      const originalOnevent = socket.onevent;
-      socket.onevent = function(packet) {
-        const userId = socket.user?.id || 'unauthenticated';
-        const eventName = packet.data[0];
-        const eventData = packet.data[1] || {};
-        
-        // Filtrar eventos sensíveis ou de alta frequência para evitar spam no log
-        const sensitiveEvents = ['typing_status', 'heartbeat'];
-        if (!sensitiveEvents.includes(eventName)) {
-          logger.debug('Evento Socket.IO recebido', {
-            service: 'socket',
-            function: 'event_received',
-            socketId: socket.id,
-            userId,
-            event: eventName,
-            dataSize: JSON.stringify(eventData).length,
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        originalOnevent.call(this, packet);
-      };
-
-      // Interceptar eventos enviados para logging
-      const originalEmit = socket.emit;
-      socket.emit = function(eventName, ...args) {
-        const userId = socket.user?.id || 'unauthenticated';
-        
-        // Filtrar eventos sensíveis ou de alta frequência
-        const sensitiveEvents = ['typing_status', 'heartbeat'];
-        if (!sensitiveEvents.includes(eventName) && eventName !== 'error') {
-          logger.debug('Evento Socket.IO enviado', {
-            service: 'socket',
-            function: 'event_sent',
-            socketId: socket.id,
-            userId,
-            event: eventName,
-            argsCount: args.length,
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        return originalEmit.apply(this, [eventName, ...args]);
-      };
-    }
+    // RTREAL-005: bloco de debug removido — wrapping de onevent/emit era duplicado pelo
+    // setupActivityMonitor abaixo, dobrando as métricas de eventsReceived/eventsSent.
+    // O setupActivityMonitor é a fonte única de wrapping e métricas.
 
     // Configurar um monitor de atividade para estatísticas (opcional)
     setupActivityMonitor(socket);

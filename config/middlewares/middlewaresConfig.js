@@ -32,6 +32,7 @@ module.exports = (app) => {
     });
   }
 
+  app.use(corsMiddleware);   // CORS deve ser o primeiro para garantir headers em qualquer resposta
   app.use(cookieParser());
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: true }));
@@ -39,6 +40,5 @@ module.exports = (app) => {
   app.use(correlationId);    // propaga x-correlation-id em todos os requests
   app.use(sanitizerMiddleware); // Protocolo Zero-Data para SRE
   app.use(morganMiddleware);
-  app.use(corsMiddleware);
   app.use(performanceMiddleware('global'));
 };

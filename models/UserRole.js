@@ -1,5 +1,4 @@
 // models/UserRole.js
-const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const LocalStorageService = require('../services/LocalStorageService')
 const FirestoreService = require('../utils/firestoreService');
@@ -8,6 +7,7 @@ const dbServiceRole = LocalStorageService.collection('roles');
 const User = require('./User');
 const Role = require('./Role');
 const RolePermission = require('./RolePermission');
+const supabaseSyncService = require('../services/supabaseSyncService');
 
 class UserRole {
   constructor(data) {
@@ -198,28 +198,6 @@ static async getUserRoles(userId, contextType = null, resourceId = null) {
       const userRoleId = `${userId}_${roleId}_${Date.now()}`;
       await dbServiceUserRole.doc(userRoleId).set(userRoleData);
       
-      // 3. Atualizar o objeto do usuário no Firestore
-      const db = require('../firebaseAdmin').getFirestore();
-      const userRef = db.collection('usuario').doc(userId);
-      const userDoc = await userRef.get();
-      
-      if (!userDoc.exists) {
-        throw new Error('Usuário não encontrado');
-      }
-      
-      // 4. Construir o objeto de role para salvar no perfil do usuário
-      const userRole = {
-        assignedAt: new Date().toISOString(),
-        context: context || { type: 'global', resourceId: null },
-        validationStatus: options.validationStatus || 'pending',
-        metadata: options.metadata || {}
-      };
-      
-      // 5. Atualizar o documento do usuário
-      await userRef.update({
-        [`roles.${roleId}`]: userRole
-      });
-      
       logger.info('Role atribuída ao usuário com sucesso', {
         service: 'userRoleModel',
         function: 'assignRoleToUser',
@@ -227,6 +205,14 @@ static async getUserRoles(userId, contextType = null, resourceId = null) {
         roleId,
         userRoleId
       });
+
+      // Sincronizar com Supabase (Dual-Write)
+      supabaseSyncService.syncUserRoleToSupabase(
+        userId, 
+        roleData.name, 
+        context, 
+        options.validationStatus || 'pending'
+      );
       
       // Retornar o objeto completo com ID
       return { id: userRoleId, ...userRoleData };
@@ -291,6 +277,14 @@ static async getUserRoles(userId, contextType = null, resourceId = null) {
         function: 'validateUserRole', 
         userRoleId
       });
+
+      // Sincronizar com Supabase (Dual-Write)
+      supabaseSyncService.syncUserRoleToSupabase(
+        updatedData.userId, 
+        updatedData.roleName, 
+        updatedData.context, 
+        'validated'
+      );
       
       return new UserRole(updatedData);
     } catch (error) {

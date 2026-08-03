@@ -1,5 +1,6 @@
 // services/roleService.js
 const { logger } = require('../logger');
+const { getSupabaseClient } = require('../config/supabase');
 const Role = require('../models/Role');
 const RolePermission = require('../models/RolePermission');
 const UserRole = require('../models/UserRole');
@@ -199,14 +200,16 @@ class RoleService {
    */
   async isRoleInUse(roleId) {
     try {
-      // Buscar no Firestore se há algum documento UserRole com esta roleId
-      const db = require('../firebaseAdmin').getFirestore();
-      const snapshot = await db.collection('user_roles')
-        .where('roleId', '==', roleId)
-        .limit(1)
-        .get();
-      
-      return !snapshot.empty;
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role_name', roleId)
+          .limit(1);
+        return (data?.length ?? 0) > 0;
+      }
+      return false;
     } catch (error) {
       logger.error('Erro ao verificar se role está em uso', {
         service: 'roleService',

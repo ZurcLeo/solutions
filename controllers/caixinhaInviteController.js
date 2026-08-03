@@ -148,9 +148,9 @@ const inviteByEmail = async (req, res) => {
 const acceptInvite = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const caxinhaInviteId = req.params.caxinhaInviteId;
+    const caixinhaInviteId = req.params.caixinhaInviteId;
     
-    const result = await CaixinhaInviteService.acceptInvite(caxinhaInviteId, userId);
+    const result = await CaixinhaInviteService.acceptInvite(caixinhaInviteId, userId);
     
     res.status(200).json(result);
   } catch (error) {
@@ -170,10 +170,10 @@ const acceptInvite = async (req, res) => {
 const rejectInvite = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const caxinhaInviteId = req.params.caxinhaInviteId;
+    const caixinhaInviteId = req.params.caixinhaInviteId;
     const reason = req.body.reason;
     
-    const result = await CaixinhaInviteService.rejectInvite(caxinhaInviteId, userId, reason);
+    const result = await CaixinhaInviteService.rejectInvite(caixinhaInviteId, userId, reason);
     
     res.status(200).json(result);
   } catch (error) {
@@ -193,9 +193,9 @@ const rejectInvite = async (req, res) => {
 const cancelInvite = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const caxinhaInviteId = req.params.caxinhaInviteId;
+    const caixinhaInviteId = req.params.caixinhaInviteId;
     
-    const result = await CaixinhaInviteService.cancelInvite(caxinhaInviteId, userId);
+    const result = await CaixinhaInviteService.cancelInvite(caixinhaInviteId, userId);
     
     res.status(200).json(result);
   } catch (error) {
@@ -215,10 +215,10 @@ const cancelInvite = async (req, res) => {
 const resendInvite = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const caxinhaInviteId = req.params.caxinhaInviteId;
+    const caixinhaInviteId = req.params.caixinhaInviteId;
     const { message } = req.body;
     
-    const result = await CaixinhaInviteService.resendInvite(caxinhaInviteId, userId, { message });
+    const result = await CaixinhaInviteService.resendInvite(caixinhaInviteId, userId, { message });
     
     res.status(200).json(result);
   } catch (error) {
@@ -259,9 +259,9 @@ const getCaixinhaInvites = async (req, res) => {
  */
 const getInviteDetails = async (req, res) => {
   try {
-    const caxinhaInviteId = req.params.caxinhaInviteId;
+    const caixinhaInviteId = req.params.caixinhaInviteId;
     
-    const invite = await CaixinhaInviteService.getInviteDetails(caxinhaInviteId);
+    const invite = await CaixinhaInviteService.getInviteDetails(caixinhaInviteId);
     
     res.status(200).json(invite);
   } catch (error) {
@@ -280,10 +280,10 @@ const getInviteDetails = async (req, res) => {
  */
 const resendInviteEmail = async (req, res) => {
   try {
-    const caxinhaInviteId = req.params.caxinhaInviteId;
+    const caixinhaInviteId = req.params.caixinhaInviteId;
     const caixinhaId = req.params.caixinhaId;
     
-    const result = await CaixinhaInviteService.resendInviteEmail(caxinhaInviteId, caixinhaId);
+    const result = await CaixinhaInviteService.resendInviteEmail(caixinhaInviteId, caixinhaId);
     
     res.status(200).json(result);
   } catch (error) {

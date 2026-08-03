@@ -5,8 +5,8 @@ const BaseFlow = require('./BaseFlow');
  * Testa o ciclo completo: Depósito PIX -> Validação de Saldo -> Compra de Rifa -> Débito de Saldo.
  */
 class FinancialFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('financial', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('financial', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run(testUser) {
@@ -14,31 +14,34 @@ class FinancialFlow extends BaseFlow {
     let rifaId = null;
 
     // 1. Simular Depósito PIX via rota de QA
-    // Nota: Como não encontrei uma rota de 'seed' de saldo, vou assumir que existe 
-    // ou que precisaremos criar uma rota controlada para o Orchestrator.
-    // Para este exemplo, vou simular o crédito via ledgerService se houver uma rota exposta.
     await this.step('simulate_pix_deposit', async ({ axios }) => {
-      // Usaremos o CaixinhaFlow anterior para pegar uma caixinha ou criar uma nova
-      // Mas para manter isolado, criamos uma aqui.
       const caixinhaRes = await axios.post('/api/caixinha/', {
         name: `QA Financeira ${this.runId}`,
-        goal: 1000,
-        type: 'FINANCEIRA'
+        description: 'Caixinha financeira para teste de ledger',
+        adminId: testUser.uid,
+        contribuicaoMensal: 0,
+        duracaoMeses: 12,
+        distribuicaoTipo: 'FINANCEIRA',
+        dataCriacao: new Date().toISOString()
       }, {
         headers: { Authorization: `Bearer ${testUser.accessToken}` }
       });
-      caixinhaId = caixinhaRes.data.data.id;
+      
+      caixinhaId = caixinhaRes.data?.id || caixinhaRes.data?.data?.id;
 
-      // Chama endpoint de QA (que precisaremos garantir que exista no controller)
-      // para injetar saldo sem passar pelo gateway real do MercadoPago
-      return await axios.post(`/api/qa/seed-balance`, {
+      if (!caixinhaId) {
+        throw new Error('Falha ao criar caixinha financeira para teste');
+      }
+
+      // Chama endpoint de QA para injetar saldo
+      const res = await axios.post(`/api/qa/seed-balance`, {
         caixinhaId,
         userId: testUser.uid,
         amount: 500,
         description: 'Carga inicial QA'
-      }, {
-        headers: { 'x-qa-token': process.env.QA_INTERNAL_TOKEN }
       });
+
+      return { success: res.data?.success, status: res.status };
     });
 
     // 2. Verificar se o ledger foi atualizado
@@ -56,11 +59,18 @@ class FinancialFlow extends BaseFlow {
     // 3. Criar uma Rifa e Comprar um Bilhete
     await this.step('create_and_buy_raffle', async ({ axios }) => {
       // Criar rifa
+      const dataInicio = new Date();
+      const dataFim = new Date(dataInicio);
+      dataFim.setDate(dataFim.getDate() + 30);
+
       const rifaRes = await axios.post(`/api/rifas/${caixinhaId}`, {
         nome: 'Rifa de Teste QA',
+        descricao: 'Rifa gerada automaticamente pelo Orchestrator para teste financeiro',
         valorBilhete: 50,
         quantidadeBilhetes: 100,
-        premio: 'R$ 5.000,00'
+        premio: 'R$ 5.000,00',
+        dataInicio: dataInicio.toISOString(),
+        dataFim: dataFim.toISOString()
       }, {
         headers: { Authorization: `Bearer ${testUser.accessToken}` }
       });

@@ -21,6 +21,10 @@ router.use((req, res, next) => {
   next();
 });
 
+// ─── Rotas públicas (sem JWT) — LGPD unsubscribe via HMAC ────────────────────
+router.get('/unsubscribe', emailController.renderUnsubscribePage);
+router.post('/unsubscribe', express.urlencoded({ extended: false }), emailController.processUnsubscribe);
+
 /**
  * @swagger
  * tags:

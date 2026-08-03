@@ -11,8 +11,8 @@ const BaseFlow = require('./BaseFlow');
  *   5. Usuário B comenta no post.
  */
 class SocialFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('social', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('social', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run(testUser, secondUser) {

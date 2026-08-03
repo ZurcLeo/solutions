@@ -164,8 +164,8 @@ class EncryptionService {
       // Converter dados para string JSON se for objeto
       const dataString = typeof data === 'object' ? JSON.stringify(data) : String(data);
       
-      // Gerar IV aleatório
-      const iv = crypto.randomBytes(16);
+      // Gerar IV aleatório (96-bit / 12 bytes — NIST recomendado para GCM)
+      const iv = crypto.randomBytes(12);
       
       // Obter chave atual
       const key = this.keyCache.get(this.keyVersion);

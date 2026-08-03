@@ -1,5 +1,4 @@
 // src/services/notificationService.js
-const { FieldValue } = require('firebase-admin/firestore');
 const { logger } = require('../logger');
 const Notification = require('../models/Notification');
 
@@ -9,21 +8,16 @@ const notificationService = {
    * @param {string} userId - The ID of the user to fetch notifications for.
    * @returns {Promise<Object>} - An object containing private and public notifications.
    */
-  getUserNotifications: async (userId) => {
+  getUserNotifications: async (userId, { limit = 50, offset = 0 } = {}) => {
     logger.info('Obtendo notificações do usuário', {
       service: 'notificationService',
       function: 'getUserNotifications',
-      userId
+      userId, limit, offset
     });
 
     try {
-      const data = await Notification.getByUserId(userId);
-      logger.info('Notificações obtidas com sucesso', {
-        service: 'notificationService',
-        function: 'getUserNotifications',
-        userId
-      });
-      return { success: true, data };
+      const { notifications, total } = await Notification.getByUserId(userId, { limit, offset });
+      return { success: true, data: notifications, total };
     } catch (error) {
       logger.error(`Error getting user notifications: ${error.message}`, {
         service: 'notificationService',
@@ -31,6 +25,20 @@ const notificationService = {
         userId
       });
       return { success: false, message: `Error getting user notifications: ${error.message}` };
+    }
+  },
+
+  getUnreadCount: async (userId) => {
+    try {
+      const count = await Notification.getUnreadCount(userId);
+      return { success: true, count };
+    } catch (error) {
+      logger.error(`Error getting unread count: ${error.message}`, {
+        service: 'notificationService',
+        function: 'getUnreadCount',
+        userId
+      });
+      return { success: false, message: error.message };
     }
   },
 
@@ -66,6 +74,36 @@ const notificationService = {
         notificationId
       });
       return { success: false, message: `Error marking notification as read: ${error.message}` };
+    }
+  },
+
+  /**
+   * Marks all notifications as read for a specific user.
+   * @param {string} userId - The ID of the user.
+   * @returns {Promise<Object>} - Result of the operation.
+   */
+  clearAllNotifications: async (userId) => {
+    logger.info('Marcando todas as notificações como lidas', {
+      service: 'notificationService',
+      function: 'clearAllNotifications',
+      userId
+    });
+
+    try {
+      const result = await Notification.markAllAsRead(userId);
+      logger.info('Todas as notificações marcadas como lidas', {
+        service: 'notificationService',
+        function: 'clearAllNotifications',
+        userId
+      });
+      return result;
+    } catch (error) {
+      logger.error(`Error clearing all notifications: ${error.message}`, {
+        service: 'notificationService',
+        function: 'clearAllNotifications',
+        userId
+      });
+      return { success: false, message: `Error clearing all notifications: ${error.message}` };
     }
   },
 

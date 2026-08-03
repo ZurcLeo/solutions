@@ -8,7 +8,7 @@
 const { logger } = require('../../../logger');
 const socketManager = require('../socketManager');
 const { PRESENCE_EVENTS } = require('../socketEvents');
-const userService = require('../../../services/userService'); // Adapte ao caminho real
+const ActiveConnection = require('../../../models/ActiveConnection');
 
 // Armazenar informações de status para cada usuário
 const userStatusMap = new Map();
@@ -118,10 +118,10 @@ function registerPresenceHandlers(socket, userId, connectionInfo = {}) {
         // Se o cliente especificou IDs específicos
         relevantUserIds = requestData.userIds;
       } else {
-        // Caso contrário, obter conexões do usuário via serviço
+        // Caso contrário, obter conexões do usuário via modelo
         try {
-          const connections = await userService.getUserConnections(userId);
-          relevantUserIds = connections.map(conn => conn.userId);
+          const { friends, bestFriends } = await ActiveConnection.getConnectionsByUserId(userId);
+          relevantUserIds = [...friends, ...bestFriends].map(conn => conn.uid || conn.id);
         } catch (error) {
           logger.error('Erro ao obter conexões do usuário', {
             service: 'socket',
@@ -195,39 +195,48 @@ function registerPresenceHandlers(socket, userId, connectionInfo = {}) {
     }
   }, 60000); // Atualizar a cada minuto
 
-  // Limpar intervalo e atualizar status quando o socket desconectar
+  // Limpar intervalo e atualizar status quando o socket desconectar.
+  // RTREAL-003: socketConfig registra removeSocket ANTES deste handler, portanto
+  // getUserSockets() já retorna a lista sem o socket atual — sem race condition.
+  // RTREAL-006: purgeStaleEntries() remove entradas do mapa com mais de 24h.
   socket.on('disconnect', () => {
     clearInterval(activityInterval);
-    
+    purgeStaleEntries();
+
     // Verificar se o usuário tem outros sockets conectados
     if (socketManager.getUserSockets(userId).length === 0) {
-      // Se não tiver mais sockets, marcar como offline
       const status = userStatusMap.get(userId);
       if (status) {
         status.online = false;
         status.lastSeen = new Date().toISOString();
         userStatusMap.set(userId, status);
-        
-        // Persistir último status (opcional)
-        try {
-          userService.updateLastSeen(userId, status.lastSeen)
-            .catch(error => {
-              logger.error('Erro ao atualizar lastSeen do usuário', {
-                service: 'socket',
-                function: 'disconnect',
-                userId,
-                error: error.message
-              });
-            });
-        } catch (error) {
-          // Ignorar erros na persistência de último acesso
-        }
-        
-        // Notificar outros usuários
+
+        logger.info('Usuário desconectado — lastSeen registrado localmente', {
+          service: 'socket',
+          function: 'disconnect',
+          userId,
+          lastSeen: status.lastSeen
+        });
+
+        // Notificar conexões do usuário
         broadcastUserStatus(userId, false);
       }
     }
   });
+}
+
+/**
+ * Remove entradas inativas do userStatusMap (TTL de 24h por padrão).
+ * Previne memory leak em servidores de longa execução.
+ * @param {number} [maxAgeMs=86400000] - Tempo máximo de inatividade em ms
+ */
+function purgeStaleEntries(maxAgeMs = 24 * 60 * 60 * 1000) {
+  const now = Date.now();
+  for (const [uid, entry] of userStatusMap.entries()) {
+    if (now - (entry.lastUpdated || 0) > maxAgeMs) {
+      userStatusMap.delete(uid);
+    }
+  }
 }
 
 /**
@@ -253,9 +262,10 @@ function updateUserStatus(userId, status) {
 async function broadcastUserStatus(userId, isOnline) {
   try {
     // Obter conexões do usuário (amigos, seguidores, etc.)
-    let connections = [];
+    let connectionIds = [];
     try {
-      connections = await userService.getUserConnections(userId);
+      const { friends, bestFriends } = await ActiveConnection.getConnectionsByUserId(userId);
+      connectionIds = [...friends, ...bestFriends].map(conn => conn.uid || conn.id);
     } catch (error) {
       logger.error('Erro ao obter conexões para broadcast de status', {
         service: 'socket',
@@ -265,9 +275,6 @@ async function broadcastUserStatus(userId, isOnline) {
       });
       return;
     }
-    
-    // Extrair IDs de usuários conectados
-    const connectionIds = connections.map(conn => conn.userId);
     
     // Obter status atual
     const status = userStatusMap.get(userId) || { status: isOnline ? 'online' : 'offline' };

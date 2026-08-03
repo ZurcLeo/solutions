@@ -119,7 +119,7 @@ exports.generateValidationPix = async (req, res) => {
       0.01, 
       `Validação conta bancária - ${bankAccount.bankName}`,
       {
-        email: req.user.email || `${adminId}@eloscloud.com.br`,
+        email: req.user.email || `${adminId}@eloscloud.com`,
         first_name: req.user.firstName || bankAccount.accountHolder.split(' ')[0] || 'Usuario',
         last_name: req.user.lastName || bankAccount.accountHolder.split(' ').slice(1).join(' ') || 'Eloscloud',
         identificationType: 'CPF',

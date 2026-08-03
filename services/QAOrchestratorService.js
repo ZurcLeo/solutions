@@ -2,13 +2,18 @@ const crypto        = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { getSupabaseClient } = require('../config/supabase');
 const anthropicClient  = require('../config/anthropic/anthropicClient');
+const deepseekClient   = require('../config/deepseek/deepseekClient');
 const TestUserFactory  = require('./TestUserFactory');
 const BugReporter      = require('./BugReporter');
 const AutofixGuard     = require('./AutofixGuard');
-const GitHubService    = require('./GitHubService');
-const AuthFlow         = require('./FlowSimulator/AuthFlow');
+const GitHubService        = require('./GitHubService');
+const StalenessValidator   = require('./StalenessValidator');
+const { safeParseAIJson }  = require('../utils/aiHelpers');
+const FirestoreMock        = require('./FirestoreMockService');
+const AuthFlow             = require('./FlowSimulator/AuthFlow');
 const InviteFlow       = require('./FlowSimulator/InviteFlow');
 const CaixinhaFlow     = require('./FlowSimulator/CaixinhaFlow');
+const SecurityFlow     = require('./FlowSimulator/SecurityFlow');
 const FinancialFlow    = require('./FlowSimulator/FinancialFlow');
 const LoanFlow         = require('./FlowSimulator/LoanFlow');
 const WebhookFlow      = require('./FlowSimulator/WebhookFlow');
@@ -24,8 +29,11 @@ const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hora
  */
 class QAOrchestratorService {
   constructor(options = {}) {
-    this.backendUrl   = options.backendUrl   || process.env.QA_BACKEND_URL || '';
-    this.triggeredBy  = options.triggeredBy  || 'manual';
+    this.backendUrl    = options.backendUrl   || process.env.QA_BACKEND_URL || '';
+    this.triggeredBy   = options.triggeredBy  || 'manual';
+    this.qaToken       = options.qaToken      || '';
+    this.onProgress    = options.onProgress   || null;
+    this.firestoreMock = options.firestoreMock === true;
   }
 
   /**
@@ -40,6 +48,10 @@ class QAOrchestratorService {
     let testUser    = null;
     let secondUser  = null;
     let rawResults  = [];
+
+    if (this.onProgress) {
+      this.onProgress({ event: 'run_start', data: { runId, triggeredBy: this.triggeredBy } });
+    }
 
     try {
       // Limpeza preventiva de usuários de teste obsoletos
@@ -61,12 +73,56 @@ class QAOrchestratorService {
       logger.info('QAOrchestrator: Usuário 2 criado', { uid: secondUser.uid });
 
       logger.info('QAOrchestrator: Iniciando execução de flows...', { runId });
-      rawResults = await this._runFlows(testUser, secondUser, runId);
+
+      // Modo firestoreMock: ativa interceptação do Firestore antes dos flows
+      if (this.firestoreMock) {
+        try {
+          const { getFirestore } = require('../firebaseAdmin');
+          FirestoreMock.activate(getFirestore());
+          logger.info('QAOrchestrator: FirestoreMock ATIVADO — Firestore interceptado', { runId });
+          if (this.onProgress) {
+            this.onProgress({ event: 'firestore_mock_activated', data: { runId } });
+          }
+        } catch (mockErr) {
+          logger.warn('QAOrchestrator: falha ao ativar FirestoreMock', {
+            service: 'QAOrchestratorService', runId, error: mockErr.message,
+          });
+        }
+      }
+
+      try {
+        rawResults = await this._runFlows(testUser, secondUser, runId);
+      } finally {
+        if (this.firestoreMock && FirestoreMock.isActive()) {
+          FirestoreMock.deactivate();
+          logger.info('QAOrchestrator: FirestoreMock desativado', { runId });
+        }
+      }
+
       logger.info('QAOrchestrator: Execução de flows concluída', { runId, flowsCount: rawResults.length });
 
-      // Interpreta com Claude (com cache)
-      logger.info('QAOrchestrator: Solicitando interpretação da IA...', { runId });
-      const claudeReport = await this._interpretWithClaude(rawResults);
+      // Coleta resultado do mock antes de interpretar
+      const firestoreAccesses = this.firestoreMock ? FirestoreMock.getAccesses() : null;
+
+      // Interpreta com DeepSeek (análise primária; Claude reservado para autofix)
+      logger.info('QAOrchestrator: Solicitando interpretação da IA (DeepSeek)...', { runId });
+      let claudeReport = await this._interpretWithDeepSeek(rawResults);
+
+      // Enriquecimento: associa correlationId aos bugs detectados
+      claudeReport = this._enrichBugsWithCorrelationId(claudeReport, rawResults);
+
+      // Modo firestoreMock: adiciona relatório de dependências ao report
+      if (this.firestoreMock && firestoreAccesses) {
+        claudeReport.firestoreDependencies = this._buildFirestoreDependencyReport(rawResults, firestoreAccesses);
+        claudeReport.firestoreMockRun = true;
+        logger.info('QAOrchestrator: relatório de dependências Firestore gerado', {
+          service: 'QAOrchestratorService',
+          runId,
+          accessCount:    firestoreAccesses.length,
+          failedSteps:    claudeReport.firestoreDependencies.failedSteps.length,
+          uniquePaths:    claudeReport.firestoreDependencies.accessedPaths.length,
+        });
+      }
 
       // Persiste no Firestore
       await BugReporter.saveRun({
@@ -84,6 +140,14 @@ class QAOrchestratorService {
         fromCache:   claudeReport.fromCache,
       });
 
+      // P1 — Valida staleness dos pending fixes com base nos resultados deste run.
+      // Fire-and-forget: não bloqueia o retorno ao usuário.
+      StalenessValidator.validateAll(rawResults).catch(err =>
+        logger.warn('QAOrchestrator: StalenessValidator.validateAll falhou (não crítico)', {
+          service: 'QAOrchestratorService', runId, error: err.message,
+        })
+      );
+
       // Fase 3 — tenta propor fixes para bugs recorrentes (fire-and-forget)
       this._proposeFixesForRecurringBugs(claudeReport).catch(err =>
         logger.warn('QAOrchestrator: proposeFixesForRecurringBugs falhou (não crítico)', {
@@ -91,12 +155,20 @@ class QAOrchestratorService {
         })
       );
 
+      if (this.onProgress) {
+        this.onProgress({ event: 'complete', data: { runId, report: claudeReport, rawResults } });
+      }
+
       return { runId, report: claudeReport, rawResults };
 
     } catch (criticalError) {
       logger.error('QAOrchestrator: falha crítica no run suite', {
         service: 'QAOrchestratorService', runId, error: criticalError.message
       });
+
+      if (this.onProgress) {
+        this.onProgress({ event: 'error', data: { runId, error: criticalError.message } });
+      }
 
       // Salva o erro como um run falho para não "sumir" do histórico
       try {
@@ -133,6 +205,24 @@ class QAOrchestratorService {
   }
 
   /**
+   * Associa cada bug ao seu correlationId original encontrado nos rawResults.
+   */
+  _enrichBugsWithCorrelationId(report, rawResults) {
+    const enrich = (bug) => {
+      const flow = rawResults.find(r => r.flowId === bug.flow);
+      if (!flow) return bug;
+      const step = flow.steps?.find(s => s.name === bug.step);
+      return { ...bug, correlationId: step?.correlationId || null };
+    };
+
+    return {
+      ...report,
+      criticalBugs: (report.criticalBugs || []).map(enrich),
+      minorBugs:    (report.minorBugs    || []).map(enrich),
+    };
+  }
+
+  /**
    * Executa cada flow em sequência.
    * O AuthFlow enriquece testUser com accessToken/refreshToken.
    * CaixinhaFlow recebe secondUser para o ciclo de convite de membro.
@@ -141,40 +231,44 @@ class QAOrchestratorService {
     // Definição dos flows com seus runners
     const flowDefs = [
       {
-        flow:   new HealthFlow(runId, this.backendUrl),
+        flow:   new HealthFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(),
       },
       {
-        flow:   new AuthFlow(runId, this.backendUrl),
+        flow:   new AuthFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser),
       },
       {
-        flow:   new InviteFlow(runId, this.backendUrl),
+        flow:   new InviteFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser),
       },
       {
-        flow:   new CaixinhaFlow(runId, this.backendUrl),
+        flow:   new CaixinhaFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser, secondUser),
       },
       {
-        flow:   new FinancialFlow(runId, this.backendUrl),
+        flow:   new FinancialFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser),
       },
       {
-        flow:   new LoanFlow(runId, this.backendUrl),
+        flow:   new LoanFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser, secondUser),
       },
       {
-        flow:   new WebhookFlow(runId, this.backendUrl),
+        flow:   new WebhookFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser),
       },
       {
-        flow:   new SocialFlow(runId, this.backendUrl),
+        flow:   new SocialFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser, secondUser),
       },
       {
-        flow:   new NotificationFlow(runId, this.backendUrl),
+        flow:   new NotificationFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
         runner: (f) => f.run(testUser, secondUser),
+      },
+      {
+        flow:   new SecurityFlow(runId, this.backendUrl, this.qaToken, this.onProgress),
+        runner: (f) => f.run(testUser),
       },
     ];
 
@@ -202,12 +296,21 @@ class QAOrchestratorService {
     for (const { flow, runner } of flowDefs) {
       try {
         logger.info(`QAOrchestrator: Executando flow "${flow.flowId}"`, { runId });
+        if (this.onProgress) {
+          this.onProgress({ event: 'flow_start', data: { flow: flow.flowId } });
+        }
         const result = await runner(flow);
+        if (this.onProgress) {
+          this.onProgress({ event: 'flow_done', data: { flow: flow.flowId, passed: result.passed } });
+        }
         results.push(result);
       } catch (err) {
         logger.error(`QAOrchestrator: flow "${flow.flowId}" lançou exceção não tratada`, {
           service: 'QAOrchestratorService', flowId: flow.flowId, error: err.message,
         });
+        if (this.onProgress) {
+          this.onProgress({ event: 'flow_done', data: { flow: flow.flowId, passed: false, error: err.message } });
+        }
         results.push({
           flowId:    flow.flowId,
           layer:     flow.layer,
@@ -222,10 +325,11 @@ class QAOrchestratorService {
   }
 
   /**
-   * Envia os resultados brutos para o Claude (Haiku) para interpretação.
+   * Envia os resultados brutos para o DeepSeek para interpretação primária de QA.
    * Usa cache SHA-256 para evitar chamadas repetidas quando os resultados não mudaram.
+   * Claude (Anthropic) é reservado exclusivamente para geração de fix/patch.
    */
-  async _interpretWithClaude(rawResults) {
+  async _interpretWithDeepSeek(rawResults) {
     const hash = crypto
       .createHash('sha256')
       .update(JSON.stringify(rawResults))
@@ -234,18 +338,18 @@ class QAOrchestratorService {
     const cached = await this._checkCache(hash);
     if (cached) return { ...cached, fromCache: true };
 
-    if (!anthropicClient) {
+    if (!deepseekClient) {
       const fallback = this._fallbackInterpretation(rawResults);
       await this._saveCache(hash, fallback);
       return fallback;
     }
 
     try {
-      const report = await this._callClaude(rawResults);
+      const report = await this._callDeepSeek(rawResults);
       await this._saveCache(hash, report);
       return { ...report, fromCache: false };
     } catch (err) {
-      logger.error('QAOrchestrator: chamada ao Claude falhou, usando fallback', {
+      logger.error('QAOrchestrator: chamada ao DeepSeek falhou, usando fallback', {
         service: 'QAOrchestratorService', error: err.message,
       });
       const fallback = this._fallbackInterpretation(rawResults);
@@ -253,11 +357,15 @@ class QAOrchestratorService {
     }
   }
 
-  async _callClaude(rawResults) {
-    const message = await anthropicClient.messages.create({
-      model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      system: `Você é um engenheiro de QA sênior analisando resultados de testes automatizados
+  async _callDeepSeek(rawResults) {
+    const response = await deepseekClient.chat.completions.create({
+      model:       process.env.DEEPSEEK_MODEL_NAME || 'deepseek-chat',
+      max_tokens:  1500,
+      temperature: 0.1,
+      messages: [
+        {
+          role:    'system',
+          content: `Você é um engenheiro de QA sênior analisando resultados de testes automatizados
 da plataforma ElosCloud (aplicação financeira colaborativa brasileira — "caixinhas").
 
 Analise os resultados dos flows e retorne APENAS um objeto JSON válido, sem markdown,
@@ -290,16 +398,16 @@ Critérios de severidade:
 - critical: step falhou E impede o usuário de usar a plataforma
 - minor: step falhou mas existe workaround OU é degradação de UX
 - healthScore: comece em 100, -20 por critical, -5 por minor`,
-
-      messages: [{
-        role:    'user',
-        content: `Resultados dos flows de QA:\n\n${JSON.stringify(rawResults, null, 2)}`,
-      }],
+        },
+        {
+          role:    'user',
+          content: `Resultados dos flows de QA:\n\n${JSON.stringify(rawResults, null, 2)}`,
+        },
+      ],
     });
 
-    const raw  = message.content[0].text.trim();
-    const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    return JSON.parse(text);
+    const raw  = response.choices[0].message.content.trim();
+    return safeParseAIJson(raw);
   }
 
   _fallbackInterpretation(rawResults) {
@@ -326,7 +434,7 @@ Critérios de severidade:
       healthScore,
       criticalBugs,
       minorBugs:    [],
-      suggestions:  ['Ative o ANTHROPIC_API_KEY para interpretação detalhada com IA'],
+      suggestions:  ['Ative o DEEPSEEK_API_KEY para interpretação detalhada com IA'],
       fromCache:    false,
     };
   }
@@ -534,7 +642,10 @@ Critérios de severidade:
     const step1 = await anthropicClient.messages.create({
       model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
       max_tokens: 300,
-      system: `Você é um engenheiro sênior do projeto ElosCloud (Node.js/Express + Firebase).
+      system: [
+        {
+          type: 'text',
+          text: `Você é um engenheiro sênior do projeto ElosCloud (Node.js/Express + Firebase).
 O repositório GitHub é ZurcLeo/solutions. Os arquivos estão na RAIZ do repositório (sem prefixo de pasta).
 Exemplos de paths corretos: "services/contribuicaoService.js", "models/Membro.js", "controllers/caixinhaController.js"
 NÃO use prefixos como "backend/", "eloscloudapp/", "src/" — o arquivo deve estar acessível em:
@@ -549,6 +660,9 @@ Dado o bug e a direção, retorne APENAS JSON válido, sem markdown:
   "confidence": "high|medium|low",
   "reason": "1 frase explicando por que esse arquivo"
 }`,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: [{
         role:    'user',
         content: `Bug recorrente:
@@ -563,11 +677,17 @@ Qual arquivo do repositório ZurcLeo/solutions contém o código que precisa ser
       }],
     });
 
+    logger.info('[QAOrchestrator] Claude cache metrics (guided step1)', {
+      service: 'QAOrchestratorService',
+      cache_read: step1.usage?.cache_read_input_tokens || 0,
+      cache_creation: step1.usage?.cache_creation_input_tokens || 0,
+      input_tokens: step1.usage?.input_tokens || 0,
+    });
+
     let fileIdentification;
     try {
       const raw1 = step1.content[0].text.trim();
-      const txt1 = raw1.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      fileIdentification = JSON.parse(txt1);
+      fileIdentification = safeParseAIJson(raw1);
     } catch {
       throw new Error('Claude retornou JSON inválido na etapa 1 (guided)');
     }
@@ -594,7 +714,10 @@ Qual arquivo do repositório ZurcLeo/solutions contém o código que precisa ser
     const step2 = await anthropicClient.messages.create({
       model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
       max_tokens: 1000,
-      system: `Você é um engenheiro sênior do projeto ElosCloud.
+      system: [
+        {
+          type: 'text',
+          text: `Você é um engenheiro sênior do projeto ElosCloud.
 Receba um bug, a direção do desenvolvedor e o conteúdo do arquivo onde ele ocorre.
 Retorne APENAS JSON válido, sem markdown:
 {
@@ -613,6 +736,9 @@ IMPORTANTE:
 - oldCode deve ser uma string EXATA encontrada no arquivo
 - O patch DEVE implementar a direção do desenvolvedor, não a sugestão automática
 - Se não houver implementação segura possível, retorne {"error": "motivo"}`,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: [{
         role:    'user',
         content: `Bug: ${bug.error}
@@ -628,11 +754,17 @@ Crie um patch que implementa EXATAMENTE a direção do desenvolvedor.`,
       }],
     });
 
+    logger.info('[QAOrchestrator] Claude cache metrics (guided step2)', {
+      service: 'QAOrchestratorService',
+      cache_read: step2.usage?.cache_read_input_tokens || 0,
+      cache_creation: step2.usage?.cache_creation_input_tokens || 0,
+      input_tokens: step2.usage?.input_tokens || 0,
+    });
+
     let patchResult;
     try {
       const raw2 = step2.content[0].text.trim();
-      const txt2 = raw2.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      patchResult = JSON.parse(txt2);
+      patchResult = safeParseAIJson(raw2);
     } catch {
       throw new Error('Claude retornou JSON inválido na etapa 2 (guided)');
     }
@@ -659,7 +791,10 @@ Crie um patch que implementa EXATAMENTE a direção do desenvolvedor.`,
     const step1 = await anthropicClient.messages.create({
       model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
       max_tokens: 300,
-      system: `Você é um engenheiro sênior do projeto ElosCloud (Node.js/Express + Firebase).
+      system: [
+        {
+          type: 'text',
+          text: `Você é um engenheiro sênior do projeto ElosCloud (Node.js/Express + Firebase).
 O repositório GitHub é ZurcLeo/solutions. Os arquivos estão na RAIZ do repositório (sem prefixo de pasta).
 Exemplos de paths corretos: "services/contribuicaoService.js", "models/Membro.js", "controllers/caixinhaController.js"
 NÃO use prefixos como "backend/", "eloscloudapp/", "src/" — o arquivo deve estar acessível em:
@@ -671,6 +806,9 @@ Dado um bug, retorne APENAS JSON válido, sem markdown:
   "confidence": "high|medium|low",
   "reason": "1 frase explicando por que esse arquivo"
 }`,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: [{
         role:    'user',
         content: `Bug recorrente:
@@ -684,11 +822,17 @@ Qual arquivo do repositório contém o código que precisa ser modificado?`,
       }],
     });
 
+    logger.info('[QAOrchestrator] Claude cache metrics (proposal step1)', {
+      service: 'QAOrchestratorService',
+      cache_read: step1.usage?.cache_read_input_tokens || 0,
+      cache_creation: step1.usage?.cache_creation_input_tokens || 0,
+      input_tokens: step1.usage?.input_tokens || 0,
+    });
+
     let fileIdentification;
     try {
       const raw1 = step1.content[0].text.trim();
-      const txt1 = raw1.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      fileIdentification = JSON.parse(txt1);
+      fileIdentification = safeParseAIJson(raw1);
     } catch {
       throw new Error('Claude retornou JSON inválido na etapa 1');
     }
@@ -717,7 +861,10 @@ Qual arquivo do repositório contém o código que precisa ser modificado?`,
     const step2 = await anthropicClient.messages.create({
       model:      process.env.AI_MODEL_NAME || 'claude-haiku-4-5-20251001',
       max_tokens: 1000,
-      system: `Você é um engenheiro sênior do projeto ElosCloud.
+      system: [
+        {
+          type: 'text',
+          text: `Você é um engenheiro sênior do projeto ElosCloud.
 Receba um bug e o conteúdo do arquivo onde ele ocorre.
 Retorne APENAS JSON válido, sem markdown:
 {
@@ -732,6 +879,9 @@ Retorne APENAS JSON válido, sem markdown:
 IMPORTANTE:
 - oldCode deve ser uma string EXATA encontrada no arquivo
 - Se não houver fix seguro possível, retorne {"error": "motivo"}`,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: [{
         role:    'user',
         content: `Bug: ${bug.error}
@@ -744,11 +894,17 @@ ${fileContent.slice(0, 4000)}${fileContent.length > 4000 ? '\n... (truncado)' : 
       }],
     });
 
+    logger.info('[QAOrchestrator] Claude cache metrics (proposal step2)', {
+      service: 'QAOrchestratorService',
+      cache_read: step2.usage?.cache_read_input_tokens || 0,
+      cache_creation: step2.usage?.cache_creation_input_tokens || 0,
+      input_tokens: step2.usage?.input_tokens || 0,
+    });
+
     let patchResult;
     try {
       const raw2 = step2.content[0].text.trim();
-      const txt2 = raw2.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      patchResult = JSON.parse(txt2);
+      patchResult = safeParseAIJson(raw2);
     } catch {
       throw new Error('Claude retornou JSON inválido na etapa 2');
     }
@@ -764,6 +920,51 @@ ${fileContent.slice(0, 4000)}${fileContent.length > 4000 ? '\n... (truncado)' : 
       description: patchResult.description,
       explanation: patchResult.explanation,
       patch:       patchResult.patch,
+    };
+  }
+  /**
+   * Constrói o relatório de dependências do Firestore após um run com firestoreMock ativo.
+   *
+   * @param {Array}  rawResults       — resultados brutos de cada flow
+   * @param {Array}  firestoreAccesses — acessos registrados pelo FirestoreMockService
+   * @returns {{ summary, accessedPaths, failedSteps, passedSteps }}
+   */
+  _buildFirestoreDependencyReport(rawResults, firestoreAccesses) {
+    // Agrupa acessos por path (deduplicado)
+    const accessMap = {};
+    for (const a of firestoreAccesses) {
+      const key = `${a.method}:${a.path}`;
+      if (!accessMap[key]) accessMap[key] = { path: a.path, method: a.method, count: 0 };
+      accessMap[key].count++;
+    }
+    const accessedPaths = Object.values(accessMap).sort((a, b) => b.count - a.count);
+
+    // Steps que falharam (potencialmente por causa do mock)
+    const failedSteps = [];
+    const passedSteps = [];
+    for (const flow of rawResults) {
+      for (const step of (flow.steps || [])) {
+        const entry = { flow: flow.flowId, step: step.name, error: step.error || null };
+        if (step.success) {
+          passedSteps.push({ flow: flow.flowId, step: step.name });
+        } else {
+          failedSteps.push(entry);
+        }
+      }
+    }
+
+    const total   = failedSteps.length + passedSteps.length;
+    const summary = accessedPaths.length === 0
+      ? `Nenhum acesso ao Firestore detectado! ${passedSteps.length}/${total} steps passaram — app pode funcionar sem Firestore.`
+      : `${firestoreAccesses.length} acesso(s) ao Firestore bloqueado(s) em ${accessedPaths.length} path(s) únicos. ` +
+        `${failedSteps.length}/${total} steps falharam (provavelmente por dependência do Firestore).`;
+
+    return {
+      summary,
+      accessedPaths,
+      failedSteps,
+      passedSteps: passedSteps.length,
+      totalAccesses: firestoreAccesses.length,
     };
   }
 }

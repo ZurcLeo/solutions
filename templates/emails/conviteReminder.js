@@ -1,4 +1,4 @@
-// templates/emails/conviteReminder.js
+const wrapper = require('./wrapper');
 
 /**
  * Template for invitation reminder emails
@@ -7,262 +7,61 @@
  * @param {string} data.qrCodeBuffer - QR code as data URL
  * @param {string} data.senderName - Name of the sender
  * @param {string} data.friendName - Name of the friend being invited
+ * @param {string} data.expiresAt - Expiration date formatted as string
  * @returns {string} HTML content
  */
 module.exports = function(data) {
-    // Extract data with fallbacks
-    const inviteId = data.inviteId || '';
-    const qrCodeBuffer = data.qrCodeBuffer || '';
-    const senderName = data.senderName || 'Amigo';
-    const friendName = data.friendName || 'Amigo';
-    
-    // Backwards compatibility for content provided directly
-    const content = data.content || '';
-    if (content && typeof content === 'object' && content.friendName && content.senderName && content.inviteId) {
-      return `
-      <!DOCTYPE html>
-      <html lang="pt-BR">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Lembrete de Convite - ElosCloud</title>
-        <style>
-          body {
-            font-family: 'Poppins', Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 0;
-            color: #333333;
-          }
-          .email-container {
-            max-width: 600px;
-            margin: auto;
-            background-color: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-          }
-          .email-header {
-            background-color: #345C72;
-            color: white;
-            text-align: center;
-            padding: 20px;
-            font-size: 24px;
-            font-weight: bold;
-          }
-          .email-body {
-            padding: 20px;
-            font-size: 16px;
-            color: #333333;
-          }
-          .email-body p {
-            margin: 10px 0;
-          }
-          .cta-button {
-            display: block;
-            width: 80%;
-            margin: 20px auto;
-            padding: 12px;
-            background-color: #fd8c5e;
-            color: white;
-            text-align: center;
-            text-decoration: none;
-            border-radius: 6px;
-            font-size: 18px;
-          }
-          .highlight {
-            background-color: #ffcc00;
-            padding: 10px;
-            border-radius: 5px;
-            text-align: center;
-            font-weight: bold;
-          }
-          .email-footer {
-            background-color: #333333;
-            color: white;
-            text-align: center;
-            padding: 15px;
-            font-size: 14px;
-          }
-          .email-footer a {
-            color: #ffffff;
-            text-decoration: underline;
-            margin: 0 5px;
-          }
-          @media screen and (max-width: 600px) {
-            .email-container {
-              width: 100% !important;
-            }
-            .email-body {
-              padding: 10px !important;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <table width="100%" border="0" cellspacing="0" cellpadding="0">
-          <tr>
-            <td align="center" valign="top">
-              <table class="email-container" border="0" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td class="email-header">
-                    Lembrete de Convite - ElosCloud
-                  </td>
-                </tr>
-                <tr>
-                  <td class="email-body">
-                    <p>Olá ${content.friendName},</p>
-                    <p>Você recebeu um convite de <strong>${content.senderName}</strong> para se juntar ao ElosCloud!</p>
-                    <p>Não perca a oportunidade de fazer parte da nossa rede. Clique no botão abaixo para aceitar o convite:</p>
-                    <a href="https://eloscloud.com/invite/validate/${content.inviteId}" class="cta-button">Aceitar Convite</a>
-                    <p class="highlight">Este convite é válido por tempo limitado. Não perca!</p>
-                    <p>Atenciosamente,</p>
-                    <p>Equipe ElosCloud</p>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="email-footer">
-                    Copyright &copy; ${new Date().getFullYear()} | ElosCloud
-                    <br>
-                    <a href="https://eloscloud.com">Visitar ElosCloud</a> |
-                    <a href="https://eloscloud.com/terms">Termos de Uso</a> |
-                    <a href="https://eloscloud.com/privacy">Política de Privacidade</a>
-                    <p style="font-size: 12px; margin: 10px 0 0 0;">
-                      Ao aceitar o convite, alguns dados serão compartilhados com o remetente. Consulte os termos.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-      </html>`;
-    }
-    
-    // Standard template
-    return `
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Lembrete de Convite - ElosCloud</title>
-      <style>
-        body {
-          font-family: 'Poppins', Arial, sans-serif;
-          background-color: #f4f4f4;
-          margin: 0;
-          padding: 0;
-          color: #333333;
-        }
-        .email-container {
-          max-width: 600px;
-          margin: auto;
-          background-color: #ffffff;
-          border-radius: 8px;
-          box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-          overflow: hidden;
-        }
-        .email-header {
-          background-color: #345C72;
-          color: white;
-          text-align: center;
-          padding: 20px;
-          font-size: 24px;
-          font-weight: bold;
-        }
-        .email-body {
-          padding: 20px;
-          font-size: 16px;
-          color: #333333;
-        }
-        .email-body p {
-          margin: 10px 0;
-        }
-        .cta-button {
-          display: block;
-          width: 80%;
-          margin: 20px auto;
-          padding: 12px;
-          background-color: #fd8c5e;
-          color: white;
-          text-align: center;
-          text-decoration: none;
-          border-radius: 6px;
-          font-size: 18px;
-        }
-        .highlight {
-          background-color: #ffcc00;
-          padding: 10px;
-          border-radius: 5px;
-          text-align: center;
-          font-weight: bold;
-        }
-        .email-footer {
-          background-color: #333333;
-          color: white;
-          text-align: center;
-          padding: 15px;
-          font-size: 14px;
-        }
-        .email-footer a {
-          color: #ffffff;
-          text-decoration: underline;
-          margin: 0 5px;
-        }
-        @media screen and (max-width: 600px) {
-          .email-container {
-            width: 100% !important;
-          }
-          .email-body {
-            padding: 10px !important;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <table width="100%" border="0" cellspacing="0" cellpadding="0">
-        <tr>
-          <td align="center" valign="top">
-            <table class="email-container" border="0" cellspacing="0" cellpadding="0">
-              <tr>
-                <td class="email-header">
-                  Lembrete de Convite - ElosCloud
-                </td>
-              </tr>
-              <tr>
-                <td class="email-body">
-                  <p>Olá ${friendName},</p>
-                  <p>Você recebeu um convite de <strong>${senderName}</strong> para se juntar ao ElosCloud!</p>
-                  <p>Não perca a oportunidade de fazer parte da nossa rede. Clique no botão abaixo para aceitar o convite:</p>
-                  <a href="https://eloscloud.com/invite/validate/${inviteId}" class="cta-button">Aceitar Convite</a>
-                  <p class="highlight">Este convite é válido por tempo limitado. Não perca!</p>
-                  <p>Você também pode escanear o QR Code abaixo:</p>
-                  <div style="text-align: center;">
-                    ${qrCodeBuffer ? `<img src="${qrCodeBuffer}" alt="QR Code" width="150" height="150" style="display: block; margin: auto;" />` : ''}
-                  </div>
-                  <p>Atenciosamente,</p>
-                  <p>Equipe ElosCloud</p>
-                </td>
-              </tr>
-              <tr>
-                <td class="email-footer">
-                  Copyright &copy; ${new Date().getFullYear()} | ElosCloud
-                  <br>
-                  <a href="https://eloscloud.com">Visitar ElosCloud</a> |
-                  <a href="https://eloscloud.com/terms">Termos de Uso</a> |
-                  <a href="https://eloscloud.com/privacy">Política de Privacidade</a>
-                  <p style="font-size: 12px; margin: 10px 0 0 0;">
-                    Ao aceitar o convite, alguns dados serão compartilhados com o remetente. Consulte os termos.
-                  </p>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>
-    </body>
-    </html>
-    `;
-  };
+  // Handle content if passed as object (backwards compatibility)
+  const content = data.content || {};
+  const userName = data.friendName || content.friendName || 'Pessoa querida';
+  const senderName = data.senderName || content.senderName || 'Um amigo';
+  const inviteId = data.inviteId || content.inviteId || '';
+  const qrCodeBuffer = data.qrCodeBuffer || '';
+  const expiresAt = data.expiresAt || '';
+  
+  const BASE_URL = process.env.FRONTEND_URL ||
+    (process.env.NODE_ENV === 'production' ? 'https://eloscloud.com' : 'https://localhost:3000');
+  
+  const inviteLink = `${BASE_URL}/invite/validate/${inviteId}`;
+  
+  const bodyContent = `
+      <p style="text-align:center; color:#7A6F68; margin-bottom:32px; font-size:16px; line-height:1.5;">
+        <strong style="color:#1A1410;">${senderName}</strong> ainda está esperando por você na ElosCloud
+        — e o convite tem prazo.
+      </p>
+
+      <!-- O que é a ElosCloud — resumo -->
+      <div style="background-color:#FAF3E8; border-radius:16px; padding:24px; margin-bottom:32px;">
+        <p style="margin-bottom:14px; font-size:15px; line-height:1.5; color:#1A1410;">
+          Na ElosCloud você pode oferecer e contratar serviços, comprar de quem mora perto,
+          poupar em grupo e construir uma reputação que abre portas.
+        </p>
+        <p style="font-size:14px; color:#4a3b32; font-style:italic;">
+          Quem te convidou acredita em você — e confiança aqui tem valor real.
+        </p>
+      </div>
+
+      <!-- Chamada para ação principal -->
+      <div style="text-align:center;">
+        <a href="${inviteLink}" class="btn">🌱 Aceitar Convite Agora</a>
+        <p style="font-size:14px; color:#7A6F68; margin-top:8px;">Ou escaneie o QR Code abaixo</p>
+        ${qrCodeBuffer ? `<img src="${qrCodeBuffer}" alt="QR Code" width="120" style="margin-top:8px; border-radius:12px; border: 1px solid #EFE4CF;">` : ''}
+      </div>
+
+      <!-- Informações do Convite -->
+      <div style="margin:32px 0 24px; font-size:14px; color:#7A6F68;">
+        ${expiresAt ? `<p><strong>Expira em:</strong> ${expiresAt}</p>` : ''}
+        <p style="margin-top:8px; font-size:12px; line-height:1.4;">
+          * Este convite é pessoal e seguro. Se não tem interesse, sinta-se à vontade para ignorar.
+        </p>
+      </div>
+  `;
+
+  return wrapper({
+    title: 'Lembrete de Convite 🌱',
+    badgeText: '⌛ Seu convite ainda está esperando ⌛',
+    userName,
+    bodyContent,
+    preheader: `Lembrete: ${senderName} ainda espera por você na ElosCloud — o convite tem prazo.`
+  });
+};

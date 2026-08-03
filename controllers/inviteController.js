@@ -60,30 +60,32 @@ exports.checkInvite = async (req, res) => {
  * @param {string} req.params.inviteId - ID do convite
  * @param {Object} req.body - Dados de validação
  * @param {string} req.body.email - Email do usuário
- * @param {string} req.body.nome - Nome do usuário
+ * @param {string} req.body.username - Username do usuário (@handle único)
  * @param {Object} res - Objeto de resposta Express
  * @returns {Promise<Object>} Resposta com resultado da validação e token de registro
  */
 exports.validateInvite = async (req, res) => {
   const { inviteId } = req.params;
-  const { email, nome } = req.body;
-  
-  logger.info('Validando convite', { 
-    service: 'inviteController', 
-    function: 'validateInvite', 
-    inviteId, 
-    email 
+  const { email, username } = req.body;
+
+  logger.info('Validando convite', {
+    service: 'inviteController',
+    function: 'validateInvite',
+    inviteId,
+    email
   });
 
-  if (!inviteId || !email || !nome) {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'ID do convite, email e nome são obrigatórios' 
-    });
+  /** [HANDLE-003] Regex com hifen — espelha handleService.HANDLE_REGEX */
+  const USERNAME_REGEX = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
+  if (!inviteId || !email || !username) {
+    return res.status(400).json({ success: false, message: 'ID do convite, email e username são obrigatórios' });
+  }
+  if (!USERNAME_REGEX.test(username)) {
+    return res.status(400).json({ success: false, message: 'Username inválido. Use letras, números e hífen (3-30 caracteres, sem começar/terminar com hífen).' });
   }
 
   try {
-    const result = await inviteService.validateInvite(inviteId, email, nome);
+    const result = await inviteService.validateInvite(inviteId, email, username);
     return res.status(200).json({
       success: true,
       ...result

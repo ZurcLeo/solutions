@@ -1,6 +1,12 @@
 // middlewares/rbac.js
 const { logger } = require('../logger');
 const userRoleService = require('../services/userRoleService');
+const { createClient } = require('@supabase/supabase-js');
+
+// Inicializar Supabase para leitura opcional
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 /**
  * Middleware para verificação de permissões específicas
@@ -26,9 +32,23 @@ const checkPermission = (requiredPermission, contextType = 'global', getResource
           message: 'Autenticação necessária'
         });
       }
+
+      // 1. Otimização Stateless: Verificar se a role já está no token (JWT)
+      // Nota: O token contém roles completas. Se o contexto bater, podemos autorizar sem DB.
+      if (req.user && req.user.roles && Array.isArray(req.user.roles)) {
+        const resourceId = getResourceId(req);
+        const hasPermissionInToken = req.user.roles.some(role => {
+          // BUG FIX: usar 'admin' (lowercase) conforme V2.0 RBAC
+          if ((role.roleName === 'admin' || role.roleName === 'Admin') && role.validationStatus === 'validated') return true;
+          return false;
+        });
+
+        if (hasPermissionInToken) return next();
+      }
       
       const resourceId = getResourceId(req);
       
+      // 2. Fallback para verificação no banco (via Service que respeita o Toggle)
       const hasPermission = await userRoleService.checkUserHasPermission(
         userId, 
         requiredPermission, 
@@ -83,20 +103,30 @@ const checkRole = (requiredRole, contextType = 'global', getResourceId = req => 
       const userId = req.uid;
       
       if (!userId) {
-        logger.warn('Tentativa de acesso sem autenticação', {
-          middleware: 'checkRole',
-          requiredRole,
-          path: req.path
-        });
-        
         return res.status(401).json({
           success: false,
           message: 'Autenticação necessária'
         });
       }
-      
+
       const resourceId = getResourceId(req);
+
+      // 1. Otimização Stateless: Verificar no Token
+      if (req.user && req.user.roles && Array.isArray(req.user.roles)) {
+        const hasRoleInToken = req.user.roles.some(role => 
+          (role.roleName === requiredRole || role.roleId === requiredRole) &&
+          role.validationStatus === 'validated' &&
+          (contextType === 'global' || (role.context && role.context.type === contextType && role.context.resourceId === resourceId))
+        );
+
+        if (hasRoleInToken) return next();
+
+        // BUG FIX: usar 'admin' (lowercase) conforme V2.0 RBAC
+        const isAdmin = req.user.roles.some(role => (role.roleName === 'admin' || role.roleName === 'Admin') && role.validationStatus === 'validated');
+        if (isAdmin) return next();
+      }
       
+      // 2. Fallback para banco
       const hasRole = await userRoleService.checkUserHasRole(
         userId, 
         requiredRole, 
@@ -153,43 +183,40 @@ const isAdmin = async (req, res, next) => {
     });
   }
 
-  try {
-    // Verificar se o usuário existe no banco de dados
-    const user = await require('../models/User').getById(userId);
-    
-    if (!user) {
-      logger.warn('Usuário não encontrado ao verificar permissões de admin', {
-        middleware: 'isAdmin',
-        userId
-      });
-      
-      return res.status(403).json({
-        success: false,
-        message: 'Acesso negado'
-      });
-    }
-    
-    // Verificar se o usuário é administrador pelo novo ou antigo sistema
-    const hasAdminRole = await userRoleService.checkUserHasRole(userId, 'Admin');
-    const isOwnerOrAdmin = user.isOwnerOrAdmin === true;
-    
-    if (hasAdminRole || isOwnerOrAdmin) {
-      // Adicionar flag de admin ao objeto req.user
+  // 1. Verificar no Token (Stateless)
+  if (req.user && req.user.roles && Array.isArray(req.user.roles)) {
+    // BUG FIX: normalizar para 'admin' e 'adm-master'
+    const hasAdminInToken = req.user.roles.some(role => 
+      (role.roleName === 'admin' || role.roleName === 'Admin' || role.roleId === 'admin' || role.roleName === 'adm-master') && 
+      role.validationStatus === 'validated'
+    );
+    if (hasAdminInToken) {
       req.user.isAdmin = true;
-      
-      // Se chegou até aqui, o usuário é admin
-      next();
-    } else {
-      logger.warn('Usuário sem permissão de admin tentou acessar recurso protegido', {
-        middleware: 'isAdmin',
-        userId
-      });
-      
-      return res.status(403).json({
-        success: false,
-        message: 'Acesso negado'
-      });
+      return next();
     }
+  }
+
+  try {
+    // 2. Verificar se o usuário é administrador pelo novo sistema (Service respeita o Toggle)
+    // BUG FIX: verificar 'admin' e 'adm-master'
+    const hasAdminRole = await userRoleService.checkUserHasRole(userId, 'admin') || 
+                         await userRoleService.checkUserHasRole(userId, 'adm-master') ||
+                         await userRoleService.checkUserHasRole(userId, 'Admin');
+    
+    if (hasAdminRole) {
+      req.user.isAdmin = true;
+      return next();
+    }
+
+    logger.warn('Usuário sem permissão de admin tentou acessar recurso protegido', {
+      middleware: 'isAdmin',
+      userId
+    });
+    
+    return res.status(403).json({
+      success: false,
+      message: 'Acesso negado'
+    });
   } catch (error) {
     logger.error('Erro ao verificar permissões de admin', {
       middleware: 'isAdmin',
@@ -293,7 +320,40 @@ const checkBankValidation = (getCaixinhaId = req => req.params.caixinhaId) => {
           message: 'ID da caixinha não fornecido'
         });
       }
+
+      // Feature Toggle: Usar Supabase
+      if (process.env.USE_SUPABASE_RBAC === 'true' && supabase) {
+        // 1. Verificar acesso validado
+        const { data: hasAccess, error: accessError } = await supabase.rpc('check_caixinha_access', {
+          p_user_id: userId,
+          p_caixinha_id: caixinhaId
+        });
+
+        if (accessError) {
+          logger.error('Erro no Supabase check_caixinha_access', { accessError });
+        } else if (hasAccess) {
+          return next();
+        }
+
+        // 2. Verificar se está pendente
+        const { data: isPending, error: pendingError } = await supabase.rpc('check_caixinha_pending', {
+          p_user_id: userId,
+          p_caixinha_id: caixinhaId
+        });
+
+        if (!pendingError && isPending) {
+          return res.status(403).json({
+            success: false,
+            message: 'Validação bancária pendente',
+            requiresValidation: true,
+            caixinhaId
+          });
+        }
+        
+        // Se falhou ambos no Supabase, tentamos Firestore como fallback abaixo
+      }
       
+      // Fallback para Firestore (Service respeita o toggle no futuro, mas aqui injetamos direto)
       // Buscar roles do usuário para esta caixinha
       const userRoles = await userRoleService.getUserRoles(userId, 'caixinha', caixinhaId);
       
@@ -337,10 +397,91 @@ const checkBankValidation = (getCaixinhaId = req => req.params.caixinhaId) => {
   };
 };
 
-module.exports = {
-  checkPermission,
-  checkRole,
-  isAdmin,
-  injectRoleInfo,
-  checkBankValidation
+/**
+ * Middleware para verificar se o usuário é membro de uma caixinha
+ * 1. Bypass para admin global (token ou DB)
+ * 2. Consulta caixinha_members no Supabase (exclui role 'removed')
+ * 3. Fallback para Firestore legado
+ * @param {Function} getCaixinhaId - Função para extrair o ID da caixinha da request
+ * @returns {Function} Middleware do Express
+ */
+const checkCaixinhaMembership = (getCaixinhaId = req => req.params.caixinhaId) => {
+  return async (req, res, next) => {
+    try {
+      const userId = req.uid;
+      const caixinhaId = getCaixinhaId(req);
+
+      if (!userId || !caixinhaId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Dados insuficientes para verificar membership'
+        });
+      }
+
+      // 1. Bypass para admin global (stateless via token)
+      if (req.user && req.user.roles && Array.isArray(req.user.roles)) {
+        const isGlobalAdmin = req.user.roles.some(role =>
+          (role.roleName === 'admin' || role.roleName === 'Admin' || role.roleName === 'adm-master') &&
+          role.validationStatus === 'validated'
+        );
+        if (isGlobalAdmin) return next();
+      }
+
+      // 2. Bypass para admin global (fallback DB)
+      const hasAdminRole = await userRoleService.checkUserHasRole(userId, 'admin') ||
+                           await userRoleService.checkUserHasRole(userId, 'adm-master');
+      if (hasAdminRole) return next();
+
+      // 3. Verificar membership via caixinha_members no Supabase
+      if (supabase) {
+        const { data: member, error } = await supabase
+          .from('caixinha_members')
+          .select('id')
+          .eq('caixinha_id', caixinhaId)
+          .eq('user_id', userId)
+          .neq('role', 'removed')
+          .maybeSingle();
+
+        if (!error && member) return next();
+      }
+
+      // 4. Fallback para sistema legado: verificar array de membros na caixinha
+      const Caixinha = require('../models/Caixinhas');
+      const caixinha = await Caixinha.getById(caixinhaId);
+
+      if (caixinha && caixinha.members && caixinha.members.includes(userId)) {
+        return next();
+      }
+
+      logger.warn('Usuário sem membership tentou acessar caixinha', {
+        middleware: 'checkCaixinhaMembership',
+        userId,
+        caixinhaId
+      });
+
+      return res.status(403).json({
+        success: false,
+        message: 'Você não é membro desta caixinha'
+      });
+    } catch (error) {
+      logger.error('Erro ao verificar membership da caixinha', {
+        middleware: 'checkCaixinhaMembership',
+        error: error.message
+      });
+
+      return res.status(403).json({
+        success: false,
+        message: 'Erro ao verificar permissão de membro'
+      });
+    }
+  };
 };
+
+      module.exports = {
+      checkPermission,
+      checkRole,
+      isAdmin,
+      injectRoleInfo,
+      checkBankValidation,
+      checkCaixinhaMembership
+      };

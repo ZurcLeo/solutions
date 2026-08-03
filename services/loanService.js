@@ -2,8 +2,8 @@ const Emprestimos = require('../models/Emprestimos');
 const { logger } = require('../logger');
 const Caixinha = require('../models/Caixinhas');
 const disputeService = require('./disputeService');
-const { getFirestore } = require('../firebaseAdmin');
-const db = getFirestore();
+const { getFirestore } = require('../firebaseAdmin'); // legado — requestLoan ainda usa fallback de leitura Firestore
+const { getSupabaseClient } = require('../config/supabase');
 
 /**
  * Obtém todos os empréstimos de uma caixinha
@@ -97,21 +97,69 @@ const requestLoan = async (caixinhaId, loanData) => {
       valor: loanData.valor
     });
 
-    // 1. Verificar se o membro está ativo
-    const membroSnapshot = await db
-      .collection('caixinhas')
-      .doc(caixinhaId)
-      .collection('membros')
-      .where('userId', '==', loanData.userId)
-      .limit(1)
-      .get();
+    // 1. Verificar se o membro está ativo — Supabase PRIMEIRO, fallback Firestore
+    let membroAtivo = false;
+    const supabase = getSupabaseClient();
 
-    if (membroSnapshot.empty) {
-      throw new Error('Membro não encontrado nesta caixinha');
+    if (supabase) {
+      try {
+        const { data: membroSb, error: sbErr } = await supabase
+          .from('caixinha_members')
+          .select('user_id, status, active')
+          .eq('caixinha_id', caixinhaId)
+          .eq('user_id', loanData.userId)
+          .maybeSingle();
+
+        if (sbErr) throw sbErr;
+
+        if (!membroSb) {
+          throw new Error('Membro não encontrado nesta caixinha');
+        }
+
+        // status ausente = membro ativo (dados legados sem campo status)
+        const st = membroSb.status;
+        membroAtivo = !st || st === 'ativo' || st === 'active';
+      } catch (sbCheckErr) {
+        if (sbCheckErr.message === 'Membro não encontrado nesta caixinha') throw sbCheckErr;
+        logger.warn('Falha ao verificar membro no Supabase, usando fallback Firestore', {
+          service: 'loanService', method: 'requestLoan', error: sbCheckErr.message
+        });
+        // Firestore fallback
+        const dbFallback = getFirestore();
+        const membroSnapshot = await dbFallback
+          .collection('caixinhas')
+          .doc(caixinhaId)
+          .collection('membros')
+          .where('userId', '==', loanData.userId)
+          .limit(1)
+          .get();
+
+        if (membroSnapshot.empty) {
+          throw new Error('Membro não encontrado nesta caixinha');
+        }
+        const membroData = membroSnapshot.docs[0].data();
+        const st = membroData.status;
+        membroAtivo = !st || st === 'ativo' || st === 'active' || membroData.active === true;
+      }
+    } else {
+      const dbNoSb = getFirestore();
+      const membroSnapshot = await dbNoSb
+        .collection('caixinhas')
+        .doc(caixinhaId)
+        .collection('membros')
+        .where('userId', '==', loanData.userId)
+        .limit(1)
+        .get();
+
+      if (membroSnapshot.empty) {
+        throw new Error('Membro não encontrado nesta caixinha');
+      }
+      const membroData = membroSnapshot.docs[0].data();
+      const st = membroData.status;
+      membroAtivo = !st || st === 'ativo' || st === 'active' || membroData.active === true;
     }
 
-    const membroData = membroSnapshot.docs[0].data();
-    if (membroData.status !== 'ativo' && membroData.active !== true) {
+    if (!membroAtivo) {
       throw new Error('Membro inativo não pode solicitar empréstimo');
     }
 
@@ -185,6 +233,16 @@ const requestLoan = async (caixinhaId, loanData) => {
       logger.warn('Falha ao despachar notificação de solicitação de empréstimo', { error: notifError.message });
     }
 
+    // [CX-P2-M1] Gamificação — fire-and-forget
+    setImmediate(() => {
+      const gamificationService = require('./gamificationService');
+      gamificationService.triggerEvent('loan_requested', loanData.userId, {
+        caixinhaId, loanId: loan.id, amount: loanData.valor
+      }).catch(err => logger.warn('Falha ao acionar gamificação em solicitação de empréstimo', {
+        service: 'loanService', userId: loanData.userId, error: err.message
+      }));
+    });
+
     return {
       success: true,
       data: loan,
@@ -214,78 +272,66 @@ const requestLoan = async (caixinhaId, loanData) => {
 const makePayment = async (caixinhaId, loanId, paymentData) => {
   try {
     logger.info('Registrando pagamento de empréstimo', {
-      service: 'loanService',
-      method: 'makePayment',
-      caixinhaId,
-      loanId,
-      valor: paymentData.valor
+      service: 'loanService', method: 'makePayment', caixinhaId, loanId, valor: paymentData.valor
     });
 
-    return await db.runTransaction(async (transaction) => {
-      // 1. Obter empréstimo
-      const loanRef = db.collection('caixinhas').doc(caixinhaId).collection('emprestimos').doc(loanId);
-      const loanDoc = await transaction.get(loanRef);
-      
-      if (!loanDoc.exists) {
-        throw new Error('Empréstimo não encontrado');
-      }
-      
-      const loan = loanDoc.data();
-      
-      // 2. Verificar status
-      if (loan.status !== 'aprovado' && loan.status !== 'parcial') {
-        throw new Error(`Pagamento não pode ser registrado para empréstimo no status: ${loan.status}`);
-      }
-      
-      // 3. Obter caixinha
-      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-      const caixinhaDoc = await transaction.get(caixinhaRef);
-      
-      if (!caixinhaDoc.exists) {
-        throw new Error('Caixinha não encontrada');
-      }
-      
-      const caixinha = caixinhaDoc.data();
-      
-      // 4. Calcular novo saldo do empréstimo
-      const valorPagoAnterior = (loan.parcelas || []).reduce((total, p) => total + p.valor, 0);
-      const novoValorPago = valorPagoAnterior + paymentData.valor;
-      const novoStatus = novoValorPago >= loan.valorTotal ? 'quitado' : 'parcial';
-      
-      const parcelas = [...(loan.parcelas || []), {
-        data: new Date().toISOString(),
-        valor: paymentData.valor,
-        observacao: paymentData.observacao || ''
-      }];
-      
-      // 5. Atualizar empréstimo e caixinha
-      transaction.update(loanRef, {
-        parcelas,
-        status: novoStatus,
-        valorPago: novoValorPago,
-        ...(novoStatus === 'quitado' && { dataQuitacao: new Date().toISOString() })
+    const supabase = getSupabaseClient();
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      // RPC atômica: lock + insert pagamento + update empréstimo + transação audit + saldo
+      const { data: result, error: rpcError } = await supabase.rpc('registrar_pagamento_emprestimo', {
+        p_emprestimo_id: loanId,
+        p_caixinha_id: caixinhaId,
+        p_user_id: paymentData.userId || 'unknown',
+        p_valor: paymentData.valor,
+        p_observacao: paymentData.observacao || ''
       });
-      
-      transaction.update(caixinhaRef, {
-        saldoTotal: (caixinha.saldoTotal || 0) + paymentData.valor,
-        dataUltimaAtualizacao: new Date().toISOString()
+
+      if (rpcError) {
+        // Map PostgreSQL error codes to user-friendly messages
+        if (rpcError.message?.includes('não encontrado')) throw new Error('Empréstimo não encontrado');
+        if (rpcError.message?.includes('status:')) throw new Error(rpcError.message);
+        if (rpcError.message?.includes('maior que zero')) throw new Error('Valor do pagamento deve ser maior que zero');
+        throw new Error(rpcError.message || 'Erro ao registrar pagamento');
+      }
+
+      // [CX-P2-M1] Gamificação — fire-and-forget
+      setImmediate(() => {
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('loan_paid', paymentData.userId || 'unknown', {
+          caixinhaId, loanId, amount: paymentData.valor, newStatus: result.novo_status
+        }).catch(err => logger.warn('Falha ao acionar gamificação em pagamento de empréstimo', {
+          service: 'loanService', loanId, error: err.message
+        }));
+
+        // Trust Passport — parcela paga (+2 financial)
+        const trustPassportService = require('./trustPassportService');
+        trustPassportService.recordEvent(paymentData.userId || 'unknown', 'financial', 'loan_payment', 2, false, {
+          caixinhaId, loanId, amount: paymentData.valor,
+        }).catch(err => logger.warn('Falha ao registrar trust event loan_payment', {
+          service: 'loanService', loanId, error: err.message
+        }));
       });
-      
+
       return {
         success: true,
-        data: { ...loan, id: loanId, status: novoStatus, parcelas }
+        data: {
+          id: loanId,
+          caixinha_id: caixinhaId,
+          status: result.novo_status,
+          valor_pago: result.valor_pago_total,
+          pagamento_id: result.pagamento_id,
+          transacao_id: result.transacao_id
+        }
       };
-    });
+    }
+
+    throw new Error('Supabase client indisponível — pagamento requer Supabase');
   } catch (error) {
     logger.error('Erro ao registrar pagamento', {
-      service: 'loanService',
-      method: 'makePayment',
-      caixinhaId,
-      loanId,
-      error: error.message,
-      stack: error.stack
+      service: 'loanService', method: 'makePayment', caixinhaId, loanId, error: error.message
     });
-    
     throw error;
   }
 };
@@ -297,99 +343,109 @@ const makePayment = async (caixinhaId, loanId, paymentData) => {
  * @param {string} adminId - ID do administrador que está aprovando
  * @returns {Promise<Object>} Empréstimo atualizado
  */
-const approveLoan = async (caixinhaId, loanId, adminId) => {
+const approveLoan = async (caixinhaId, loanId, adminOrObj) => {
+  // Normaliza adminId — aceita string ou objeto { adminId }
+  const adminId = (typeof adminOrObj === 'object' && adminOrObj !== null)
+    ? adminOrObj.adminId
+    : adminOrObj;
+  const isSystemVote = adminId === 'system-vote';
+
   try {
     logger.info('Aprovando empréstimo', {
-      service: 'loanService',
-      method: 'approveLoan',
-      caixinhaId,
-      loanId,
-      adminId
+      service: 'loanService', method: 'approveLoan', caixinhaId, loanId, adminId
     });
 
-    return await db.runTransaction(async (transaction) => {
-      // 1. Obter empréstimo
-      const loanRef = db.collection('caixinhas').doc(caixinhaId).collection('emprestimos').doc(loanId);
-      const loanDoc = await transaction.get(loanRef);
-      
-      if (!loanDoc.exists) {
-        throw new Error('Empréstimo não encontrado');
+    const supabase = getSupabaseClient();
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      // 1. Buscar empréstimo
+      const { data: loan, error: errLoan } = await supabase
+        .from('emprestimos')
+        .select('*')
+        .eq('id', loanId)
+        .eq('caixinha_id', caixinhaId)
+        .single();
+
+      if (errLoan || !loan) throw new Error('Empréstimo não encontrado');
+      if (loan.status !== 'pendente') throw new Error(`Empréstimo não pode ser aprovado no status: ${loan.status}`);
+
+      // Impedir auto-aprovação (C-04)
+      if (!isSystemVote && loan.user_id === adminId) {
+        throw new Error('Você não pode aprovar seu próprio empréstimo');
       }
-      
-      const loan = loanDoc.data();
-      if (loan.status !== 'pendente') {
-        throw new Error(`Empréstimo não pode ser aprovado no status: ${loan.status}`);
-      }
-      
-      // 2. Obter caixinha e verificar permissão e saldo
-      const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-      const caixinhaDoc = await transaction.get(caixinhaRef);
-      
-      if (!caixinhaDoc.exists) {
-        throw new Error('Caixinha não encontrada');
-      }
-      
-      const caixinha = caixinhaDoc.data();
-      
-      // Verificar permissão (admin ou membro autorizado)
-      if (caixinha.adminId !== adminId && !(caixinha.members || []).includes(adminId)) {
+
+      // 2. Buscar caixinha
+      const { data: caixinha, error: errCaixinha } = await supabase
+        .from('caixinhas')
+        .select('admin_id, saldo_total')
+        .eq('id', caixinhaId)
+        .single();
+
+      if (errCaixinha || !caixinha) throw new Error('Caixinha não encontrada');
+
+      if (!isSystemVote && caixinha.admin_id !== adminId) {
         throw new Error('Usuário não tem permissão para aprovar este empréstimo');
       }
-      
-      // VERIFICAR SALDO (Invariante: saldoTotal nunca vai negativo)
-      const valorSolicitado = loan.valorSolicitado || loan.valor;
-      if ((caixinha.saldoTotal || 0) < valorSolicitado) {
+
+      const valorSolicitado = Number(loan.valor_solicitado || loan.valor_total);
+      if ((Number(caixinha.saldo_total) || 0) < valorSolicitado) {
         throw new Error('Saldo insuficiente na caixinha');
       }
-      
-      // 3. Atualizar empréstimo e caixinha (ATOMICIDADE)
-      transaction.update(loanRef, {
+
+      // 3. Atualizar empréstimo
+      await supabase.from('emprestimos').update({
         status: 'aprovado',
-        dataAprovacao: new Date().toISOString(),
-        adminAprovador: adminId
+        data_aprovacao: now,
+        admin_aprovador: adminId,
+        updated_at: now
+      }).eq('id', loanId);
+
+      // 4. Atualizar saldo da caixinha (RPC atômica — falha se saldo insuficiente) (RISCO-03)
+      const { error: errSaldoApprove } = await supabase.rpc('update_caixinha_saldo', {
+        p_caixinha_id: caixinhaId,
+        p_delta: -valorSolicitado,
+        p_min_saldo: valorSolicitado
       });
-      
-      transaction.update(caixinhaRef, {
-        saldoTotal: caixinha.saldoTotal - valorSolicitado,
-        dataUltimaAtualizacao: new Date().toISOString()
-      });
-      
-      // Notificar mutuário sobre aprovação
+
+      if (errSaldoApprove) {
+        throw new Error(errSaldoApprove.message.includes('SALDO_INSUFICIENTE')
+          ? 'Saldo insuficiente na caixinha'
+          : errSaldoApprove.message);
+      }
+
+      // Notificar mutuário
       setImmediate(async () => {
         try {
           const NotificationDispatcher = require('./NotificationDispatcher');
           await NotificationDispatcher.dispatch({
-            userId: loan.userId,
-            type: 'loan_approved',
-            importance: 'high',
-            data: {
-              amount: valorSolicitado,
-              dueDate: loan.dataVencimento || 'Data a definir',
-              loanId: loanId
-            },
+            userId: loan.user_id, type: 'loan_approved', importance: 'high',
+            data: { amount: valorSolicitado, dueDate: loan.data_vencimento || 'Data a definir', loanId },
             metadata: { triggeredBy: adminId, correlationId: loanId }
           });
         } catch (err) {
           logger.warn('Falha ao notificar aprovação de empréstimo', { error: err.message, loanId });
         }
       });
-      
-      return {
-        success: true,
-        data: { ...loan, id: loanId, status: 'aprovado' }
-      };
-    });
+
+      // [CX-P2-M1] Gamificação — notificar mutuário que empréstimo foi aprovado
+      setImmediate(() => {
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('loan_approved', loan.user_id, {
+          caixinhaId, loanId, amount: valorSolicitado, approvedBy: adminId
+        }).catch(err => logger.warn('Falha ao acionar gamificação em aprovação de empréstimo', {
+          service: 'loanService', loanId, error: err.message
+        }));
+      });
+
+      return { success: true, data: { ...loan, id: loanId, status: 'aprovado' } };
+    }
+
+    throw new Error('Supabase client indisponível — aprovação requer Supabase');
   } catch (error) {
     logger.error('Erro ao aprovar empréstimo', {
-      service: 'loanService',
-      method: 'approveLoan',
-      caixinhaId,
-      loanId,
-      adminId,
-      error: error.message,
-      stack: error.stack
+      service: 'loanService', method: 'approveLoan', caixinhaId, loanId, adminId, error: error.message
     });
-    
     throw error;
   }
 };

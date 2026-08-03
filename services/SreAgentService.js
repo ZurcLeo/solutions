@@ -3,18 +3,22 @@ const SreRepository = require('./SreRepository');
 const AutofixGuard = require('./AutofixGuard');
 const GitHubService = require('./GitHubService');
 const anthropicClient = require('../config/anthropic/anthropicClient');
+const deepseekClient = require('../config/deepseek/deepseekClient');
 const healthHistoryService = require('./healthHistoryService');
 const { minConfidenceForAutoDiagnosis } = require('../config/health/serviceWeights');
 
 /**
  * SreAgentService - Especializado em análise de incidentes e diagnósticos de sistema via IA.
+ * Toda a infra de IA primária deve ser baseada no DeepSeek.
+ * Anthropic/Claude reservado para geração de patches complexos em QA/SRE.
  */
 class SreAgentService {
   constructor() {
+    this.deepseek = deepseekClient;
     this.anthropic = anthropicClient;
     
-    // Fallback para OpenAI se necessário
-    if (!this.anthropic) {
+    // Fallback para OpenAI se necessário (embora DeepSeek use a mesma SDK)
+    if (!this.deepseek && process.env.OPENAI_API_KEY) {
       try {
         const OpenAI = require('openai');
         this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -28,8 +32,8 @@ class SreAgentService {
    * Analisa um incidente específico baseado no seu log de contexto.
    */
   async diagnoseIncident(logEntry) {
-    if (!this.anthropic && !this.openai) {
-      logger.warn('SreAgentService: No AI client available (Anthropic/OpenAI missing)');
+    if (!this.deepseek && !this.anthropic && !this.openai) {
+      logger.warn('SreAgentService: No AI client available (DeepSeek/Anthropic/OpenAI missing)');
       return null;
     }
 
@@ -79,15 +83,39 @@ Forneça o diagnóstico técnico em JSON.`;
     try {
       let diagnosis;
 
-      if (this.anthropic) {
-        logger.info('SreAgentService: Diagnosing via Claude (Anthropic)', { correlation_id });
+      if (this.deepseek) {
+        logger.info('SreAgentService: Diagnosing via DeepSeek', { correlation_id });
+        const response = await this.deepseek.chat.completions.create({
+          model: process.env.DEEPSEEK_MODEL_NAME || 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          response_format: { type: 'json_object' }
+        });
+        diagnosis = JSON.parse(response.choices[0].message.content);
+      } else if (this.anthropic) {
+        logger.info('SreAgentService: Diagnosing via Claude (Anthropic Fallback)', { correlation_id });
         const response = await this.anthropic.messages.create({
           model: process.env.AI_MODEL_NAME || 'claude-3-5-sonnet-20240620',
           max_tokens: 1500,
-          system: systemPrompt,
+          system: [
+            {
+              type: 'text',
+              text: systemPrompt,
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
           messages: [{ role: 'user', content: userPrompt }]
         });
-        
+
+        logger.info('[SreAgentService] Claude cache metrics', {
+          service: 'SreAgentService',
+          cache_read: response.usage?.cache_read_input_tokens || 0,
+          cache_creation: response.usage?.cache_creation_input_tokens || 0,
+          input_tokens: response.usage?.input_tokens || 0,
+        });
+
         const rawContent = response.content[0].text.trim();
         diagnosis = JSON.parse(rawContent.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim());
       } else {

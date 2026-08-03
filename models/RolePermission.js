@@ -1,5 +1,4 @@
 // models/RolePermission.js
-const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 const LocalStorageService = require('../services/LocalStorageService');
 const FirestoreService = require('../utils/firestoreService');
@@ -273,11 +272,9 @@ class RolePermission {
           });
           
           // Remover duplicatas do banco
-          const batch = getFirestore().batch();
-          dbAssociations.docs.forEach(doc => {
-            batch.delete(doc.ref);
-          });
-          await batch.commit();
+          for (const doc of dbAssociations.docs) {
+            await dbServiceRolePermission.doc(doc.id).delete();
+          }
         }
         
         // Informar que não foi possível remover a associação inicial
@@ -301,13 +298,9 @@ class RolePermission {
       }
       
       // Excluir todas as associações encontradas (normalmente deve ser apenas uma)
-      const batch = getFirestore().batch();
-      
-      associations.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
-      
-      await batch.commit();
+      for (const doc of associations.docs) {
+        await dbServiceRolePermission.doc(doc.id).delete();
+      }
       
       logger.info('Permissão removida da role com sucesso', { 
         service: 'rolePermissionModel', 

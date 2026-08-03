@@ -30,22 +30,13 @@ const caixinhaInviteSchema = {
     ).match('one'),
 
     senderId: Joi.string()
-      .required()
-      .messages({
-        'string.empty': 'O ID do remetente é obrigatório'
-      }),
+      .optional(), // Resolvido de req.user.uid pelo controller
 
-      senderName: Joi.string()
-      .required()
-      .messages({
-        'string.empty': 'O senderName é obrigatório'
-      }),
+    senderName: Joi.string()
+      .optional(), // Resolvido de User.getById(senderId) pelo service
 
-      targetName: Joi.string()
-      .required()
-      .messages({
-        'string.empty': 'O targetName é obrigatório'
-      }),
+    targetName: Joi.string()
+      .optional(), // Opcional — service infere pelo targetId se ausente
 
     message: Joi.string()
       .optional()
@@ -55,7 +46,7 @@ const caixinhaInviteSchema = {
       }),
 
     type: Joi.string()
-      .required()
+      .optional()
       .valid('caixinha_invite', 'caixinha_email_invite')
       .messages({
         'any.only': 'O tipo de convite deve ser caixinha_invite ou caixinha_email_invite'

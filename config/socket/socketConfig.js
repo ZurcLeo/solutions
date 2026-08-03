@@ -7,19 +7,50 @@ const socketLoggingMiddleware = require('./middleware/loggingMiddleware');
 const registerMessageHandlers = require('./handlers/messageHandlers');
 const { registerNotificationHandlers } = require('./handlers/notificationHandlers');
 const { registerPresenceHandlers } = require('./handlers/presenceHandlers');
+const { registerDeliveryHandlers } = require('./handlers/deliveryHandlers');
+const { registerGameHandlers } = require('./handlers/gameHandlers');
+const { registerCaronaHandlers } = require('./handlers/caronaHandlers');
+const { registerOpsHandlers } = require('./handlers/opsHandlers');
+const { registerAgendaHandlers } = require('./handlers/agendaHandlers');
 const { SYSTEM_EVENTS } = require('./socketEvents');
 
 module.exports = (server) => {
   // Configuração do Socket.IO com opções de CORS e cookies
+  // Origens permitidas — mesma lógica do middleware CORS do Express
+  const productionOrigins = [
+    'https://eloscloud.com',
+    'https://api.eloscloud.com',
+    process.env.FRONTEND_URL,
+    process.env.CORS_ADDITIONAL_ORIGIN,
+  ].filter(Boolean);
+
+  const developmentOrigins = [
+    'http://localhost:3000',
+    'https://localhost:3000',
+    'http://localhost:9000',
+    'https://localhost:9000',
+  ];
+
+  const allowedOrigins = process.env.NODE_ENV === 'production'
+    ? [...new Set(productionOrigins)]
+    : [...new Set([...productionOrigins, ...developmentOrigins])];
+
   const io = socketIo(server, {
     cors: {
-      origin: process.env.NODE_ENV === 'production' 
-        ? process.env.FRONTEND_URL 
-        : 'https://localhost:3000',
+      origin: (origin, callback) => {
+        // Permite requests sem origin (mobile, server-to-server)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        // Subdomínios eloscloud.com / eloscloud.com.br
+        if (/^https:\/\/(.*\.)?eloscloud\.com(\.br)?$/.test(origin)) return callback(null, true);
+        logger.warn('Socket.IO CORS blocked origin', { origin });
+        return callback(new Error(`Origin '${origin}' not allowed`));
+      },
       methods: ['GET', 'POST'],
       credentials: true,
-      transports: ['websocket', 'polling']
     },
+    // Transports — websocket prioritário, polling como fallback
+    transports: ['websocket', 'polling'],
     cookie: {
       name: 'io',
       path: '/',
@@ -75,12 +106,46 @@ module.exports = (server) => {
       deviceType: socket.connectionInfo?.deviceType || 'unknown'
     });
 
+    // Entrar na room do feed público — todos os autenticados recebem eventos de posts
+    socket.join('feed:public');
+    socketManager.addUserToRoom(userId, 'feed:public');
+
+    // Entrar na room de suporte — apenas agentes e admins
+    const supportRoles = ['suport', 'support', 'support_agent', 'admin', 'adm-master'];
+    const userRoles = socket.user?.roles || [];
+    if (userRoles.some(r => supportRoles.includes(r))) {
+      socket.join('support-agents');
+      socketManager.addUserToRoom(userId, 'support-agents');
+      logger.info('Agente de suporte entrou na sala support-agents', {
+        service: 'websocket', userId, roles: userRoles
+      });
+    }
+
+    // RTREAL-003: Remover o socket do registry ANTES de registrar handlers de domínio.
+    // Garante que presenceHandlers veja getUserSockets() já sem este socket ao detectar disconnect,
+    // corrigindo a race condition que impedia o broadcast de user_offline.
+    socket.on('disconnect', () => {
+      socketManager.removeSocket(socket.id);
+    });
+
     // Registrar handlers para cada grupo de funcionalidade
     registerMessageHandlers(socket, userId);
     registerNotificationHandlers(socket, userId);
     registerPresenceHandlers(socket, userId, socket.connectionInfo);
+    registerDeliveryHandlers(socket, userId);
+    registerGameHandlers(socket, userId);
+    registerCaronaHandlers(socket, userId);
 
-    // Handler de desconexão
+    // Ops handlers — apenas para admins (Kanban real-time + presenca)
+    const adminRoles = ['admin', 'adm-master'];
+    if (userRoles.some(r => adminRoles.includes(r))) {
+      registerOpsHandlers(socket, userId);
+    }
+
+    // Agenda handlers — todos autenticados (user room + seller rooms)
+    registerAgendaHandlers(socket, userId);
+
+    // Logging de desconexão (executa por último, após removeSocket e handlers de domínio)
     socket.on('disconnect', (reason) => {
       logger.info('WebSocket Disconnected:', {
         service: 'websocket',
@@ -89,9 +154,6 @@ module.exports = (server) => {
         userId,
         reason
       });
-
-      // Remover o socket do gerenciador
-      socketManager.removeSocket(socket.id);
     });
 
     // Monitoramento de erros de socket
@@ -105,19 +167,8 @@ module.exports = (server) => {
       });
     });
 
-    // Evento de reconexão
-    socket.on('reconnect_attempt', (attemptNumber) => {
-      logger.info('WebSocket Reconnect Attempt:', {
-        service: 'websocket',
-        function: 'reconnect_attempt',
-        socketId: socket.id,
-        userId,
-        attemptNumber
-      });
-    });
+    // RTREAL-007: reconnect_attempt é evento client-side; nunca dispara no servidor. Removido.
 
-    // Adicionar monitoramento de saúde do sistema
-    setupHealthMonitoring(socket, userId);
   });
 
   // Monitoramento periódico do sistema de socket
@@ -128,49 +179,6 @@ module.exports = (server) => {
 
   return io;
 };
-
-/**
- * Configura monitoramento de saúde para um cliente específico
- * @param {SocketIO.Socket} socket - Socket do cliente
- * @param {string} userId - ID do usuário
- */
-function setupHealthMonitoring(socket, userId) {
-  // Ping-pong personalizado para clientes
-  const heartbeatInterval = setInterval(() => {
-    // Verificar se o socket ainda está conectado
-    if (!socket.connected) {
-      clearInterval(heartbeatInterval);
-      return;
-    }
-
-    // Enviar ping e esperar resposta
-    const startTime = Date.now();
-    socket.emit('ping', { timestamp: startTime }, () => {
-      const latency = Date.now() - startTime;
-      
-      // Armazenar latência nas métricas do socket (se existirem)
-      if (socket.metrics) {
-        socket.metrics.latency = latency;
-      }
-      
-      // Registrar apenas se latência for alta (para evitar excesso de logs)
-      if (latency > 200) {
-        logger.warn('Alta latência detectada', {
-          service: 'websocket',
-          function: 'heartbeat',
-          socketId: socket.id,
-          userId,
-          latencyMs: latency
-        });
-      }
-    });
-  }, 30000); // A cada 30 segundos
-
-  // Limpar intervalo na desconexão
-  socket.on('disconnect', () => {
-    clearInterval(heartbeatInterval);
-  });
-}
 
 /**
  * Configura monitoramento do sistema de socket

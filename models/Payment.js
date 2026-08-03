@@ -1,5 +1,23 @@
-const { stripeService } = require('../services/stripeService');
 const { logger } = require('../logger');
+const crypto = require('crypto');
+
+/**
+ * Retorna hash HMAC-SHA256 do CPF/CNPJ limpo (somente dígitos).
+ * Garante que o documento nunca é persistido em plaintext [SEC-003].
+ * O hash é determinístico: permite auditar duplicatas sem expor o valor.
+ */
+function hashCpf(raw) {
+  if (!raw) return null;
+  const clean = String(raw).replace(/\D/g, '');
+  const salt = process.env.CPF_HASH_SALT || process.env.MASTER_ENCRYPTION_KEY;
+  if (!salt) {
+    logger.error('CPF_HASH_SALT não configurado — documento fiscal não será armazenado', {
+      model: 'Payment', method: 'hashCpf'
+    });
+    return null;
+  }
+  return crypto.createHmac('sha256', salt).update(clean).digest('hex');
+}
 
 // models/Payment.js
 class Payment {
@@ -14,22 +32,21 @@ class Payment {
         this.paymentMethodId = data.paymentMethodId;
         this.paymentTypeId = data.paymentTypeId;
         this.deviceId = data.deviceId; // CRITICAL FIELD for fraud prevention
-        this.tokenId = data.tokenId;
+        // tokenId nunca é persistido: token de cartão é de uso único [SEC-004]
         this.installments = data.installments || 1;
         this.description = data.description;
         this.payerEmail = data.payerEmail;
         this.payerIdentificationType = data.payerIdentificationType;
-        this.payerIdentificationNumber = data.payerIdentificationNumber;
+        this.payerIdentificationNumber = hashCpf(data.payerIdentificationNumber); // HMAC-SHA256 [SEC-003]
         this.metadata = data.metadata || {};
         this.type = data.type; // 'card_payment', 'pix_payment', 'refund', 'withdrawal'
         this.createdAt = data.createdAt || new Date();
         this.updatedAt = data.updatedAt || new Date();
     }
 
-    // Métodos existentes de Stripe continuam funcionando
     static async processPayment(paymentData) {
-        // Integração com Stripe existente
-        return await stripeService.createPaymentIntent(paymentData);
+        // Legacy — não mais utilizado diretamente
+        throw new Error('Payment.processPayment() está deprecado. Use asaasService diretamente.');
     }
 
     // Criar pagamento no banco de dados
@@ -54,7 +71,8 @@ class Payment {
                 model: 'Payment',
                 method: 'create',
                 error: error.message,
-                paymentData
+                userId: paymentData?.userId,
+                amount: paymentData?.amount
             });
             throw error;
         }

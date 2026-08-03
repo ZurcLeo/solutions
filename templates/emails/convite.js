@@ -1,389 +1,91 @@
-// templates/emails/convite.js
+const wrapper = require('./wrapper');
 
 /**
  * Template for invitation emails
  * @param {Object} data - Template data
  * @param {string} data.inviteId - ID of the invitation
  * @param {string} data.qrCodeBuffer - QR code as data URL
- * @param {string} data.maskedHashedInviteId - Masked invite ID hash
  * @param {string} data.senderName - Name of the sender
- * @param {string} data.senderPhotoURL - Profile picture URL of the sender
  * @param {string} data.friendName - Name of the friend being invited
  * @param {string} data.expiresAt - Expiration date formatted as string
  * @returns {string} HTML content
  */
 module.exports = function(data) {
-    // Extract data with fallbacks
-    const inviteId = data.inviteId || '';
-    const qrCodeBuffer = data.qrCodeBuffer || '';
-    const maskedHashedInviteId = data.maskedHashedInviteId || '';
-    const senderName = data.senderName || 'Amigo';
-    const ASSETS_BASE_URL = process.env.ASSETS_BASE_URL || 'https://eloscloud.com';
-    const DEFAULT_PROFILE = `${ASSETS_BASE_URL}/assets/default-profile.png`;
-    const BG_IMAGE = `${ASSETS_BASE_URL}/assets/background_convite_eloscloud.png`;
-    const senderPhotoURL = data.senderPhotoURL || DEFAULT_PROFILE;
-    const friendName = data.friendName || 'Amigo';
-    const friendFoto = data.friendFoto || DEFAULT_PROFILE;
-    const expiresAt = data.expiresAt || '';
-    
-    // Backwards compatibility for content provided directly
-    const content = data.content || '';
-    if (content) {
-      return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Bilhete de Embarque - ElosCloud</title>
-        <style>
-          body {
-            font-family: 'Poppins', Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 0;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-          }
-          .email-container {
-            max-width: 600px;
-            margin: auto;
-            background-color: rgba(255, 255, 255, 0.95);
-            border: 1px solid #dddddd;
-            border-radius: 8px;
-            overflow: hidden;
-            padding: 20px;
-          }
-          .email-header {
-            background-color: #345C72;
-            color: white;
-            text-align: center;
-            padding: 15px;
-            font-size: 26px;
-            font-weight: bold;
-          }
-          .email-content {
-            padding: 20px;
-            color: #333333;
-          }
-          .email-footer {
-            background-color: #333333;
-            color: white;
-            text-align: center;
-            padding: 15px;
-            font-size: 14px;
-          }
-          .highlight {
-            background-color: #ffcc00;
-            padding: 10px;
-            border-radius: 8px;
-            margin: 20px 0;
-            text-align: center;
-            font-size: 20px;
-            font-weight: bold;
-            color: #333333;
-          }
-          .button {
-            display: block;
-            width: 200px;
-            margin: 20px auto;
-            padding: 10px;
-            background-color: #fd8c5e;
-            color: white;
-            text-align: center;
-            text-decoration: none;
-            border-radius: 5px;
-            font-size: 16px;
-          }
-          @media screen and (max-width: 600px) {
-            .email-container {
-              width: 100% !important;
-              margin: auto;
-              border-radius: 0;
-            }
-            .email-header, .email-content, .email-footer {
-              padding: 10px !important;
-            }
-          }
-        </style>
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Cabin:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-      </head>
-      <body>
-        <table width="100%" border="0" cellspacing="0" cellpadding="0">
-          <tr>
-            <td align="center" valign="top" style="padding: 10px;">
-              <table class="email-container" border="0" cellspacing="0" cellpadding="0" style="background: url('${BG_IMAGE}'); background-size: cover; opacity: 0.9; background-position: center; color: white;">
-                <tr>
-                  <td align="center" valign="top" class="email-header">
-                    BILHETE DE EMBARQUE
-                  </td>
-                </tr>
-                <tr>
-                  <td class="email-content">
-                    ${content}
-                  </td>
-                </tr>
-                <tr>
-                  <td class="email-footer">
-                    Copyright &copy; ${new Date().getFullYear()} | ElosCloud
-                    <br>
-                    <a href="https://eloscloud.com/view-invite" style="color: #ffffff; text-decoration: underline;">Visualizar Convite no Site</a> |
-                    <a href="https://eloscloud.com/terms" style="color: #ffffff; text-decoration: underline;">Termos de Uso</a> |
-                    <a href="https://eloscloud.com/privacy" style="color: #ffffff; text-decoration: underline;">Política de Privacidade</a>
-                    <p style="margin: 10px 0 0 0; font-size: 12px;">
-                      Ao se registrar, alguns de seus dados serão compartilhados com o amigo que o convidou. Mais detalhes nos termos.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
+  const userName = data.friendName || 'Pessoa querida';
+  const senderName = data.senderName || 'Um amigo';
+  const inviteId = data.inviteId || '';
+  const qrCodeBuffer = data.qrCodeBuffer || '';
+  const expiresAt = data.expiresAt || '';
+  
+  // Use production URL or localhost based on environment
+  const BASE_URL = process.env.FRONTEND_URL ||
+    (process.env.NODE_ENV === 'production' ? 'https://eloscloud.com' : 'https://localhost:3000');
+  
+  const inviteLink = `${BASE_URL}/invite/validate/${inviteId}`;
+  
+  const bodyContent = `
+      <p style="text-align:center; color:#7A6F68; margin-bottom:32px; font-size:16px; line-height:1.5;">
+        <strong style="color:#1A1410;">${senderName}</strong> te convidou para fazer parte da ElosCloud
+        — e convites aqui têm peso: quem te trouxe acredita em você.
+      </p>
+
+      <!-- O que é a ElosCloud -->
+      <div style="background-color:#FAF3E8; border-radius:16px; padding:24px; margin-bottom:32px;">
+        <p style="margin-bottom:16px; font-size:17px; font-weight:700; color:#1A1410;">
+          O que é a ElosCloud?
+        </p>
+        <p style="margin-bottom:14px; font-size:15px; line-height:1.5; color:#1A1410;">
+          É o bairro com endereço digital. Num só lugar você pode:
+        </p>
+        <table role="presentation" style="width:100%; border-collapse:collapse;">
+          <tr><td style="padding:6px 0; font-size:14px; color:#4a3b32; line-height:1.4;">
+            🛠️ Contratar e oferecer serviços de quem mora perto
+          </td></tr>
+          <tr><td style="padding:6px 0; font-size:14px; color:#4a3b32; line-height:1.4;">
+            🛒 Pedir comida, produtos e entregas da sua região
+          </td></tr>
+          <tr><td style="padding:6px 0; font-size:14px; color:#4a3b32; line-height:1.4;">
+            💰 Poupar junto com amigos e família em caixinhas coletivas
+          </td></tr>
+          <tr><td style="padding:6px 0; font-size:14px; color:#4a3b32; line-height:1.4;">
+            🏠 Hospedar ou se hospedar com quem você confia
+          </td></tr>
+          <tr><td style="padding:6px 0; font-size:14px; color:#4a3b32; line-height:1.4;">
+            ⭐ Construir uma reputação que abre portas — no bairro e além
+          </td></tr>
         </table>
-      </body>
-      </html>
-    `;
-  };
- 
-    // Standard template when all data is provided
-    return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Bilhete de Embarque - ElosCloud</title>
-      <style>
-        body {
-          font-family: 'Poppins', Arial, sans-serif;
-          background-color: #f4f4f4;
-          margin: 0;
-          padding: 0;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-        }
-        .email-container {
-          max-width: 600px;
-          margin: auto;
-          background-color: rgba(255, 255, 255, 0.95);
-          border: 1px solid #dddddd;
-          border-radius: 8px;
-          overflow: hidden;
-          padding: 20px;
-        }
-        .email-header {
-          background-color: #345C72;
-          color: white;
-          text-align: center;
-          padding: 15px;
-          font-size: 26px;
-          font-weight: bold;
-        }
-        .email-content {
-          padding: 20px;
-          color: #333333;
-        }
-        .email-footer {
-          background-color: #333333;
-          color: white;
-          text-align: center;
-          padding: 15px;
-          font-size: 14px;
-        }
-        .highlight {
-          background-color: #ffcc00;
-          padding: 10px;
-          border-radius: 8px;
-          margin: 20px 0;
-          text-align: center;
-          font-size: 20px;
-          font-weight: bold;
-          color: #333333;
-        }
-        .button {
-          display: block;
-          width: 200px;
-          margin: 20px auto;
-          padding: 10px;
-          background-color: #fd8c5e;
-          color: white;
-          text-align: center;
-          text-decoration: none;
-          border-radius: 5px;
-          font-size: 16px;
-        }
-        @media screen and (max-width: 600px) {
-          .email-container {
-            width: 100% !important;
-            margin: auto;
-            border-radius: 0;
-          }
-          .email-header, .email-content, .email-footer {
-            padding: 10px !important;
-          }
-        }
-      </style>
-      <link rel="preconnect" href="https://fonts.googleapis.com">
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-      <link href="https://fonts.googleapis.com/css2?family=Cabin:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-    </head>
-    <body>
-      <table width="100%" border="0" cellspacing="0" cellpadding="0">
-        <tr>
-          <td align="center" valign="top" style="padding: 10px;">
-            <table class="email-container" border="0" cellspacing="0" cellpadding="0" style="background: url('${BG_IMAGE}'); background-size: cover; opacity: 0.9; background-position: center; color: white;">
-              <tr>
-                <td align="center" valign="top" class="email-header">
-                  BILHETE DE EMBARQUE
-                </td>
-              </tr>
-              <tr>
-                <td class="email-content">
-                  <table width="100%" border="0" cellspacing="0" cellpadding="0">
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 8px;">
-                          <tr>
-                            <td align="left" valign="top" style="padding: 10px;">
-                              <img src="${senderPhotoURL}" alt="${senderName}" width="60" height="60" style="border-radius: 50%; object-fit: cover; margin-right: 15px; display: block;" />
-                            </td>
-                            <td align="left" valign="top">
-                              <p style="margin: 0;"><strong>Enviado Por:</strong></p>
-                              <p style="margin: 0; font-size: 20px;">${senderName}</p>
-                            </td>
-                          </tr>
-                        </table>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 8px;">
-                          <tr>
-                            <td align="left" valign="top" style="padding: 10px;">
-                              <img src="${friendFoto}" alt="${friendName}" width="60" height="60" style="border-radius: 50%; object-fit: cover; margin-right: 15px; display: block;" />
-                            </td>
-                            <td align="left" valign="top">
-                              <p style="margin: 0;"><strong>Convite para:</strong></p>
-                              <p style="margin: 0; font-size: 20px;">${friendName}</p>
-                            </td>
-                          </tr>
-                        </table>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 8px; text-align: center; color: rgba(0, 0, 255, 0.5)">
-                          <tr>
-                            <td>
-                              <p><strong>DESTINO:</strong> ELOSCLOUD</p>
-                              <p><strong>PASSAGEIRO:</strong> ${friendName}</p>
-                              <p><strong>CREDENCIAL:</strong> ${maskedHashedInviteId}</p>
-                              <p><strong>GERADO EM:</strong> ${new Date().toLocaleDateString()}</p>
-                              <p><strong>EXPIRA EM:</strong> ${expiresAt}</p>
-                            </td>
-                          </tr>
-                        </table>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <div class="highlight" style="background-color: #ffcc00; padding: 10px; border-radius: 8px; margin: 20px 0; text-align: center; font-size: 20px; font-weight: bold; color: #333333;">
-                          Instruções
-                        </div>
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 8px;">
-                          <tr>
-                            <td align="left" valign="top" style="padding: 10px;">
-                              <table width="100%" border="0" cellspacing="0" cellpadding="0">
-                                <tr>
-                                  <td width="20%" align="left" valign="top">
-                                    <p style="margin: 0; font-size: 18px;"><strong>&#10112; Aceitar</strong></p>
-                                    <p style="margin: 0; font-size: 16px;">Clique no botão Aceitar Convite</p>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td width="20%" align="left" valign="top">
-                                    <p style="margin: 0; font-size: 18px;"><strong>&#10113; Validar E-mail</strong></p>
-                                    <p style="margin: 0; font-size: 16px;">Informe o e-mail que você recebeu o convite</p>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td width="20%" align="left" valign="top">
-                                    <p style="margin: 0; font-size: 18px;"><strong>&#10114; Validar Nome</strong></p>
-                                    <p style="margin: 0; font-size: 16px;">Informe o seu nome exatamente como neste convite</p>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td width="20%" align="left" valign="top">
-                                    <p style="margin: 0; font-size: 18px;"><strong>&#10115; Validar Convite</strong></p>
-                                    <p style="margin: 0; font-size: 16px;">Clique no botão Validar Convite</p>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td width="20%" align="left" valign="top">
-                                    <p style="margin: 0; font-size: 18px;"><strong>&#10116; Registrar</strong></p>
-                                    <p style="margin: 0; font-size: 16px;">Na página de registro escolha sua forma preferida</p>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td width="20%" align="left" valign="top">
-                                    <p style="margin: 0; font-size: 18px;"><strong>&#10117; Confirmar Registro</strong></p>
-                                    <p style="margin: 0; font-size: 16px;">Clique no botão Criar Conta</p>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td width="20%" align="left" valign="top">
-                                    <p style="margin: 0; font-size: 18px;"><strong>&#10118; Boas-vindas</strong></p>
-                                    <p style="margin: 0; font-size: 16px;">Parabéns! Um e-mail de boas-vindas será enviado</p>
-                                  </td>
-                                </tr>
-                              </table>
-                            </td>
-                          </tr>
-                        </table>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <a href="https://eloscloud.com/invite/validate/${inviteId}" style="display: block; width: 200px; margin: 20px auto; padding: 10px; background-color: #fd8c5e; color: white; text-align: center; text-decoration: none; border-radius: 5px; font-size: 16px;">
-                          Aceitar Convite
-                        </a>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <img src="${qrCodeBuffer}" alt="QR Code" width="150" height="150" style="display: block; margin: auto;" />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td align="center" valign="top" style="padding: 10px;">
-                        <p style="background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 8px; text-align: center; font-size: 16px; color: #333;">
-                          Clique no botão ou escaneie o QRCode para validar o seu convite e se registrar!
-                        </p>
-                        <p style="background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 8px; text-align: center; font-size: 16px; color: #333;">
-                          Não se interessou? Sem problemas, basta ignorar este e-mail.
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-              <tr>
-                <td class="email-footer">
-                  Copyright &copy; ${new Date().getFullYear()} | ElosCloud
-                  <br>
-                  <a href="https://eloscloud.com/view-invite" style="color: #ffffff; text-decoration: underline;">Visualizar Convite no Site</a> |
-                  <a href="https://eloscloud.com/terms" style="color: #ffffff; text-decoration: underline;">Termos de Uso</a> |
-                  <a href="https://eloscloud.com/privacy" style="color: #ffffff; text-decoration: underline;">Política de Privacidade</a>
-                  <p style="margin: 10px 0 0 0; font-size: 12px;">
-                    Ao se registrar, alguns de seus dados serão compartilhados com o amigo que o convidou. Mais detalhes nos termos.
-                  </p>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>
-    </body>
-    </html>`
-  };
+        <p style="margin-top:14px; font-size:14px; color:#4a3b32; font-style:italic;">
+          Quanto mais você participa, mais sua confiança cresce. E confiança aqui tem valor real.
+        </p>
+      </div>
+
+      <!-- Chamada para ação principal -->
+      <div style="text-align:center;">
+        <a href="${inviteLink}" class="btn">🌱 Aceitar Convite</a>
+        <p style="font-size:14px; color:#7A6F68; margin-top:8px;">Ou escaneie o QR Code abaixo</p>
+        ${qrCodeBuffer ? `<img src="${qrCodeBuffer}" alt="QR Code" width="120" style="margin-top:8px; border-radius:12px; border: 1px solid #EFE4CF;">` : ''}
+      </div>
+
+      <!-- Informações do Convite -->
+      <div style="margin:32px 0 24px; font-size:14px; color:#7A6F68;">
+        ${expiresAt ? `<p><strong>Expira em:</strong> ${expiresAt}</p>` : ''}
+        <p style="margin-top:8px; font-size:12px; line-height:1.4;">
+          * Seus dados só são compartilhados com o remetente após o seu registro bem-sucedido.
+        </p>
+      </div>
+
+      <!-- Informações de segurança -->
+      <div style="font-size:13px; color:#7A6F68; background-color:#FAF3E8; border-radius:16px; padding:16px; margin-bottom:16px;">
+        <strong>🛡️ Segurança em primeiro lugar</strong><br>
+        Criptografia AES‑256, transparência e responsabilidade em cada etapa.
+      </div>
+  `;
+
+  return wrapper({
+    title: 'Você recebeu um convite 🌱',
+    badgeText: '✨ Um convite especial para você ✨',
+    userName,
+    bodyContent,
+    preheader: `${senderName} te convidou para a ElosCloud — e convites aqui têm peso.`
+  });
+};

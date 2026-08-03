@@ -9,8 +9,8 @@ const BaseFlow = require('./BaseFlow');
  *   3. Marcar notificação como lida.
  */
 class NotificationFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('notification', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('notification', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run(testUser, secondUser) {
@@ -25,35 +25,43 @@ class NotificationFlow extends BaseFlow {
     let notificationId = null;
 
     // 1. Usuário A solicita conexão (Gera notificação para B)
+    // Nota: SocialFlow pode já ter conectado os dois usuários — tratar ALREADY_CONNECTED como sucesso
     await this.step('trigger_notification_event', async ({ axios }) => {
-      // Usamos connections para disparar um evento automático
-      await axios.post('/api/connections/requested', {
-        userId: testUser.uid,
-        friendId: secondUser.uid
-      }, { headers: authA });
-
-      return { success: true, trigger: 'connection_request' };
+      try {
+        await axios.post('/api/connections/requested', {
+          userId: testUser.uid,
+          friendId: secondUser.uid
+        }, { headers: authA });
+        return { success: true, trigger: 'connection_request' };
+      } catch (err) {
+        const status = err.response?.status;
+        const msg = err.response?.data?.message || '';
+        // Já são amigos ou pedido já enviado — conexão existe, notificação pode já ter sido enviada
+        if (status === 400 && (msg.includes('amigos') || msg.includes('ALREADY_CONNECTED') || msg.includes('pendente'))) {
+          return { success: true, trigger: 'already_connected', skipped: true };
+        }
+        throw err;
+      }
     });
 
     // 2. Verificar se a notificação chegou para o Usuário B
     await this.step('verify_notification_received', async ({ axios }) => {
       const res = await axios.get(`/api/notifications/${secondUser.uid}`, { headers: authB });
+
+      // O backend retorna diretamente o array de notificações: res.data = [...]
+      const allNotifications = Array.isArray(res.data) ? res.data : (res.data?.data || []);
       
-      const notifications = res.data?.data || [];
-      const privateNotifications = notifications.private || [];
-      
-      // Procurar notificação sobre a conexão
-      const latest = privateNotifications[0]; // Assumindo que a mais recente vem primeiro
-      
+      const latest = allNotifications[0];
+
       if (!latest) {
         throw new Error('Nenhuma notificação encontrada para o usuário destinatário');
       }
 
       notificationId = latest.id;
-      return { 
-        count: privateNotifications.length, 
+      return {
+        count: allNotifications.length,
         latestId: notificationId,
-        content: latest.content 
+        content: latest.content
       };
     });
 
@@ -74,8 +82,9 @@ class NotificationFlow extends BaseFlow {
     // 4. Marcar notificação como lida
     await this.step('mark_notification_as_read', async ({ axios }) => {
       const res = await axios.post(`/api/notifications/${secondUser.uid}/markAsRead/${notificationId}`, {
+        userId: secondUser.uid,
         notificationId,
-        type: 'private'
+        type: 'caixinha_invite' // Usar um tipo válido do schema
       }, { headers: authB });
 
       return { success: res.data?.success || res.status === 200 };

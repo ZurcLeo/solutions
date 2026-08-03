@@ -3,62 +3,65 @@
  * @module controllers/openaiController
  */
 
-const { OpenAI } = require('openai');
+const deepseekClient = require('../config/deepseek/deepseekClient');
 const { logger } = require('../logger');
 
-// Configuração do cliente OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Configuração do modelo
+const AI_MODEL_NAME = process.env.DEEPSEEK_MODEL_NAME || 'deepseek-chat';
 
 /**
- * Valida texto usando OpenAI para detectar linguagem inapropriada, erros gramaticais ou sentimentos negativos
+ * Valida texto usando DeepSeek para detectar linguagem inapropriada, erros gramaticais ou sentimentos negativos
  * @async
  * @function validateText
  * @param {Object} req - Objeto de requisição Express
  * @param {Object} req.body - Dados da validação
  * @param {string} req.body.text - Texto a ser validado
  * @param {Object} res - Objeto de resposta Express
- * @returns {Promise<Object>} Análise do texto pela OpenAI
+ * @returns {Promise<Object>} Análise do texto pelo DeepSeek
  */
 const validateText = async (req, res) => {
   const { text } = req.body;
 
+  if (!deepseekClient) {
+    logger.warn('DeepSeek client not available for text validation', { service: 'openaiController' });
+    return res.json({ validation: "Serviço de validação temporariamente indisponível." });
+  }
+
   try {
     // Logando a entrada recebida
-    logger.info('Validando texto com OpenAI', {
-      service: 'openai',
+    logger.info('Validando texto com DeepSeek', {
+      service: 'deepseek',
       function: 'validateText',
-      text
+      text: text?.substring(0, 50) + '...'
     });
 
-    // Chamada para a API da OpenAI
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+    // Chamada para a API do DeepSeek
+    const response = await deepseekClient.chat.completions.create({
+      model: AI_MODEL_NAME,
       messages: [
-        { role: "system", content: "You are a helpful assistant." },
-        { role: "user", content: `Analyze the following text for any inappropriate language, grammatical errors, or negative sentiments: "${text}"` },
+        { role: "system", content: "Você é um assistente útil especializado em análise de conteúdo e gramática em português brasileiro." },
+        { role: "user", content: `Analise o seguinte texto em busca de linguagem inapropriada, erros gramaticais ou sentimentos negativos. Seja direto: "${text}"` },
       ],
-      max_tokens: 150,
+      max_tokens: 300,
     });
 
     const validation = response.choices[0].message.content.trim();
 
-    // Logando a resposta da OpenAI
-    logger.info('Resposta da OpenAI recebida', {
-      service: 'openai',
+    // Logando a resposta do DeepSeek
+    logger.info('Resposta do DeepSeek recebida', {
+      service: 'deepseek',
       function: 'validateText',
-      validation
+      validation: validation.substring(0, 50) + '...'
     });
 
     res.json({ validation });
   } catch (error) {
-    logger.error('Erro ao validar texto com OpenAI', {
-      service: 'openai',
+    logger.error('Erro ao validar texto com DeepSeek', {
+      service: 'deepseek',
       function: 'validateText',
       error: error.message
     });
-    res.status(500).json({ error: 'Erro ao validar texto com OpenAI' });
+    res.status(500).json({ error: 'Erro ao validar texto com DeepSeek' });
   }
 };
 

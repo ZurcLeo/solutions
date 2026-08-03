@@ -267,6 +267,110 @@ exports.getEmailsByStatus = async (req, res) => {
   }
 };
 
+// ─── Unsubscribe (LGPD) ──────────────────────────────────────────────────────
+
+/**
+ * Renderiza página de confirmação de unsubscribe (GET público).
+ * Valida HMAC antes de exibir.
+ */
+exports.renderUnsubscribePage = async (req, res) => {
+  const { token, uid, cat } = req.query;
+
+  if (!token || !uid || !cat) {
+    return res.status(400).send(_unsubscribePage('Link inválido', 'Os parâmetros necessários estão ausentes.', false));
+  }
+
+  const unsubscribeToken = require('../utils/unsubscribeToken');
+  if (!unsubscribeToken.verify(token, uid, cat)) {
+    return res.status(403).send(_unsubscribePage('Link inválido', 'Este link de cancelamento é inválido ou expirou.', false));
+  }
+
+  const CATEGORY_LABELS = {
+    payments: 'Financeiro',
+    invites: 'Social e Convites',
+    pedidos: 'Pedidos e Marketplace',
+    messages: 'Mensagens e Suporte',
+    caixinhas: 'Caixinhas',
+    entregas: 'Entregas',
+    mobilidade: 'Mobilidade',
+  };
+
+  const label = CATEGORY_LABELS[cat] || cat;
+  return res.status(200).send(_unsubscribePage(
+    'Cancelar recebimento de emails',
+    `Você está prestes a cancelar o recebimento de emails da categoria <strong>${label}</strong>. Emails de segurança (OTP, KYC) continuarão sendo enviados normalmente.`,
+    true,
+    { token, uid, cat }
+  ));
+};
+
+/**
+ * Processa unsubscribe (POST público).
+ * Valida HMAC e atualiza notification_prefs do usuário.
+ */
+exports.processUnsubscribe = async (req, res) => {
+  const { token, uid, cat } = req.body.token ? req.body : req.query;
+
+  if (!token || !uid || !cat) {
+    return res.status(400).json({ success: false, error: 'Parâmetros ausentes' });
+  }
+
+  const unsubscribeToken = require('../utils/unsubscribeToken');
+  if (!unsubscribeToken.verify(token, uid, cat)) {
+    return res.status(403).json({ success: false, error: 'Token inválido' });
+  }
+
+  try {
+    const userPreferencesService = require('../services/userPreferencesService');
+    await userPreferencesService.update(uid, 'notification_prefs', {
+      events: { [cat]: { email: false } }
+    });
+
+    logger.info('Unsubscribe processado com sucesso', {
+      service: 'emailController', function: 'processUnsubscribe', uid, cat,
+    });
+
+    return res.status(200).send(_unsubscribePage(
+      'Email cancelado',
+      'Você não receberá mais emails desta categoria. Você pode reativar nas configurações do app.',
+      false
+    ));
+  } catch (error) {
+    logger.error('Erro ao processar unsubscribe', {
+      service: 'emailController', function: 'processUnsubscribe', uid, cat, error: error.message,
+    });
+    return res.status(500).json({ success: false, error: 'Erro interno' });
+  }
+};
+
+/**
+ * Gera página HTML mínima para unsubscribe.
+ * @private
+ */
+function _unsubscribePage(title, message, showForm, formData = {}) {
+  const formHtml = showForm ? `
+    <form method="POST" action="/api/email/unsubscribe" style="margin-top:20px;">
+      <input type="hidden" name="token" value="${formData.token || ''}" />
+      <input type="hidden" name="uid" value="${formData.uid || ''}" />
+      <input type="hidden" name="cat" value="${formData.cat || ''}" />
+      <button type="submit" style="background:#d32f2f;color:#fff;border:none;padding:12px 32px;border-radius:8px;font-size:16px;cursor:pointer;">
+        Confirmar cancelamento
+      </button>
+    </form>
+  ` : '';
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${title} — ElosCloud</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:40px auto;padding:20px;text-align:center;">
+  <h2 style="color:#333;">${title}</h2>
+  <p style="color:#666;line-height:1.6;">${message}</p>
+  ${formHtml}
+  <p style="margin-top:32px;font-size:12px;color:#aaa;">ElosCloud — Plataforma Comunitária</p>
+</body>
+</html>`;
+}
+
 /**
  * Método de compatibilidade para funcionalidade legacy de email
  * @async

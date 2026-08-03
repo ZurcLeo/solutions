@@ -1,325 +1,100 @@
 /**
- * Template for support ticket resolution emails
- * @param {Object} data - Template data
- * @param {string} data.userName - User's name
- * @param {string} data.ticketId - Ticket ID
- * @param {string} data.ticketTitle - Ticket title
- * @param {string} data.agentName - Agent name who resolved
- * @param {string} data.resolutionSummary - Summary of resolution
- * @param {string} data.resolutionDate - Date of resolution
+ * Template de resolução de ticket de suporte.
+ * Usa wrapper.js alinhado ao DESIGN_CONTRACT.md v0.1.
+ *
+ * @param {Object} data
+ * @param {string} data.userName          - Nome do usuário
+ * @param {string} data.ticketId          - ID do ticket
+ * @param {string} data.ticketTitle       - Título do ticket
+ * @param {string} data.agentName         - Nome do agente que resolveu
+ * @param {string} data.resolutionSummary - Resumo da resolução
+ * @param {string} data.resolutionDate    - Data da resolução
  * @returns {string} HTML content
  */
-module.exports = function(data) {
+const wrapper = require('./wrapper');
+
+const APP_URL = process.env.FRONTEND_URL || 'https://eloscloud.com';
+
+module.exports = function supportTicketResolvedTemplate(data) {
   const {
-    userName = 'Usuário',
-    ticketId = '',
-    ticketTitle = 'Solicitação de Suporte',
-    agentName = 'Nossa Equipe',
+    userName          = 'Usuário',
+    ticketId          = '',
+    ticketTitle       = 'Solicitação de Suporte',
+    agentName         = 'Nossa Equipe',
     resolutionSummary = 'Seu ticket foi resolvido com sucesso.',
-    resolutionDate = new Date().toLocaleString('pt-BR')
+    resolutionDate    = new Date().toLocaleString('pt-BR'),
   } = data;
 
-  return `
-  <!DOCTYPE html>
-  <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ticket Resolvido - #${ticketId}</title>
-    <style>
-      body {
-        font-family: 'Poppins', Arial, sans-serif;
-        background-color: #f8f9fa;
-        margin: 0;
-        padding: 0;
-        color: #333333;
-      }
-      .email-container {
-        max-width: 600px;
-        margin: 20px auto;
-        background-color: #ffffff;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        overflow: hidden;
-      }
-      .email-header {
-        background: linear-gradient(135deg, #28a745 0%, #34ce57 100%);
-        color: white;
-        text-align: center;
-        padding: 40px 20px;
-      }
-      .header-icon {
-        font-size: 64px;
-        margin-bottom: 15px;
-        animation: bounce 2s infinite;
-      }
-      @keyframes bounce {
-        0%, 20%, 50%, 80%, 100% {
-          transform: translateY(0);
-        }
-        40% {
-          transform: translateY(-10px);
-        }
-        60% {
-          transform: translateY(-5px);
-        }
-      }
-      .header-title {
-        font-size: 28px;
-        font-weight: bold;
-        margin: 0;
-      }
-      .header-subtitle {
-        font-size: 18px;
-        margin: 10px 0 0 0;
-        opacity: 0.9;
-      }
-      .email-body {
-        padding: 40px 30px;
-      }
-      .success-message {
-        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-        border: 2px solid #28a745;
-        border-radius: 12px;
-        padding: 25px;
-        margin: 25px 0;
-        text-align: center;
-      }
-      .success-title {
-        color: #155724;
-        font-size: 24px;
-        font-weight: bold;
-        margin: 0 0 15px 0;
-      }
-      .success-description {
-        color: #155724;
-        font-size: 16px;
-        margin: 0;
-      }
-      .ticket-summary {
-        background-color: #f8f9fa;
-        border-left: 4px solid #28a745;
-        padding: 20px;
-        margin: 25px 0;
-        border-radius: 0 8px 8px 0;
-      }
-      .summary-row {
-        display: flex;
-        justify-content: space-between;
-        margin: 12px 0;
-        padding: 8px 0;
-        border-bottom: 1px solid #e9ecef;
-      }
-      .summary-row:last-child {
-        border-bottom: none;
-      }
-      .summary-label {
-        font-weight: bold;
-        color: #495057;
-        flex: 0 0 40%;
-      }
-      .summary-value {
-        flex: 1;
-        text-align: right;
-      }
-      .resolution-details {
-        background-color: #ffffff;
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
-        padding: 20px;
-        margin: 25px 0;
-      }
-      .resolution-title {
-        color: #28a745;
-        font-weight: bold;
-        font-size: 18px;
-        margin-bottom: 15px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      .resolution-content {
-        color: #495057;
-        line-height: 1.6;
-      }
-      .feedback-section {
-        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-        border: 1px solid #2196f3;
-        border-radius: 12px;
-        padding: 25px;
-        margin: 30px 0;
-        text-align: center;
-      }
-      .feedback-title {
-        color: #0d47a1;
-        font-size: 20px;
-        font-weight: bold;
-        margin: 0 0 15px 0;
-      }
-      .feedback-text {
-        color: #1565c0;
-        margin: 0 0 20px 0;
-      }
-      .rating-buttons {
-        display: flex;
-        justify-content: center;
-        gap: 10px;
-        margin: 20px 0;
-        flex-wrap: wrap;
-      }
-      .rating-button {
-        background-color: #2196f3;
-        color: white;
-        padding: 10px 15px;
-        border-radius: 25px;
-        text-decoration: none;
-        font-weight: bold;
-        margin: 5px;
-        transition: background-color 0.3s;
-      }
-      .rating-button:hover {
-        background-color: #1976d2;
-      }
-      .contact-info {
-        background-color: #fff3cd;
-        border: 1px solid #ffeaa7;
-        border-radius: 8px;
-        padding: 20px;
-        margin: 25px 0;
-      }
-      .contact-title {
-        color: #856404;
-        font-weight: bold;
-        margin-bottom: 15px;
-        font-size: 16px;
-      }
-      .contact-item {
-        margin: 8px 0;
-        color: #856404;
-      }
-      .email-footer {
-        background-color: #343a40;
-        color: white;
-        text-align: center;
-        padding: 25px;
-        font-size: 14px;
-      }
-      .footer-links a {
-        color: #ffffff;
-        text-decoration: none;
-        margin: 0 10px;
-      }
-      @media screen and (max-width: 600px) {
-        .email-container {
-          margin: 10px;
-        }
-        .email-body {
-          padding: 25px 20px;
-        }
-        .summary-row {
-          flex-direction: column;
-        }
-        .summary-value {
-          text-align: left;
-          margin-top: 5px;
-        }
-        .rating-buttons {
-          flex-direction: column;
-          align-items: center;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="email-container">
-      <div class="email-header">
-        <div class="header-icon">🎉</div>
-        <h1 class="header-title">Problema Resolvido!</h1>
-        <p class="header-subtitle">Seu ticket foi finalizado com sucesso</p>
+  // Design Contract §02.1 tokens
+  const P      = '#1A5C4A';
+  const P_SOFT = '#E8F1EE';
+  const OK     = '#2E7D32';
+  const TEXT   = '#2C3E50';
+  const TEXT2  = '#495057';
+  const BORDER = '#E9ECEF';
+  const FONT   = "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif";
+
+  const bodyContent = `
+      <p style="font-family:${FONT}; text-align:center; color:${TEXT2}; margin:8px 0 32px; font-size:16px; line-height:1.6;">
+        Temos o prazer de informar que seu ticket foi
+        <strong style="color:${OK};">resolvido com sucesso</strong>.
+      </p>
+
+      <!-- Status card — §08 card style -->
+      <div style="background:${P_SOFT}; border:1.5px solid ${P}; border-radius:12px; padding:24px; text-align:center; margin-bottom:24px;">
+        <span style="display:inline-block; background:${OK}; color:#FFFFFF; font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:12px;">&#10003; Resolvido</span>
+        <p style="font-family:${FONT}; font-size:18px; font-weight:700; color:${TEXT}; margin:0;">Ticket #${ticketId}</p>
       </div>
-      
-      <div class="email-body">
-        <p>Olá <strong>${userName}</strong>,</p>
-        
-        <div class="success-message">
-          <div class="success-title">✅ Ticket Resolvido!</div>
-          <div class="success-description">
-            Temos o prazer de informar que seu ticket de suporte foi resolvido com sucesso.
-          </div>
+
+      <!-- Detalhes -->
+      <div style="background:#FFFFFF; border:1.5px solid ${BORDER}; border-radius:12px; padding:20px 24px; margin-bottom:24px;">
+        <table role="presentation" style="width:100%; border-collapse:collapse;">
+          <tr>
+            <td style="padding:6px 0;"><span style="font-family:${FONT}; font-size:13px; color:${TEXT2};">Título</span></td>
+            <td align="right" style="padding:6px 0;"><strong style="font-family:${FONT}; font-size:13px; color:${TEXT};">${ticketTitle}</strong></td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0; border-top:1px solid ${BORDER};"><span style="font-family:${FONT}; font-size:13px; color:${TEXT2};">Resolvido por</span></td>
+            <td align="right" style="padding:6px 0; border-top:1px solid ${BORDER};"><strong style="font-family:${FONT}; font-size:13px; color:${TEXT};">${agentName}</strong></td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0; border-top:1px solid ${BORDER};"><span style="font-family:${FONT}; font-size:13px; color:${TEXT2};">Data</span></td>
+            <td align="right" style="padding:6px 0; border-top:1px solid ${BORDER};"><strong style="font-family:${FONT}; font-size:13px; color:${TEXT};">${resolutionDate}</strong></td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Resumo da resolução -->
+      <div style="background:${P_SOFT}; border-radius:12px; padding:20px 24px; margin-bottom:32px;">
+        <p style="font-family:${FONT}; font-size:12px; font-weight:600; color:${P}; text-transform:uppercase; letter-spacing:0.04em; margin:0 0 8px;">Resumo da resolução</p>
+        <p style="font-family:${FONT}; font-size:14px; color:${TEXT2}; line-height:1.6; margin:0;">${resolutionSummary}</p>
+      </div>
+
+      <!-- Feedback -->
+      <div style="background:#FFFFFF; border:1.5px solid ${BORDER}; border-radius:12px; padding:24px; text-align:center; margin-bottom:32px;">
+        <p style="font-family:${FONT}; font-size:16px; font-weight:700; color:${TEXT}; margin:0 0 8px;">Como foi nosso atendimento?</p>
+        <p style="font-family:${FONT}; font-size:14px; color:${TEXT2}; margin:0 0 20px;">Sua opinião nos ajuda a melhorar.</p>
+        <div>
+          <a href="${APP_URL}/feedback?ticket=${ticketId}&rating=5" style="display:inline-block; background:${P}; color:#FFFFFF; padding:8px 14px; border-radius:10px; text-decoration:none; font-weight:600; font-size:13px; margin:4px;">Excelente</a>
+          <a href="${APP_URL}/feedback?ticket=${ticketId}&rating=4" style="display:inline-block; background:${P}; color:#FFFFFF; padding:8px 14px; border-radius:10px; text-decoration:none; font-weight:600; font-size:13px; margin:4px;">Bom</a>
+          <a href="${APP_URL}/feedback?ticket=${ticketId}&rating=3" style="display:inline-block; background:${BORDER}; color:${TEXT}; padding:8px 14px; border-radius:10px; text-decoration:none; font-weight:600; font-size:13px; margin:4px;">Regular</a>
+          <a href="${APP_URL}/feedback?ticket=${ticketId}&rating=1" style="display:inline-block; background:${BORDER}; color:${TEXT}; padding:8px 14px; border-radius:10px; text-decoration:none; font-weight:600; font-size:13px; margin:4px;">Precisa melhorar</a>
         </div>
-        
-        <div class="ticket-summary">
-          <div class="summary-row">
-            <span class="summary-label">Ticket ID:</span>
-            <span class="summary-value"><strong>#${ticketId}</strong></span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">Título:</span>
-            <span class="summary-value">${ticketTitle}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">Resolvido por:</span>
-            <span class="summary-value">${agentName}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">Data de Resolução:</span>
-            <span class="summary-value">${resolutionDate}</span>
-          </div>
-        </div>
-        
-        <div class="resolution-details">
-          <div class="resolution-title">
-            <span>📋</span>
-            <span>Resumo da Resolução</span>
-          </div>
-          <div class="resolution-content">
-            ${resolutionSummary}
-          </div>
-        </div>
-        
-        <div class="feedback-section">
-          <div class="feedback-title">💭 Como foi nosso atendimento?</div>
-          <p class="feedback-text">
-            Sua opinião é muito importante para continuarmos melhorando nossos serviços.
-          </p>
-          <div class="rating-buttons">
-            <a href="https://eloscloud.com/feedback?ticket=${ticketId}&rating=5" class="rating-button">⭐⭐⭐⭐⭐ Excelente</a>
-            <a href="https://eloscloud.com/feedback?ticket=${ticketId}&rating=4" class="rating-button">⭐⭐⭐⭐ Muito Bom</a>
-            <a href="https://eloscloud.com/feedback?ticket=${ticketId}&rating=3" class="rating-button">⭐⭐⭐ Bom</a>
-            <a href="https://eloscloud.com/feedback?ticket=${ticketId}&rating=2" class="rating-button">⭐⭐ Regular</a>
-            <a href="https://eloscloud.com/feedback?ticket=${ticketId}&rating=1" class="rating-button">⭐ Precisa Melhorar</a>
-          </div>
-        </div>
-        
-        <div class="contact-info">
-          <div class="contact-title">📞 Ainda precisa de ajuda?</div>
-          <div class="contact-item">Se sua dúvida não foi completamente esclarecida, não hesite em nos contatar:</div>
-          <div class="contact-item"><strong>Email:</strong> suporte@eloscloud.com.br</div>
-          <div class="contact-item"><strong>WhatsApp:</strong> (11) 99999-9999</div>
-          <div class="contact-item"><strong>Horário:</strong> Segunda a Sexta, 9h às 18h</div>
-        </div>
-        
-        <p style="margin-top: 30px; color: #28a745; font-weight: bold;">
-          🚀 Obrigado por usar a ElosCloud! Estamos sempre aqui para ajudar.
+      </div>
+
+      <div style="border-top:1px solid ${BORDER}; padding-top:24px; text-align:center;">
+        <p style="font-family:${FONT}; font-size:13px; color:${TEXT2}; line-height:1.5; margin:0;">
+          Ainda precisa de ajuda? Fale conosco em
+          <a href="${APP_URL}/suporte" style="color:${P}; text-decoration:none;">eloscloud.com/suporte</a>.
         </p>
       </div>
-      
-      <div class="email-footer">
-        <p style="margin: 0 0 15px 0;">
-          <strong>ElosCloud - Suporte ao Cliente</strong>
-        </p>
-        <div class="footer-links">
-          <a href="https://eloscloud.com">Portal</a>
-          <a href="https://eloscloud.com/suporte">Central de Ajuda</a>
-          <a href="https://eloscloud.com/contato">Contato</a>
-          <a href="https://eloscloud.com/feedback">Feedback</a>
-        </div>
-        <p style="font-size: 12px; margin: 15px 0 0 0; opacity: 0.8;">
-          © ${new Date().getFullYear()} ElosCloud. Todos os direitos reservados.
-        </p>
-      </div>
-    </div>
-  </body>
-  </html>
   `;
+
+  return wrapper({
+    title: `Ticket #${ticketId} resolvido — ElosCloud`,
+    badgeText: 'Suporte',
+    userName,
+    bodyContent,
+    preheader: `Seu ticket #${ticketId} foi resolvido! Avalie nosso atendimento.`,
+  });
 };

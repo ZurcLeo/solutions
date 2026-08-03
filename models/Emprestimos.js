@@ -1,666 +1,397 @@
-const { getFirestore } = require('../firebaseAdmin');
+// models/Emprestimos.js — Supabase-first (migrado de Firestore em 2026-05-19)
+// Fix: N+1 query eliminado — getAllByUsuario agora faz query direta por user_id
+const { getSupabaseClient } = require('../config/supabase');
+const Joi = require('joi');
 const { logger } = require('../logger');
-const db = getFirestore();
+const { randomUUID } = require('crypto');
+
+const VALID_STATUSES = ['pendente', 'aprovado', 'rejeitado', 'parcial', 'quitado'];
+
+const createSchema = Joi.object({
+  userId: Joi.string(),
+  memberId: Joi.string(),
+  valor: Joi.number().positive(),
+  valorSolicitado: Joi.number().positive(),
+  parcelas: Joi.number().integer().min(1),
+  prazoMeses: Joi.number().integer().min(1),
+}).unknown(true).or('userId', 'memberId').or('valor', 'valorSolicitado');
+
+const updateSchema = Joi.object({
+  status: Joi.string().valid(...VALID_STATUSES).optional(),
+  valorPago: Joi.number().min(0).optional(),
+}).unknown(true);
+
+const TABLE          = 'emprestimos';
+const TABLE_PAG      = 'emprestimo_pagamentos';
+const TABLE_SETTINGS = 'caixinha_loan_settings';
+const SERVICE        = 'emprestimosModel';
+
+function mapEmprestimo(row, pagamentos = []) {
+  if (!row) return null;
+  return {
+    id:                 row.id,
+    caixinhaId:         row.caixinha_id,
+    memberId:           row.user_id,
+    userId:             row.user_id,
+    valorSolicitado:    Number(row.valor_solicitado) || 0,
+    valorTotal:         Number(row.valor_total) || 0,
+    valorPago:          Number(row.valor_pago) || 0,
+    prazoMeses:         row.prazo_meses || 12,
+    status:             row.status || 'pendente',
+    taxaJurosAplicada:  Number(row.taxa_juros_aplicada) || 0,
+    valorMultaAplicada: Number(row.valor_multa_aplicada) || 0,
+    dataSolicitacao:    row.data_solicitacao   ? new Date(row.data_solicitacao)  : new Date(),
+    dataAprovacao:      row.data_aprovacao     ? new Date(row.data_aprovacao)    : null,
+    adminAprovador:     row.admin_aprovador    || null,
+    dataRejeitacao:     row.data_rejeitacao    ? new Date(row.data_rejeitacao)   : null,
+    adminRejeitador:    row.admin_rejeitador   || null,
+    motivoRejeitacao:   row.motivo_rejeitacao  || '',
+    dataQuitacao:       row.data_quitacao      ? new Date(row.data_quitacao)     : null,
+    parcelas: pagamentos.map(p => ({
+      id:         p.id,
+      data:       p.data || p.created_at,
+      valor:      Number(p.valor),
+      observacao: p.observacao || '',
+    })),
+    votos: {}, // Compat legado — votação migrada para tabela disputes
+  };
+}
+
+function sb() {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase client indisponível');
+  return client;
+}
 
 class Emprestimos {
   constructor(data) {
-    this.id = data.id || null;
-    this.caixinhaId = data.caixinhaId;
-    this.memberId = data.memberId;
-    this.valorSolicitado = parseFloat(data.valorSolicitado) || 0;
-    this.dataSolicitacao = data.dataSolicitacao instanceof Date ? 
-      data.dataSolicitacao : new Date(data.dataSolicitacao || Date.now());
-    this.status = data.status || 'pendente';
-    this.votos = data.votos || {};
-    this.prazoMeses = parseInt(data.prazoMeses) || 12;
-    this.parcelas = data.parcelas || [];
-    this.valorTotal = parseFloat(data.valorTotal) || this.valorSolicitado;
-    this.taxaJurosAplicada = parseFloat(data.taxaJurosAplicada) || 0;
+    this.id                 = data.id || null;
+    this.caixinhaId         = data.caixinhaId;
+    this.memberId           = data.memberId;
+    this.valorSolicitado    = parseFloat(data.valorSolicitado) || 0;
+    this.dataSolicitacao    = data.dataSolicitacao instanceof Date
+      ? data.dataSolicitacao : new Date(data.dataSolicitacao || Date.now());
+    this.status             = data.status || 'pendente';
+    this.votos              = data.votos || {};
+    this.prazoMeses         = parseInt(data.prazoMeses) || 12;
+    this.parcelas           = data.parcelas || [];
+    this.valorTotal         = parseFloat(data.valorTotal) || this.valorSolicitado;
+    this.valorPago          = parseFloat(data.valorPago) || 0;
+    this.taxaJurosAplicada  = parseFloat(data.taxaJurosAplicada) || 0;
     this.valorMultaAplicada = parseFloat(data.valorMultaAplicada) || 0;
-    this.dataAprovacao = data.dataAprovacao ? new Date(data.dataAprovacao) : null;
-    this.dataRejeitacao = data.dataRejeitacao ? new Date(data.dataRejeitacao) : null;
-    this.motivoRejeitacao = data.motivoRejeitacao || '';
-    this.dataQuitacao = data.dataQuitacao ? new Date(data.dataQuitacao) : null;
+    this.dataAprovacao      = data.dataAprovacao   ? new Date(data.dataAprovacao)  : null;
+    this.adminAprovador     = data.adminAprovador  || null;
+    this.dataRejeitacao     = data.dataRejeitacao  ? new Date(data.dataRejeitacao) : null;
+    this.adminRejeitador    = data.adminRejeitador || null;
+    this.motivoRejeitacao   = data.motivoRejeitacao || '';
+    this.dataQuitacao       = data.dataQuitacao    ? new Date(data.dataQuitacao)   : null;
   }
 
-  // Método para obter a configuração de empréstimos da caixinha
+  // ── Leitura ──────────────────────────────────────────────────────────────
+
   static async getConfiguracao(caixinhaId) {
     try {
-      const configRef = db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('emprestimos')
-        .doc('configuracao');
-      
-      const doc = await configRef.get();
-      
-      if (!doc.exists) {
-        logger.warn('Configuração de empréstimos não encontrada', {
-          service: 'emprestimosModel',
-          method: 'getConfiguracao',
-          caixinhaId
-        });
-        return null;
-      }
-      
-      return doc.data();
+      const { data, error } = await sb()
+        .from(TABLE_SETTINGS)
+        .select('*')
+        .eq('caixinha_id', caixinhaId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return null;
+
+      return {
+        limiteEmprestimo:      Number(data.limite_emprestimo)      || 0,
+        prazoMaximoEmprestimo: data.prazo_maximo_emprestimo        || 12,
+        taxaJuros:             Number(data.taxa_juros)             || 0,
+        valorMulta:            Number(data.valor_multa)            || 0,
+        valorJuros:            Number(data.valor_juros)            || 0,
+      };
     } catch (error) {
-      logger.error('Erro ao obter configuração de empréstimos', {
-        service: 'emprestimosModel',
-        method: 'getConfiguracao',
-        caixinhaId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao obter configuração de empréstimos', { service: SERVICE, caixinhaId, error: error.message });
       throw error;
     }
   }
 
-  // Método para obter um empréstimo por ID
   static async getById(caixinhaId, emprestimoId) {
-    try {
-      logger.info('Buscando empréstimo por ID', {
-        service: 'emprestimosModel',
-        method: 'getById',
-        caixinhaId,
-        emprestimoId
-      });
+    logger.info('Buscando empréstimo', { service: SERVICE, caixinhaId, emprestimoId });
 
-      const doc = await db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('emprestimos')
-        .doc(emprestimoId)
-        .get();
-      
-      if (!doc.exists) {
-        logger.warn('Empréstimo não encontrado', {
-          service: 'emprestimosModel',
-          method: 'getById',
-          caixinhaId,
-          emprestimoId
-        });
-        return null;
-      }
-      
-      return new Emprestimos({ id: doc.id, ...doc.data() });
+    try {
+      const { data, error } = await sb()
+        .from(TABLE)
+        .select('*')
+        .eq('id', emprestimoId)
+        .eq('caixinha_id', caixinhaId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return null;
+
+      const { data: pagamentos } = await sb()
+        .from(TABLE_PAG)
+        .select('*')
+        .eq('emprestimo_id', emprestimoId)
+        .order('data', { ascending: true });
+
+      return new Emprestimos(mapEmprestimo(data, pagamentos || []));
     } catch (error) {
-      logger.error('Erro ao buscar empréstimo', {
-        service: 'emprestimosModel',
-        method: 'getById',
-        caixinhaId,
-        emprestimoId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao buscar empréstimo', { service: SERVICE, caixinhaId, emprestimoId, error: error.message });
       throw error;
     }
   }
 
-  // Método para listar todos os empréstimos de uma caixinha
   static async getAllByCaixinha(caixinhaId, filtros = {}) {
-    try {
-      logger.info('Buscando todos os empréstimos da caixinha', {
-        service: 'emprestimosModel',
-        method: 'getAllByCaixinha',
-        caixinhaId,
-        filtros
-      });
+    logger.info('Buscando empréstimos da caixinha', { service: SERVICE, caixinhaId });
 
-      let query = db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('emprestimos');
-      
-      // Aplicar filtros se fornecidos
-      if (filtros.status) {
-        query = query.where('status', '==', filtros.status);
-      }
-      
-      if (filtros.userId) {
-        query = query.where('memberId', '==', filtros.userId);
-      }
-      
-      // Não ordenar na query para evitar problemas com índices
-      // A ordenação será feita depois em memória
-      
-      const snapshot = await query.get();
-      
-      const emprestimos = [];
-      snapshot.forEach(doc => {
-        // Ignorar o documento de configuração
-        if (doc.id !== 'configuracao') {
-          emprestimos.push(new Emprestimos({ id: doc.id, ...doc.data() }));
-        }
-      });
-      
-      // Ordenar em memória por data de solicitação (mais recentes primeiro)
-      emprestimos.sort((a, b) => {
-        const dateA = new Date(a.dataSolicitacao);
-        const dateB = new Date(b.dataSolicitacao);
-        return dateB - dateA; // Ordem decrescente
-      });
-      
-      logger.info('Empréstimos recuperados com sucesso', {
-        service: 'emprestimosModel',
-        method: 'getAllByCaixinha',
-        caixinhaId,
-        quantidade: emprestimos.length
-      });
-      
-      return emprestimos;
+    try {
+      let query = sb().from(TABLE).select('*').eq('caixinha_id', caixinhaId);
+      if (filtros.status) query = query.eq('status', filtros.status);
+      if (filtros.userId) query = query.eq('user_id', filtros.userId);
+      query = query.order('data_solicitacao', { ascending: false });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map(row => new Emprestimos(mapEmprestimo(row)));
     } catch (error) {
-      logger.error('Erro ao buscar empréstimos da caixinha', {
-        service: 'emprestimosModel',
-        method: 'getAllByCaixinha',
-        caixinhaId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao buscar empréstimos da caixinha', { service: SERVICE, caixinhaId, error: error.message });
       throw error;
     }
   }
 
-  // Método para listar todos os empréstimos de um usuário
+  /** Query direta — elimina o N+1 anterior que varreia todas as caixinhas */
   static async getAllByUsuario(userId, filtros = {}) {
-    try {
-      logger.info('Buscando todos os empréstimos do usuário', {
-        service: 'emprestimosModel',
-        method: 'getAllByUsuario',
-        userId,
-        filtros
-      });
+    logger.info('Buscando empréstimos do usuário', { service: SERVICE, userId });
 
-      // Primeiro precisamos buscar todas as caixinhas do usuário
-      const userDoc = await db.collection('usuario').doc(userId).get();
-      
-      if (!userDoc.exists || !userDoc.data().caixinhas || userDoc.data().caixinhas.length === 0) {
-        logger.info('Usuário não possui caixinhas', {
-          service: 'emprestimosModel',
-          method: 'getAllByUsuario',
-          userId
-        });
-        return [];
-      }
-      
-      const caixinhasIds = userDoc.data().caixinhas;
-      const emprestimos = [];
-      
-      // Para cada caixinha, buscar os empréstimos do usuário
-      const promises = caixinhasIds.map(async caixinhaId => {
-        const caixinhaEmprestimos = await this.getAllByCaixinha(caixinhaId, { userId });
-        emprestimos.push(...caixinhaEmprestimos);
-      });
-      
-      await Promise.all(promises);
-      
-      logger.info('Empréstimos do usuário recuperados com sucesso', {
-        service: 'emprestimosModel',
-        method: 'getAllByUsuario',
-        userId,
-        quantidade: emprestimos.length
-      });
-      
-      return emprestimos;
+    try {
+      let query = sb().from(TABLE).select('*').eq('user_id', userId);
+      if (filtros.status) query = query.eq('status', filtros.status);
+      query = query.order('data_solicitacao', { ascending: false });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map(row => new Emprestimos(mapEmprestimo(row)));
     } catch (error) {
-      logger.error('Erro ao buscar empréstimos do usuário', {
-        service: 'emprestimosModel',
-        method: 'getAllByUsuario',
-        userId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao buscar empréstimos do usuário', { service: SERVICE, userId, error: error.message });
       throw error;
     }
   }
 
-  // Método para listar todos os empréstimos de um usuário (alias para compatibilidade)
   static async getByUserId(userId, limit = 10) {
     try {
-      logger.info('Buscando empréstimos por userId', {
-        service: 'emprestimosModel',
-        method: 'getByUserId',
-        userId,
-        limit
-      });
+      const { data, error } = await sb()
+        .from(TABLE)
+        .select('*')
+        .eq('user_id', userId)
+        .order('data_solicitacao', { ascending: false })
+        .limit(limit);
 
-      const emprestimos = await this.getAllByUsuario(userId);
-      
-      // Aplicar limite se fornecido
-      const resultado = limit ? emprestimos.slice(0, limit) : emprestimos;
-      
-      logger.info('Empréstimos por userId recuperados com sucesso', {
-        service: 'emprestimosModel',
-        method: 'getByUserId',
-        userId,
-        quantidade: resultado.length
-      });
-      
-      return resultado;
+      if (error) throw error;
+      return (data || []).map(row => new Emprestimos(mapEmprestimo(row)));
     } catch (error) {
-      logger.error('Erro ao buscar empréstimos por userId', {
-        service: 'emprestimosModel',
-        method: 'getByUserId',
-        userId,
-        error: error.message,
-        stack: error.stack
-      });
-      throw error;
+      logger.warn('Erro ao buscar empréstimos por userId', { service: SERVICE, error: error.message });
+      return [];
     }
   }
 
-  // Método para criar um novo empréstimo
+  // ── Escrita ──────────────────────────────────────────────────────────────
+
   static async create(caixinhaId, data) {
-    try {
-      logger.info('Criando novo empréstimo', {
-        service: 'emprestimosModel',
-        method: 'create',
-        caixinhaId,
-        userId: data.userId,
-        valorSolicitado: data.valorSolicitado
-      });
+    const { error: vErr } = createSchema.validate(data);
+    if (vErr) throw new Error(vErr.details[0].message);
 
-      // Verificar se permiteEmprestimos está habilitado na caixinha
-      const caixinhaDoc = await db.collection('caixinhas').doc(caixinhaId).get();
-      
-      if (!caixinhaDoc.exists) {
-        throw new Error('Caixinha não encontrada');
-      }
-      
-      const caixinhaData = caixinhaDoc.data();
-      
-      if (!caixinhaData.permiteEmprestimos) {
-        throw new Error('Esta caixinha não permite empréstimos');
-      }
-      
-      // Obter configurações de empréstimo
+    logger.info('Criando empréstimo', { service: SERVICE, caixinhaId, userId: data.userId });
+
+    try {
+      // Valida caixinha
+      const { data: cx, error: cxErr } = await sb()
+        .from('caixinhas')
+        .select('permite_emprestimos')
+        .eq('id', caixinhaId)
+        .single();
+
+      if (cxErr) throw cxErr;
+      if (!cx) throw new Error('Caixinha não encontrada');
+      if (!cx.permite_emprestimos) throw new Error('Esta caixinha não permite empréstimos');
+
       const configuracao = await this.getConfiguracao(caixinhaId);
-      
-      if (!configuracao) {
-        throw new Error('Configuração de empréstimos não encontrada');
-      }
-      
-      // Normalizar os dados de entrada
+      if (!configuracao) throw new Error('Configuração de empréstimos não encontrada');
+
       const valorSolicitado = parseFloat(data.valor || data.valorSolicitado);
-      const prazoMeses = parseInt(data.parcelas || data.prazoMeses || 12);
-      
-      // Verificar limite de empréstimo
+      const prazoMeses      = parseInt(data.parcelas || data.prazoMeses || 12);
+
       if (configuracao.limiteEmprestimo > 0 && valorSolicitado > configuracao.limiteEmprestimo) {
-        throw new Error(`O valor solicitado excede o limite de empréstimo (${configuracao.limiteEmprestimo})`);
+        throw new Error(`Valor excede o limite de empréstimo (${configuracao.limiteEmprestimo})`);
       }
-      
-      // Verificar prazo máximo
       if (prazoMeses > configuracao.prazoMaximoEmprestimo) {
-        throw new Error(`O prazo solicitado excede o prazo máximo permitido (${configuracao.prazoMaximoEmprestimo} meses)`);
+        throw new Error(`Prazo excede o máximo permitido (${configuracao.prazoMaximoEmprestimo} meses)`);
       }
-      
-      // Calcular valor total com juros
-      const taxaJuros = parseFloat(configuracao.taxaJuros || 0);
-      const valorTotal = valorSolicitado * (1 + (taxaJuros / 100) * (prazoMeses / 12));
-      
-      // Criar objeto de empréstimo
-      const emprestimo = new Emprestimos({
-        ...data,
-        memberId: data.userId,
-        valorSolicitado,
-        prazoMeses,
-        caixinhaId,
-        dataSolicitacao: new Date(),
-        status: 'pendente',
-        valorTotal,
-        taxaJurosAplicada: taxaJuros,
-        valorMultaAplicada: parseFloat(configuracao.valorMulta || 0)
-      });
-      
-      // Salvar no Firestore
-      const docRef = await db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('emprestimos')
-        .add({
-          ...emprestimo,
-          dataSolicitacao: emprestimo.dataSolicitacao.toISOString()
-        });
-      
-      emprestimo.id = docRef.id;
-      
-      logger.info('Empréstimo criado com sucesso', {
-        service: 'emprestimosModel',
-        method: 'create',
-        caixinhaId,
-        emprestimoId: emprestimo.id,
-        status: 'pendente'
-      });
-      
-      return emprestimo;
+
+      const taxaJuros   = parseFloat(configuracao.taxaJuros || 0);
+      const valorTotal  = valorSolicitado * (1 + (taxaJuros / 100) * (prazoMeses / 12));
+      const emprestimoId = randomUUID();
+
+      const { data: created, error } = await sb()
+        .from(TABLE)
+        .insert({
+          id:                   emprestimoId,
+          caixinha_id:          caixinhaId,
+          user_id:              data.userId || data.memberId,
+          valor_solicitado:     valorSolicitado,
+          valor_total:          valorTotal,
+          valor_pago:           0,
+          prazo_meses:          prazoMeses,
+          status:               'pendente',
+          taxa_juros_aplicada:  taxaJuros,
+          valor_multa_aplicada: parseFloat(configuracao.valorMulta || 0),
+          data_solicitacao:     new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      logger.info('Empréstimo criado', { service: SERVICE, emprestimoId });
+      return new Emprestimos(mapEmprestimo(created));
     } catch (error) {
-      logger.error('Erro ao criar empréstimo', {
-        service: 'emprestimosModel',
-        method: 'create',
-        caixinhaId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao criar empréstimo', { service: SERVICE, caixinhaId, error: error.message });
       throw error;
     }
   }
 
-  // Método para atualizar um empréstimo
   static async update(caixinhaId, emprestimoId, data) {
-    try {
-      logger.info('Atualizando empréstimo', {
-        service: 'emprestimosModel',
-        method: 'update',
-        caixinhaId,
-        emprestimoId
-      });
+    const { error: vErr } = updateSchema.validate(data);
+    if (vErr) throw new Error(vErr.details[0].message);
 
-      const emprestimoRef = db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('emprestimos')
-        .doc(emprestimoId);
-      
-      await emprestimoRef.update({
-        ...data,
-        // Converter datas para ISO String se existirem
-        ...(data.dataSolicitacao && { dataSolicitacao: data.dataSolicitacao.toISOString() }),
-        ...(data.dataAprovacao && { dataAprovacao: data.dataAprovacao.toISOString() }),
-        ...(data.dataRejeitacao && { dataRejeitacao: data.dataRejeitacao.toISOString() }),
-        ...(data.dataQuitacao && { dataQuitacao: data.dataQuitacao.toISOString() })
-      });
-      
-      const updatedDoc = await emprestimoRef.get();
-      
-      logger.info('Empréstimo atualizado com sucesso', {
-        service: 'emprestimosModel',
-        method: 'update',
-        caixinhaId,
-        emprestimoId,
-        status: data.status
-      });
-      
-      return new Emprestimos({ id: updatedDoc.id, ...updatedDoc.data() });
+    logger.info('Atualizando empréstimo', { service: SERVICE, caixinhaId, emprestimoId });
+
+    try {
+      const row = {};
+      if (data.status !== undefined)           row.status = data.status;
+      if (data.valorPago !== undefined)        row.valor_pago = data.valorPago;
+      if (data.dataAprovacao !== undefined)    row.data_aprovacao = data.dataAprovacao ? new Date(data.dataAprovacao).toISOString() : null;
+      if (data.adminAprovador !== undefined)   row.admin_aprovador = data.adminAprovador;
+      if (data.dataRejeitacao !== undefined)   row.data_rejeitacao = data.dataRejeitacao ? new Date(data.dataRejeitacao).toISOString() : null;
+      if (data.adminRejeitador !== undefined)  row.admin_rejeitador = data.adminRejeitador;
+      if (data.motivoRejeitacao !== undefined) row.motivo_rejeitacao = data.motivoRejeitacao;
+      if (data.dataQuitacao !== undefined)     row.data_quitacao = data.dataQuitacao ? new Date(data.dataQuitacao).toISOString() : null;
+
+      const { data: updated, error } = await sb()
+        .from(TABLE)
+        .update(row)
+        .eq('id', emprestimoId)
+        .eq('caixinha_id', caixinhaId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return new Emprestimos(mapEmprestimo(updated));
     } catch (error) {
-      logger.error('Erro ao atualizar empréstimo', {
-        service: 'emprestimosModel',
-        method: 'update',
-        caixinhaId,
-        emprestimoId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao atualizar empréstimo', { service: SERVICE, caixinhaId, emprestimoId, error: error.message });
       throw error;
     }
   }
 
-  // Método para aprovar um empréstimo
   static async aprovar(caixinhaId, emprestimoId, adminId) {
-    try {
-      logger.info('Aprovando empréstimo', {
-        service: 'emprestimosModel',
-        method: 'aprovar',
-        caixinhaId,
-        emprestimoId,
-        adminId
-      });
+    logger.info('Aprovando empréstimo', { service: SERVICE, caixinhaId, emprestimoId, adminId });
 
-      const emprestimo = await this.getById(caixinhaId, emprestimoId);
-      
-      if (!emprestimo) {
-        throw new Error('Empréstimo não encontrado');
-      }
-      
-      if (emprestimo.status !== 'pendente') {
-        throw new Error(`Empréstimo não pode ser aprovado no status atual: ${emprestimo.status}`);
-      }
-      
-      // Atualizar empréstimo
-      const emprestimoAtualizado = await this.update(caixinhaId, emprestimoId, {
-        status: 'aprovado',
-        dataAprovacao: new Date(),
-        adminAprovador: adminId
-      });
-      
-      logger.info('Empréstimo aprovado com sucesso', {
-        service: 'emprestimosModel',
-        method: 'aprovar',
-        caixinhaId,
-        emprestimoId
-      });
-      
-      return emprestimoAtualizado;
-    } catch (error) {
-      logger.error('Erro ao aprovar empréstimo', {
-        service: 'emprestimosModel',
-        method: 'aprovar',
-        caixinhaId,
-        emprestimoId,
-        error: error.message,
-        stack: error.stack
-      });
-      throw error;
-    }
+    const emprestimo = await this.getById(caixinhaId, emprestimoId);
+    if (!emprestimo) throw new Error('Empréstimo não encontrado');
+    if (emprestimo.status !== 'pendente') throw new Error(`Status atual inválido para aprovação: ${emprestimo.status}`);
+
+    return this.update(caixinhaId, emprestimoId, {
+      status: 'aprovado', dataAprovacao: new Date(), adminAprovador: adminId,
+    });
   }
 
-  // Método para rejeitar um empréstimo
   static async rejeitar(caixinhaId, emprestimoId, adminId, motivo = '') {
+    logger.info('Rejeitando empréstimo', { service: SERVICE, caixinhaId, emprestimoId, adminId });
+
+    const emprestimo = await this.getById(caixinhaId, emprestimoId);
+    if (!emprestimo) throw new Error('Empréstimo não encontrado');
+    if (emprestimo.status !== 'pendente') throw new Error(`Status atual inválido para rejeição: ${emprestimo.status}`);
+
+    return this.update(caixinhaId, emprestimoId, {
+      status: 'rejeitado', dataRejeitacao: new Date(), adminRejeitador: adminId, motivoRejeitacao: motivo,
+    });
+  }
+
+  static async registrarPagamento(caixinhaId, emprestimoId, valor, observacao = '', userId = 'system') {
+    logger.info('Registrando pagamento', { service: SERVICE, caixinhaId, emprestimoId, valor });
+
     try {
-      logger.info('Rejeitando empréstimo', {
-        service: 'emprestimosModel',
-        method: 'rejeitar',
-        caixinhaId,
-        emprestimoId,
-        adminId,
-        motivo
+      // RPC atômica: lock + insert pagamento + update empréstimo + transação audit + saldo
+      const { data: result, error: rpcError } = await sb().rpc('registrar_pagamento_emprestimo', {
+        p_emprestimo_id: emprestimoId,
+        p_caixinha_id: caixinhaId,
+        p_user_id: userId,
+        p_valor: valor,
+        p_observacao: observacao
       });
 
-      const emprestimo = await this.getById(caixinhaId, emprestimoId);
-      
-      if (!emprestimo) {
-        throw new Error('Empréstimo não encontrado');
-      }
-      
-      if (emprestimo.status !== 'pendente') {
-        throw new Error(`Empréstimo não pode ser rejeitado no status atual: ${emprestimo.status}`);
-      }
-      
-      // Atualizar empréstimo
-      const emprestimoAtualizado = await this.update(caixinhaId, emprestimoId, {
-        status: 'rejeitado',
-        dataRejeitacao: new Date(),
-        adminRejeitador: adminId,
-        motivoRejeitacao: motivo
-      });
-      
-      logger.info('Empréstimo rejeitado com sucesso', {
-        service: 'emprestimosModel',
-        method: 'rejeitar',
-        caixinhaId,
-        emprestimoId
-      });
-      
-      return emprestimoAtualizado;
+      if (rpcError) throw new Error(rpcError.message || 'Erro ao registrar pagamento');
+
+      logger.info('Pagamento registrado via RPC', { service: SERVICE, emprestimoId, novoStatus: result.novo_status });
+
+      // Return updated loan
+      return await this.getById(caixinhaId, emprestimoId);
     } catch (error) {
-      logger.error('Erro ao rejeitar empréstimo', {
-        service: 'emprestimosModel',
-        method: 'rejeitar',
-        caixinhaId,
-        emprestimoId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao registrar pagamento', { service: SERVICE, caixinhaId, emprestimoId, error: error.message });
       throw error;
     }
   }
 
-  // Método para registrar pagamento de parcela
-  static async registrarPagamento(caixinhaId, emprestimoId, valor, observacao = '') {
-    try {
-      logger.info('Registrando pagamento de empréstimo', {
-        service: 'emprestimosModel',
-        method: 'registrarPagamento',
-        caixinhaId,
-        emprestimoId,
-        valor
-      });
-
-      const emprestimo = await this.getById(caixinhaId, emprestimoId);
-      
-      if (!emprestimo) {
-        throw new Error('Empréstimo não encontrado');
-      }
-      
-      if (emprestimo.status !== 'aprovado' && emprestimo.status !== 'parcial') {
-        throw new Error(`Pagamento não pode ser registrado para empréstimo no status: ${emprestimo.status}`);
-      }
-      
-      // Calcular valor total já pago
-      const valorPago = (emprestimo.parcelas || []).reduce((total, parcela) => total + parcela.valor, 0) + valor;
-      
-      // Verificar se quitou totalmente
-      const novoStatus = valorPago >= emprestimo.valorTotal ? 'quitado' : 'parcial';
-      
-      // Adicionar nova parcela
-      const parcelas = [...(emprestimo.parcelas || []), {
-        data: new Date().toISOString(),
-        valor,
-        observacao
-      }];
-      
-      // Atualizar empréstimo
-      const dadosAtualizacao = {
-        parcelas,
-        status: novoStatus,
-        valorPago
-      };
-      
-      // Se for quitação total, registrar data
-      if (novoStatus === 'quitado') {
-        dadosAtualizacao.dataQuitacao = new Date();
-      }
-      
-      const emprestimoAtualizado = await this.update(caixinhaId, emprestimoId, dadosAtualizacao);
-      
-      logger.info('Pagamento registrado com sucesso', {
-        service: 'emprestimosModel',
-        method: 'registrarPagamento',
-        caixinhaId,
-        emprestimoId,
-        valor,
-        status: novoStatus
-      });
-      
-      return emprestimoAtualizado;
-    } catch (error) {
-      logger.error('Erro ao registrar pagamento', {
-        service: 'emprestimosModel',
-        method: 'registrarPagamento',
-        caixinhaId,
-        emprestimoId,
-        error: error.message,
-        stack: error.stack
-      });
-      throw error;
-    }
-  }
-
-  // Método para excluir um empréstimo (apenas para pendentes)
   static async delete(caixinhaId, emprestimoId) {
-    try {
-      logger.info('Excluindo empréstimo', {
-        service: 'emprestimosModel',
-        method: 'delete',
-        caixinhaId,
-        emprestimoId
-      });
+    logger.info('Excluindo empréstimo', { service: SERVICE, caixinhaId, emprestimoId });
 
+    try {
       const emprestimo = await this.getById(caixinhaId, emprestimoId);
-      
-      if (!emprestimo) {
-        throw new Error('Empréstimo não encontrado');
+      if (!emprestimo) throw new Error('Empréstimo não encontrado');
+      if (!['pendente', 'rejeitado'].includes(emprestimo.status)) {
+        throw new Error(`Só é possível excluir empréstimos pendentes ou rejeitados. Status: ${emprestimo.status}`);
       }
-      
-      if (emprestimo.status !== 'pendente' && emprestimo.status !== 'rejeitado') {
-        throw new Error(`Apenas empréstimos pendentes ou rejeitados podem ser excluídos. Status atual: ${emprestimo.status}`);
-      }
-      
-      await db
-        .collection('caixinhas')
-        .doc(caixinhaId)
-        .collection('emprestimos')
-        .doc(emprestimoId)
-        .delete();
-      
-      logger.info('Empréstimo excluído com sucesso', {
-        service: 'emprestimosModel',
-        method: 'delete',
-        caixinhaId,
-        emprestimoId
-      });
+
+      const { error } = await sb()
+        .from(TABLE)
+        .delete()
+        .eq('id', emprestimoId)
+        .eq('caixinha_id', caixinhaId);
+
+      if (error) throw error;
     } catch (error) {
-      logger.error('Erro ao excluir empréstimo', {
-        service: 'emprestimosModel',
-        method: 'delete',
-        caixinhaId,
-        emprestimoId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao excluir empréstimo', { service: SERVICE, caixinhaId, emprestimoId, error: error.message });
       throw error;
     }
   }
 
-  // Método para obter estatísticas de empréstimos por caixinha
   static async getEstatisticas(caixinhaId) {
-    try {
-      logger.info('Obtendo estatísticas de empréstimos', {
-        service: 'emprestimosModel',
-        method: 'getEstatisticas',
-        caixinhaId
-      });
+    logger.info('Obtendo estatísticas de empréstimos', { service: SERVICE, caixinhaId });
 
-      const emprestimos = await this.getAllByCaixinha(caixinhaId);
-      
-      // Calcular estatísticas
-      const total = emprestimos.length;
-      const pendentes = emprestimos.filter(e => e.status === 'pendente').length;
-      const aprovados = emprestimos.filter(e => e.status === 'aprovado' || e.status === 'parcial').length;
-      const quitados = emprestimos.filter(e => e.status === 'quitado').length;
-      const rejeitados = emprestimos.filter(e => e.status === 'rejeitado').length;
-      
-      // Calcular valores
-      const valorTotal = emprestimos
-        .filter(e => e.status === 'aprovado' || e.status === 'parcial' || e.status === 'quitado')
-        .reduce((total, e) => total + e.valorSolicitado, 0);
-      
-      const valorQuitado = emprestimos
-        .filter(e => e.status === 'quitado')
-        .reduce((total, e) => total + e.valorSolicitado, 0);
-      
-      const valorEmAberto = emprestimos
-        .filter(e => e.status === 'aprovado' || e.status === 'parcial')
-        .reduce((total, e) => total + e.valorSolicitado, 0);
-      
-      // Retornar estatísticas
+    try {
+      const { data, error } = await sb()
+        .from(TABLE)
+        .select('status, valor_solicitado')
+        .eq('caixinha_id', caixinhaId);
+
+      if (error) throw error;
+      const rows = data || [];
+
+      const total      = rows.length;
+      const pendentes  = rows.filter(e => e.status === 'pendente').length;
+      const aprovados  = rows.filter(e => ['aprovado', 'parcial'].includes(e.status)).length;
+      const quitados   = rows.filter(e => e.status === 'quitado').length;
+      const rejeitados = rows.filter(e => e.status === 'rejeitado').length;
+
+      const sum = (filter) => rows.filter(filter).reduce((acc, e) => acc + Number(e.valor_solicitado), 0);
+
       return {
-        total,
-        pendentes,
-        aprovados,
-        quitados,
-        rejeitados,
-        valorTotal,
-        valorQuitado,
-        valorEmAberto
+        total, pendentes, aprovados, quitados, rejeitados,
+        valorTotal:    sum(e => ['aprovado','parcial','quitado'].includes(e.status)),
+        valorQuitado:  sum(e => e.status === 'quitado'),
+        valorEmAberto: sum(e => ['aprovado','parcial'].includes(e.status)),
       };
     } catch (error) {
-      logger.error('Erro ao obter estatísticas de empréstimos', {
-        service: 'emprestimosModel',
-        method: 'getEstatisticas',
-        caixinhaId,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error('Erro ao obter estatísticas', { service: SERVICE, caixinhaId, error: error.message });
       throw error;
     }
   }

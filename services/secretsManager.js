@@ -109,7 +109,7 @@ class RenderSecretsManager {
    */
   static encryptForEnvironment(plainValue, masterKey) {
     const key = Buffer.from(masterKey, 'hex');
-    const iv = crypto.randomBytes(16);
+    const iv = crypto.randomBytes(12); // 96-bit — NIST recomendado para GCM
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     
     let encrypted = cipher.update(plainValue, 'utf8', 'hex');

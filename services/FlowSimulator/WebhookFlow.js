@@ -10,8 +10,8 @@ const BaseFlow = require('./BaseFlow');
  *   4. Webhook Mercado Pago (Validação de conta — opcional/futuro)
  */
 class WebhookFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('webhook', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('webhook', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run(testUser) {
@@ -25,13 +25,16 @@ class WebhookFlow extends BaseFlow {
     await this.step('setup_caixinha_for_webhook', async ({ axios }) => {
       const res = await axios.post('/api/caixinha/', {
         name: `QA Webhook Caixinha ${this.runId}`,
+        description: 'Caixinha para teste de webhooks',
         adminId: testUser.uid,
         contribuicaoMensal: 50,
         duracaoMeses: 6,
+        distribuicaoTipo: 'MENSAL',
+        dataCriacao: new Date().toISOString(),
         permiteEmprestimos: true
       }, { headers: auth });
 
-      caixinhaId = res.data?.id || res.data?.caixinhaId;
+      caixinhaId = res.data?.id || res.data?.caixinhaId || res.data?.data?.id;
       return { caixinhaId };
     });
 

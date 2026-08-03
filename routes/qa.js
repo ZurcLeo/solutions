@@ -20,6 +20,7 @@ router.get('/health', qaCtrl.getHealth);
 
 // Protegidos por qaAuth
 router.post('/run',          qaAuth, qaCtrl.triggerRun);
+router.get('/stream',        qaAuth, qaCtrl.streamRun);
 router.post('/seed-balance', qaAuth, qaCtrl.seedBalance);
 router.get('/runs',          qaAuth, qaCtrl.listRuns);
 router.get('/runs/:runId',   qaAuth, qaCtrl.getRunDetail);

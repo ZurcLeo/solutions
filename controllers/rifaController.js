@@ -636,6 +636,119 @@ const gerarComprovante = async (req, res) => {
   }
 };
 
+// ── Votação em concursos ──────────────────────────────────────────────────
+
+const votarConcurso = async (req, res) => {
+  const { caixinhaId, rifaId } = req.params;
+  const userId = req.user.uid;
+  const { candidato } = req.body;
+
+  logger.info('Registrando voto em concurso', {
+    controller: 'RifaController', function: 'votarConcurso', caixinhaId, rifaId, userId, candidato
+  });
+
+  try {
+    const voto = await RifaService.votar(caixinhaId, rifaId, userId, candidato);
+    return res.status(201).json({ success: true, data: voto });
+  } catch (error) {
+    logger.error('Erro ao votar', { controller: 'RifaController', error: error.message, caixinhaId, rifaId, userId });
+    const status = error.message.includes('já votou') ? 409 : 400;
+    return res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+const listarVotos = async (req, res) => {
+  const { caixinhaId, rifaId } = req.params;
+  const userId = req.user.uid;
+
+  logger.info('Listando votos do concurso', {
+    controller: 'RifaController', function: 'listarVotos', caixinhaId, rifaId, userId
+  });
+
+  try {
+    const votos = await RifaService.getVotos(caixinhaId, rifaId);
+    return res.status(200).json({ success: true, data: votos });
+  } catch (error) {
+    logger.error('Erro ao listar votos', { controller: 'RifaController', error: error.message, caixinhaId, rifaId });
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const resolverConcurso = async (req, res) => {
+  const { caixinhaId, rifaId } = req.params;
+  const userId = req.user.uid;
+  const { forcar } = req.body;
+
+  logger.info('Resolvendo concurso', {
+    controller: 'RifaController', function: 'resolverConcurso', caixinhaId, rifaId, userId, forcar
+  });
+
+  try {
+    const resultado = await RifaService.resolverConcurso(caixinhaId, rifaId, !!forcar);
+    return res.status(200).json({ success: true, data: resultado });
+  } catch (error) {
+    logger.error('Erro ao resolver concurso', { controller: 'RifaController', error: error.message, caixinhaId, rifaId });
+    const status = error.message.includes('Quórum') ? 422 : 400;
+    return res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+// ── Amigo Secreto ─────────────────────────────────────────────────────────
+
+const executarSorteioAmigo = async (req, res) => {
+  const { caixinhaId, rifaId } = req.params;
+  const userId = req.user.uid;
+  const { participantes, limitePresente } = req.body;
+
+  logger.info('Executando sorteio de Amigo Secreto', {
+    controller: 'RifaController', function: 'executarSorteioAmigo', caixinhaId, rifaId, userId
+  });
+
+  try {
+    const resultado = await RifaService.sortearPares(caixinhaId, rifaId, participantes);
+    return res.status(200).json({ success: true, data: resultado });
+  } catch (error) {
+    logger.error('Erro ao sortear pares', { controller: 'RifaController', error: error.message, caixinhaId, rifaId });
+    const status = error.message.includes('já foram sorteados') ? 409
+      : error.message.includes('pelo menos 2') ? 422 : 400;
+    return res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+const revelarMeuPar = async (req, res) => {
+  const { caixinhaId, rifaId } = req.params;
+  const userId = req.user.uid;
+
+  logger.info('Revelando par do Amigo Secreto', {
+    controller: 'RifaController', function: 'revelarMeuPar', caixinhaId, rifaId, userId
+  });
+
+  try {
+    const par = await RifaService.getMeuPar(caixinhaId, rifaId, userId);
+    return res.status(200).json({ success: true, data: par });
+  } catch (error) {
+    logger.error('Erro ao revelar par', { controller: 'RifaController', error: error.message, caixinhaId, rifaId, userId });
+    return res.status(404).json({ success: false, message: error.message });
+  }
+};
+
+const listarTodosPares = async (req, res) => {
+  const { caixinhaId, rifaId } = req.params;
+  const userId = req.user.uid;
+
+  logger.info('Listando todos os pares do Amigo Secreto (admin)', {
+    controller: 'RifaController', function: 'listarTodosPares', caixinhaId, rifaId, userId
+  });
+
+  try {
+    const pares = await RifaService.getTodasPares(caixinhaId, rifaId);
+    return res.status(200).json({ success: true, data: pares });
+  } catch (error) {
+    logger.error('Erro ao listar pares', { controller: 'RifaController', error: error.message, caixinhaId, rifaId });
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // Adicionar os controladores ao módulo exportado
 module.exports = {
   listarRifas,
@@ -646,5 +759,11 @@ module.exports = {
   venderBilhete,
   realizarSorteio,
   verificarAutenticidade,
-  gerarComprovante
+  gerarComprovante,
+  votarConcurso,
+  listarVotos,
+  resolverConcurso,
+  executarSorteioAmigo,
+  revelarMeuPar,
+  listarTodosPares,
 };

@@ -8,7 +8,7 @@ const { getFirestore } = require('../firebaseAdmin');
 const NodeCache = require('node-cache');
 const { addToLocalBlacklist } = require('../utils/securityUtils');
 
-const db = getFirestore();
+// db é inicializado de forma lazy onde necessário
 
 // Cache para armazenar patterns de comportamento
 const behaviorCache = new NodeCache({ stdTTL: 3600 }); // 1 hora
@@ -382,13 +382,14 @@ class SmartSecurityService {
     try {
       // Auto-blacklist if risk is critical
       if (data?.riskScore >= this.riskThresholds.CRITICAL) {
-        addToLocalBlacklist(userId, 'user', `Critical risk: ${eventType}`);
+        await addToLocalBlacklist(userId, 'user', `Critical risk: ${eventType}`);
         // Se tivermos IP no contexto, blacklistar o IP também
         if (data?.ip) {
-          addToLocalBlacklist(data.ip, 'ip', `Critical risk from user ${userId}`);
+          await addToLocalBlacklist(data.ip, 'ip', `Critical risk from user ${userId}`);
         }
       }
 
+      const db = getFirestore(); // lazy
       await db.collection('securityEvents').add({
         userId,
         eventType,

@@ -7,7 +7,7 @@ const verifyToken = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
 const userSchema = require('../schemas/userSchema');
 const { upload, errorHandler } = require('../middlewares/upload.cjs');
-const { rateLimiter } = require('../middlewares/rateLimiter');
+const { rateLimiter, bankingLimit } = require('../middlewares/rateLimiter');
 const { logger } = require('../logger');
 const { healthCheck } = require('../middlewares/healthMiddleware');
 
@@ -114,6 +114,26 @@ router.get('/search', verifyToken, rateLimiter, userController.searchUsers);
  *       500:
  *         description: Internal server error.
  */
+// ─── @username — públicos (devem preceder /:userId para evitar conflito) ──────
+router.get('/check-username/:username', userController.checkUsername);
+router.get('/generate-fallback', userController.generateFallbackUsername);
+
+// ─── PREFS-005: Transparência & Exportação de Dados (LGPD Art. 18) ──────────
+router.get('/data-export',        verifyToken, rateLimiter, userController.getDataExport);
+router.get('/preference-history', verifyToken, rateLimiter, userController.getPreferenceHistory);
+
+// ─── Preferências de notificação (devem preceder /:userId) ───────────────────
+router.get('/preferences', verifyToken, rateLimiter, userController.getNotificationPreferences);
+router.put('/preferences', verifyToken, rateLimiter, userController.updateNotificationPreferences);
+
+// ─── Métodos de pagamento globais do usuário (devem preceder /:userId) ────────
+const userPaymentMethodController = require('../controllers/userPaymentMethodController');
+
+router.get('/payment-methods',               verifyToken, bankingLimit, userPaymentMethodController.list);
+router.post('/payment-methods',              verifyToken, bankingLimit, userPaymentMethodController.register);
+router.post('/payment-methods/:id/validate', verifyToken, bankingLimit, userPaymentMethodController.validate);
+router.delete('/payment-methods/:id',        verifyToken, bankingLimit, userPaymentMethodController.remove);
+
 router.get('/:userId', verifyToken, rateLimiter, validate(userSchema), userController.getUserById);
 
 /**
@@ -180,7 +200,7 @@ router.put('/update-user/:userId', verifyToken, rateLimiter, validate(userSchema
 /**
  * @swagger
  * /users/upload-profile-picture/{userId}:
- *   put:
+ *   post:
  *     summary: Faz upload da foto de perfil do usuário
  *     tags: [Users]
  *     parameters:
@@ -218,8 +238,8 @@ router.put('/update-user/:userId', verifyToken, rateLimiter, validate(userSchema
  *         description: Erro no servidor
  */
 
-router.put('/upload-profile-picture/:userId', 
-  verifyToken, 
+router.post('/upload-profile-picture/:userId',
+  verifyToken,
   rateLimiter,
   upload.single('profilePicture'), 
   errorHandler, 
@@ -249,5 +269,28 @@ router.put('/upload-profile-picture/:userId',
  *         description: Erro no servidor
  */
 router.delete('/delete-user/:id', verifyToken, rateLimiter, userController.deleteUser);
+
+// Sugestão via IA (público) e alteração de username (requer auth)
+router.post('/suggest-username', userController.suggestUsername);
+router.patch('/username', verifyToken, rateLimiter, userController.updateUsername);
+
+// ─── Email de Recuperação ─────────────────────────────────────────────────────
+router.put('/recovery-email',          verifyToken, rateLimiter, userController.setRecoveryEmail);
+router.post('/recovery-email/verify',  verifyToken, rateLimiter, userController.verifyRecoveryEmail);
+router.post('/recovery-email/resend',  verifyToken, rateLimiter, userController.resendRecoveryEmailOTP);
+router.delete('/recovery-email',       verifyToken, rateLimiter, userController.removeRecoveryEmail);
+
+// ─── Lista de desejos pessoal (BARTER-006) ────────────────────────────────────
+router.get('/me/wishlist',   verifyToken, userController.getMyWishlist);
+router.patch('/me/wishlist', verifyToken, userController.updateMyWishlist);
+
+// ─── Status de suspensão própria ──────────────────────────────────────────────
+const suspensionController = require('../controllers/suspensionController');
+router.get('/suspension', verifyToken, suspensionController.getOwnSuspension);
+
+// ─── Denúncia de perfil de usuário ────────────────────────────────────────────
+const reportController = require('../controllers/reportController');
+const { writeLimit } = require('../middlewares/rateLimiter');
+router.post('/:userId/report', verifyToken, writeLimit, reportController.reportUser);
 
 module.exports = router;

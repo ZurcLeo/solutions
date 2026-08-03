@@ -19,7 +19,7 @@ function initializeFirebaseApp() {
   try {
     let credential;
     const serviceAccountPath = process.env.FIREBASE_CREDENTIALS;
-    
+
     // Verificar se o valor da variável de ambiente é um caminho ou um JSON
     if (serviceAccountPath.startsWith('{')) {
       // É um JSON direto
@@ -44,7 +44,7 @@ function initializeFirebaseApp() {
         throw fileError;
       }
     }
-    
+
     firebaseApp = admin.initializeApp({
       credential: credential,
       databaseURL: process.env.FIREBASE_DATABASE_URL,

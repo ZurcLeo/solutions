@@ -7,8 +7,6 @@ const SmartSecurityService = require('../services/SmartSecurityService');
 const { getFirestore } = require('../firebaseAdmin');
 const { logger } = require('../logger');
 
-const db = getFirestore();
-
 class SecurityController {
   /**
    * Dashboard de métricas de segurança em tempo real
@@ -120,18 +118,19 @@ class SecurityController {
    * Eventos de segurança em tempo real
    */
   static async getSecurityEvents(req, res) {
+    const db = getFirestore(); // lazy
     try {
-      const { 
-        limit = 50, 
-        eventType, 
-        userId, 
+      const {
+        limit = 50,
+        eventType,
+        userId,
         riskLevel,
         startDate,
-        endDate 
+        endDate
       } = req.query;
 
       const isAdmin = req.user?.roles?.includes('admin');
-      
+
       if (!isAdmin) {
         return res.status(403).json({ error: 'Admin access required' });
       }
@@ -326,6 +325,7 @@ class SecurityController {
 
   // Métodos auxiliares privados
   static async _buildSecurityDashboard(userId, timeRange) {
+    const db = getFirestore(); // lazy
     const timeRangeMs = SecurityController._parseTimeRange(timeRange);
     const startDate = new Date(Date.now() - timeRangeMs);
 
@@ -361,8 +361,9 @@ class SecurityController {
   }
 
   static async _getRecentSecurityEvents(userId, days) {
+    const db = getFirestore(); // lazy
     const startDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
-    
+
     const snapshot = await db.collection('securityEvents')
       .where('userId', '==', userId)
       .where('timestamp', '>=', startDate)

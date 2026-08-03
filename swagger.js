@@ -11,15 +11,16 @@ const swaggerOptions = {
       description: 'Documentação da API - Elos Cloud',
       contact: {
         name: 'Leonardo Cruz',
-        email: 'leonardo@eloscloud.com.br',
+        email: 'suporte@eloscloud.com',
       },
       servers: [
         {
-          url: 'https://localhost:9000',
-        },
-        {
           url: 'https://api.eloscloud.com',
           description: 'Production server'
+        },
+        {
+          url: 'https://localhost:9000',
+          description: 'Development server'
         }
       ],
     },

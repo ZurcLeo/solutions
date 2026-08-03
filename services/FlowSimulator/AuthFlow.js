@@ -19,8 +19,8 @@ const { logger } = require('../../logger');
  * - O registro via UI será coberto pelo UIFlowSimulator (Playwright) na Fase 2.
  */
 class AuthFlow extends BaseFlow {
-  constructor(runId, backendUrl) {
-    super('auth', 'api', runId, backendUrl);
+  constructor(runId, backendUrl, qaToken, onProgress = null) {
+    super('auth', 'api', runId, backendUrl, qaToken, onProgress);
   }
 
   async run(testUser) {

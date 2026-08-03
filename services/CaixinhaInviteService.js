@@ -9,8 +9,6 @@
  * @requires ../logger
  * @requires ./emailService
  */
-const {getFirestore} = require('../firebaseAdmin')
-const db = getFirestore();
 const CaixinhaInvite = require('../models/CaixinhaInvite');
 const Caixinha = require('../models/Caixinhas');
 const User = require('../models/User');
@@ -19,6 +17,29 @@ const notificationService = require('../services/notificationService')
 const { logger } = require('../logger');
 const emailService = require('./emailService');
 const inviteService = require('./inviteService');
+const { getFirestore } = require('../firebaseAdmin');
+const { getSupabaseClient } = require('../config/supabase');
+const { getUserByEmail } = require('../utils/firebaseAuthUtils');
+
+/**
+ * Normaliza um valor de data para um objeto Date.
+ * @param {*} v - O valor a ser normalizado (Timestamp, Date, string, etc.)
+ * @returns {Date|null}
+ */
+const normalizeDate = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v.toDate === 'function') return v.toDate();
+  return new Date(v);
+};
+
+// Proxy lazy: inicializa Firestore só quando necessário (fallback legado)
+const db = new Proxy({}, {
+  get(_, k) {
+    const d = getFirestore();
+    return typeof d[k] === 'function' ? d[k].bind(d) : d[k];
+  }
+});
 
 class CaixinhaInviteService {
   /**
@@ -189,9 +210,17 @@ class CaixinhaInviteService {
         targetId: data.targetId,
         status: 'pending'
       });
-      
+
+      // Gamificação — Recrutador (fire-and-forget)
+      const gamificationService = require('./gamificationService');
+      gamificationService.triggerEvent('caixinha_invite_sent', data.senderId, {
+        caixinhaId: data.caixinhaId,
+        inviteId: invite.id,
+      }).catch(() => {});
+
       return {
         success: true,
+        inviteId: invite.id,
         caxinhaInviteId: invite.id,
         message: 'Convite enviado com sucesso.'
       };
@@ -221,29 +250,76 @@ class CaixinhaInviteService {
       if (!caixinha) {
         throw new Error('Caixinha não encontrada.');
       }
-      
+
       // Verificar se o remetente tem permissão (é membro ou admin)
       const senderIsMember = await this._checkUserIsMember(data.caixinhaId, data.senderId);
       if (!senderIsMember) {
         throw new Error('Você não tem permissão para convidar membros para esta caixinha.');
       }
-      
+
+      // ── Smart email lookup: verificar se o email pertence a um usuário existente ──
+      const firebaseUser = await getUserByEmail(data.email);
+      if (firebaseUser) {
+        // Usuário existe no Firebase Auth — buscar perfil no Supabase
+        const existingUser = await User.getById(firebaseUser.uid);
+
+        // Se já é membro da caixinha, informar
+        const alreadyMember = await this._checkUserIsMember(data.caixinhaId, firebaseUser.uid);
+        if (alreadyMember) {
+          throw new Error('Este usuário já é membro desta caixinha.');
+        }
+
+        // Verificar convite pendente para este usuário (por targetId)
+        const pendingInvites = await CaixinhaInvite.getByCaixinhaId(data.caixinhaId, {
+          status: 'pending'
+        });
+        const existingInvite = pendingInvites.find(
+          invite => invite.targetId === firebaseUser.uid || invite.email === data.email
+        );
+        if (existingInvite) {
+          throw new Error('Já existe um convite pendente para este usuário.');
+        }
+
+        // Retornar perfil para o frontend exibir card de convite direto
+        logger.info('inviteByEmail: usuário existente encontrado, retornando perfil para convite direto', {
+          service: 'CaixinhaInviteService',
+          function: 'inviteByEmail',
+          caixinhaId: data.caixinhaId,
+          foundUserId: firebaseUser.uid,
+        });
+
+        return {
+          success: true,
+          userFound: true,
+          user: {
+            id: firebaseUser.uid,
+            nome: existingUser?.nome || firebaseUser.displayName || data.email.split('@')[0],
+            email: existingUser?.email || firebaseUser.email,
+            fotoPerfil: existingUser?.fotoDoPerfil || firebaseUser.photoURL || '',
+            username: existingUser?.username || null,
+          },
+          message: 'Usuário encontrado no sistema. Você pode adicioná-lo diretamente.',
+        };
+      }
+
+      // ── Usuário NÃO existe — fluxo de convite por email (externo) ──
+
       // Verificar se já existe um convite pendente para este email
       const pendingInvites = await CaixinhaInvite.getByCaixinhaId(data.caixinhaId, {
         status: 'pending'
       });
-      
+
       const existingInvite = pendingInvites.find(invite => invite.email === data.email);
       if (existingInvite) {
         throw new Error('Já existe um convite pendente para este email.');
       }
-      
+
       // Obter dados do remetente
       const sender = await User.getById(data.senderId);
       if (!sender) {
         throw new Error('Remetente não encontrado.');
       }
-      
+
       // Criar o convite
       const invite = await CaixinhaInvite.create({
         caixinhaId: data.caixinhaId,
@@ -255,7 +331,7 @@ class CaixinhaInviteService {
         message: data.message,
         createdAt: new Date()
       });
-      
+
       // Criar convite de plataforma vinculado a este convite de caixinha
       // (garante link correto: /invite/validate/:id em vez de /convite/:id)
       await inviteService.createInviteForCaixinha({
@@ -268,9 +344,17 @@ class CaixinhaInviteService {
         caixinha,
         message: data.message
       });
-      
+
+      // [CX-P2-M1] Gamificação — fire-and-forget
+      const gamificationService = require('./gamificationService');
+      gamificationService.triggerEvent('caixinha_invite_sent', data.senderId, {
+        caixinhaId: data.caixinhaId, inviteId: invite.id,
+      }).catch(() => {});
+
       return {
         success: true,
+        userFound: false,
+        inviteId: invite.id,
         caxinhaInviteId: invite.id,
         message: 'Convite enviado com sucesso.'
       };
@@ -297,38 +381,22 @@ async acceptInvite(caxinhaInviteId, userId) {
     let caixinhaId = null;
     let inviteDocRef = null; // Armazenar a referência real do documento
     
-    // Tentar buscar diretamente da coleção do usuário (novo método)
+    // Tentar buscar diretamente do Supabase (primário)
     try {
       const userInvites = await CaixinhaInvite.getReceivedInvites(userId, { status: 'pending' });
       const foundInvite = userInvites.find(inv => inv.id === caxinhaInviteId);
-      
+
       if (foundInvite) {
         invite = foundInvite;
         caixinhaId = foundInvite.caixinhaId;
-        
-        // Verificar se o documento realmente existe no Firestore
-        const tempInviteRef = db
-          .collection('caixinhas')
-          .doc(caixinhaId)
-          .collection('pendingRequests')
-          .doc(caxinhaInviteId);
-        
-        const inviteDoc = await tempInviteRef.get();
-        if (inviteDoc.exists) {
-          inviteDocRef = tempInviteRef;
-        } else {
-          // Documento não existe no caminho esperado, continuar busca
-          invite = null;
-          caixinhaId = null;
-        }
+        // inviteDocRef fica null — Supabase é a fonte de verdade; Firestore backup é fire-and-forget
       }
     } catch (error) {
-      logger.warn('Erro ao buscar convite na coleção do usuário:', error);
-      // Continuar para o método legado
+      logger.warn('Erro ao buscar convite no Supabase:', error);
     }
-    
-    // Se não encontrou na coleção do usuário, buscar manualmente em todas as caixinhas
-    if (!invite || !inviteDocRef) {
+
+    // Fallback legado: varrer Firestore apenas se Supabase não retornou o convite
+    if (!invite) {
       // Listagem de caixinhas para buscar o convite
       const caixinhasSnapshot = await db.collection('caixinhas').get();
       
@@ -363,7 +431,7 @@ async acceptInvite(caxinhaInviteId, userId) {
       }
     }
     
-    if (!invite || !inviteDocRef) {
+    if (!invite) {
       throw new Error('Convite não encontrado ou já foi processado.');
     }
     
@@ -378,12 +446,19 @@ async acceptInvite(caxinhaInviteId, userId) {
     }
     
     // Verificar se o convite está expirado
-    if (invite.expiresAt && invite.expiresAt.toDate() < new Date()) {
-      // Atualizar status para expirado
-      await inviteDocRef.update({
-        status: 'expired',
-        respondedAt: new Date()
-      });
+    const expiresAt = normalizeDate(invite.expiresAt);
+    if (expiresAt && expiresAt < new Date()) {
+      // Atualizar status para expirado — Supabase-first
+      try {
+        await CaixinhaInvite.updateStatus(caixinhaId, caxinhaInviteId, {
+          status: 'expired', respondedAt: new Date()
+        });
+      } catch (_) {}
+      if (inviteDocRef) {
+        setImmediate(() => {
+          inviteDocRef.update({ status: 'expired', respondedAt: new Date() }).catch(() => {});
+        });
+      }
       throw new Error('Este convite já expirou.');
     }
     
@@ -393,84 +468,113 @@ async acceptInvite(caxinhaInviteId, userId) {
       throw new Error('Usuário não encontrado.');
     }
     
-    // Verificar se o usuário já é membro da caixinha
-    const caixinhaRef = db.collection('caixinhas').doc(caixinhaId);
-    const caixinhaDoc = await caixinhaRef.get();
-    
-    if (!caixinhaDoc.exists) {
-      throw new Error('Caixinha não encontrada.');
-    }
-    
-    const caixinhaData = caixinhaDoc.data();
-    const members = caixinhaData.members || [];
-    
-    if (members.includes(userId)) {
-      // Usuário já é membro, apenas atualizar o status do convite
-      await inviteDocRef.update({
-        status: 'accepted',
-        respondedAt: new Date()
+    // ─── SUPABASE PRIMARY: RPC atômico (sem race condition) ─────────────────
+    const supabase = getSupabaseClient();
+    let caixinhaFirestoreRef = null;
+    let caixinhaFirestoreData = null;
+
+    if (supabase) {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('accept_caixinha_invite', {
+        p_invite_id: caxinhaInviteId,
+        p_caixinha_id: caixinhaId,
+        p_user_id: userId,
       });
-      
-      return {
-        success: true,
-        caixinhaId,
-        message: 'Você já é membro desta caixinha.'
-      };
-    }
-    
-    // Criar batch para operações em transação
-    const batch = db.batch();
-    
-    // 1. Atualizar status do convite (usando a referência real encontrada)
-    batch.update(inviteDocRef, {
-      status: 'accepted',
-      respondedAt: new Date()
-    });
-    
-    // 2. Adicionar usuário como membro da caixinha na subcoleção membros
-    const membroRef = db
-      .collection('caixinhas')
-      .doc(caixinhaId)
-      .collection('membros')
-      .doc();
-    
-    batch.set(membroRef, {
-      id: membroRef.id,
-      caixinhaId,
-      userId,
-      nome: user.nome || user.displayName,
-      email: user.email,
-      fotoDoPerfil: user.fotoDoPerfil,
-      active: true,
-      isAdmin: false,
-      joinedAt: new Date(),
-      role: 'membro'
-    });
-    
-    // 3. Atualizar o array members no documento principal da caixinha
-    batch.update(caixinhaRef, {
-      members: [...members, userId],
-      totalMembros: (caixinhaData.totalMembros || members.length) + 1
-    });
-    
-    // 4. Adicionar referência da caixinha no documento do usuário
-    const userRef = db.collection('usuario').doc(userId);
-    const userDoc = await userRef.get();
-    
-    if (userDoc.exists) {
-      const targetUser = userDoc.data();
-      const userCaixinhas = targetUser.caixinhas || [];
-      
-      // Adicionar caixinha apenas se não estiver na lista
-      if (!userCaixinhas.includes(caixinhaId)) {
-        batch.update(userRef, { 
-          caixinhas: [...userCaixinhas, caixinhaId] 
-        });
+
+      if (rpcError) {
+        // Map PostgreSQL errors to user-friendly messages
+        if (rpcError.message?.includes('não encontrado')) throw new Error('Convite não encontrado ou já foi processado.');
+        if (rpcError.message?.includes('já foi processado')) throw new Error(rpcError.message);
+        if (rpcError.message?.includes('expirou')) throw new Error('Este convite já expirou.');
+        if (rpcError.message?.includes('não pertence')) throw new Error('Este convite não foi enviado para você.');
+        throw rpcError;
       }
+
+      if (rpcResult?.already_member) {
+        return { success: true, caixinhaId, message: 'Você já é membro desta caixinha.' };
+      }
+    } else {
+      // ─── FALLBACK FIRESTORE (sem Supabase disponível) ──────────────────────
+      if (!caixinhaFirestoreRef) {
+        caixinhaFirestoreRef = db.collection('caixinhas').doc(caixinhaId);
+        const caixinhaDoc = await caixinhaFirestoreRef.get();
+        if (!caixinhaDoc.exists) throw new Error('Caixinha não encontrada.');
+        caixinhaFirestoreData = caixinhaDoc.data();
+      }
+      const members = caixinhaFirestoreData.members || [];
+      const batch = db.batch();
+      if (inviteDocRef) {
+        batch.update(inviteDocRef, { status: 'accepted', respondedAt: new Date() });
+      }
+      const membroRef = db.collection('caixinhas').doc(caixinhaId).collection('membros').doc();
+      batch.set(membroRef, {
+        id: membroRef.id, caixinhaId, userId,
+        nome: user.nome || user.displayName, email: user.email, fotoDoPerfil: user.fotoDoPerfil,
+        active: true, status: 'ativo', isAdmin: false, joinedAt: new Date(), role: 'membro'
+      });
+      batch.update(caixinhaFirestoreRef, {
+        members: [...members, userId],
+        totalMembros: (caixinhaFirestoreData.totalMembros || members.length) + 1
+      });
+      const userRef = db.collection('usuario').doc(userId);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const userCaixinhas = userDoc.data().caixinhas || [];
+        if (!userCaixinhas.includes(caixinhaId)) {
+          batch.update(userRef, { caixinhas: [...userCaixinhas, caixinhaId] });
+        }
+      }
+      await batch.commit();
     }
-    
-    // Executar todas as operações em transação
-    await batch.commit();
+
+    // ─── FIRESTORE BACKUP (fire-and-forget, Supabase é primário) ─────────────
+    if (supabase) {
+      setImmediate(() => {
+        try {
+          const fsRef = db.collection('caixinhas').doc(caixinhaId);
+          fsRef.get().then(fsDoc => {
+            if (!fsDoc.exists) return Promise.resolve();
+            const fsData = fsDoc.data();
+            const members = fsData.members || [];
+            if (members.includes(userId)) return Promise.resolve();
+            const batch2 = db.batch();
+            if (inviteDocRef) {
+              batch2.update(inviteDocRef, { status: 'accepted', respondedAt: new Date() });
+            }
+            const mRef = db.collection('caixinhas').doc(caixinhaId).collection('membros').doc();
+            batch2.set(mRef, {
+              id: mRef.id, caixinhaId, userId,
+              nome: user.nome || user.displayName, email: user.email, fotoDoPerfil: user.fotoDoPerfil,
+              active: true, status: 'ativo', isAdmin: false, joinedAt: new Date(), role: 'membro'
+            });
+            batch2.update(fsRef, {
+              members: [...members, userId],
+              totalMembros: (fsData.totalMembros || members.length) + 1
+            });
+            const uRef = db.collection('usuario').doc(userId);
+            return uRef.get().then(uDoc => {
+              if (uDoc.exists) {
+                const uCaixinhas = uDoc.data().caixinhas || [];
+                if (!uCaixinhas.includes(caixinhaId)) {
+                  batch2.update(uRef, { caixinhas: [...uCaixinhas, caixinhaId] });
+                }
+              }
+              return batch2.commit();
+            });
+          }).catch(() => {});
+        } catch (_) {}
+      });
+    }
+
+    // [GAME-COV-002] fire-and-forget — não bloqueia o fluxo principal
+    setImmediate(() => {
+      const gamificationService = require('./gamificationService');
+      gamificationService.triggerEvent('caixinha_joined', userId)
+        .catch(err =>
+          logger.warn('Falha ao acionar gamificação em aceite de convite de caixinha', {
+            service: 'CaixinhaInviteService', userId, caixinhaId, error: err.message
+          })
+        );
+    });
     
     logger.info(`Convite ${caxinhaInviteId} aceito com sucesso para usuário ${userId} na caixinha ${caixinhaId}`);
     
@@ -803,27 +907,39 @@ async acceptInvite(caxinhaInviteId, userId) {
    */
   async getInviteDetails(caxinhaInviteId) {
     try {
-      // Buscar em todas as caixinhas
+      // ─── Supabase-first: busca direta por ID sem precisar de caixinhaId ────
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('caixinha_invites')
+          .select('*')
+          .eq('id', caxinhaInviteId)
+          .maybeSingle();
+        if (!error && data) {
+          const invite = new CaixinhaInvite({
+            id: data.id, caixinhaId: data.caixinha_id, type: data.type, status: data.status,
+            senderId: data.sender_id, senderName: data.sender_name, targetId: data.target_id,
+            targetName: data.target_name, email: data.email, message: data.message,
+            createdAt: data.created_at, expiresAt: data.expires_at, respondedAt: data.responded_at
+          });
+          const caixinha = await Caixinha.getById(data.caixinha_id).catch(() => null);
+          return { ...invite, caixinhaName: caixinha?.name || caixinha?.nome || 'Caixinha não encontrada' };
+        }
+      }
+
+      // ─── Firestore fallback (legado) ───────────────────────────────────────
       const caixinhasSnapshot = await db.collection('caixinhas').get();
-      
       for (const caixinhaDoc of caixinhasSnapshot.docs) {
         const caixinhaId = caixinhaDoc.id;
-        
         try {
           const invite = await CaixinhaInvite.getById(caixinhaId, caxinhaInviteId);
           if (invite) {
-            // Adicionar informações adicionais
-            const caixinha = await Caixinha.getById(caixinhaId);
-            return {
-              ...invite,
-              caixinhaName: caixinha?.name || caixinha?.nome || 'Caixinha não encontrada'
-            };
+            const caixinha = await Caixinha.getById(caixinhaId).catch(() => null);
+            return { ...invite, caixinhaName: caixinha?.name || caixinha?.nome || 'Caixinha não encontrada' };
           }
-        } catch (err) {
-          // Continuar procurando em outras caixinhas
-        }
+        } catch (_) {}
       }
-      
+
       throw new Error('Convite não encontrado.');
     } catch (error) {
       logger.error('Erro ao buscar detalhes do convite:', error);
@@ -845,42 +961,33 @@ async acceptInvite(caxinhaInviteId, userId) {
     try {
       // Verificar se é admin da caixinha
       const caixinha = await Caixinha.getById(caixinhaId);
-      if (caixinha.adminId === userId) {
-        logger.info('Usuário é admin da caixinha', { caixinhaId, userId });
+      if (caixinha && caixinha.adminId === userId) {
         return true;
       }
-      
-      // Buscar membros da caixinha
+
+      // ─── Supabase-first ────────────────────────────────────────────────────
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data: member } = await supabase
+          .from('caixinha_members')
+          .select('id')
+          .eq('caixinha_id', caixinhaId)
+          .eq('user_id', userId)
+          .eq('status', 'ativo')
+          .maybeSingle();
+        if (member !== null) return !!member;
+      }
+
+      // ─── Firestore fallback (legado) ───────────────────────────────────────
       const membrosSnapshot = await db.collection('caixinhas').doc(caixinhaId).collection('membros').get();
-      
-      // Log the full snapshot for debugging
-      logger.info('Snapshot de membros:', { 
-        caixinhaId, 
-        count: membrosSnapshot.size,
-        empty: membrosSnapshot.empty 
-      });
-      
       for (const membroDoc of membrosSnapshot.docs) {
         const membro = membroDoc.data();
-        logger.info('Verificando membro:', { 
-          membro,
-          userId: membro.userId, 
-          requestedUserId: userId,
-          status: membro.status,
-          match: membro.userId === userId && membro.status === 'ativo'
-        });
-        
-        if (membro.userId === userId && membro.status === 'ativo') {
-          logger.info('Usuário é membro ativo da caixinha', { caixinhaId, userId });
-          return true;
-        }
+        if (membro.userId === userId && membro.status === 'ativo') return true;
       }
-      
-      // If we get here, the user is not a member
-      logger.info('Usuário não é membro da caixinha', { caixinhaId, userId });
+
       return false;
     } catch (error) {
-      console.error('Erro ao verificar se usuário é membro:', error);
+      logger.error('Erro ao verificar se usuário é membro:', { error: error.message, caixinhaId, userId });
       return false;
     }
   }
@@ -917,7 +1024,7 @@ async acceptInvite(caxinhaInviteId, userId) {
           caixinhaDescricao: caixinha.descricao,
           contribuicaoMensal: caixinha.contribuicaoMensal,
           senderName: sender.nome || sender.displayName,
-          senderPhotoURL: sender.fotoPerfil || 'https://storage.googleapis.com/elossolucoescloud-1804e.appspot.com/default-profile.png',
+          senderPhotoURL: sender.fotoPerfil || '',
           recipientName: '',
           message: message,
           inviteLink: inviteLink,
@@ -1111,36 +1218,73 @@ async _sendInviteNotification(data) {
    */
   async linkToRegisteredUser(caxinhaInviteId, caixinhaId, userId) {
     try {
-      const inviteRef = db
-        .collection('caixinhas').doc(caixinhaId)
-        .collection('pendingRequests').doc(caxinhaInviteId);
+      // ─── SUPABASE PRIMARY ──────────────────────────────────────────────────
+      const supabase = getSupabaseClient();
+      let invite = null;
 
-      const inviteDoc = await inviteRef.get();
-      if (!inviteDoc.exists || inviteDoc.data().status !== 'pending') {
-        logger.warn('linkToRegisteredUser: convite não encontrado ou já processado', {
-          caxinhaInviteId, caixinhaId, userId
-        });
-        return;
+      if (supabase) {
+        try {
+          invite = await CaixinhaInvite.getById(caixinhaId, caxinhaInviteId);
+        } catch (_) {}
+        if (!invite || invite.status !== 'pending') {
+          logger.warn('linkToRegisteredUser: convite não encontrado ou já processado (Supabase)', {
+            caxinhaInviteId, caixinhaId, userId
+          });
+          return;
+        }
+        // Vincular targetId no Supabase
+        const { error: updateErr } = await supabase
+          .from('caixinha_invites')
+          .update({ target_id: userId })
+          .eq('id', caxinhaInviteId)
+          .eq('caixinha_id', caixinhaId);
+        if (updateErr) {
+          logger.warn('linkToRegisteredUser: erro ao atualizar target_id no Supabase', {
+            error: updateErr.message, caxinhaInviteId, caixinhaId, userId
+          });
+        }
+      } else {
+        // ─── FALLBACK FIRESTORE (sem Supabase) ──────────────────────────────
+        const inviteRef = db
+          .collection('caixinhas').doc(caixinhaId)
+          .collection('pendingRequests').doc(caxinhaInviteId);
+        const inviteDoc = await inviteRef.get();
+        if (!inviteDoc.exists || inviteDoc.data().status !== 'pending') {
+          logger.warn('linkToRegisteredUser: convite não encontrado (Firestore)', {
+            caxinhaInviteId, caixinhaId, userId
+          });
+          return;
+        }
+        invite = inviteDoc.data();
+        const batch = db.batch();
+        batch.update(inviteRef, { targetId: userId });
+        const userInviteRef = db
+          .collection('usuario').doc(userId)
+          .collection('pendingCaixinhaInvites').doc(caxinhaInviteId);
+        batch.set(userInviteRef, { ...invite, targetId: userId, id: caxinhaInviteId });
+        await batch.commit();
       }
 
-      const invite = inviteDoc.data();
-      const batch = db.batch();
-
-      // Atualizar targetId no pendingRequests da caixinha
-      batch.update(inviteRef, { targetId: userId });
-
-      // Criar entrada em usuario/{userId}/pendingCaixinhaInvites
-      const userInviteRef = db
-        .collection('usuario').doc(userId)
-        .collection('pendingCaixinhaInvites').doc(caxinhaInviteId);
-
-      batch.set(userInviteRef, {
-        ...invite,
-        targetId: userId,
-        id: caxinhaInviteId
-      });
-
-      await batch.commit();
+      // ─── FIRESTORE BACKUP (fire-and-forget) ────────────────────────────────
+      if (supabase && invite) {
+        setImmediate(() => {
+          try {
+            const inviteRef = db
+              .collection('caixinhas').doc(caixinhaId)
+              .collection('pendingRequests').doc(caxinhaInviteId);
+            inviteRef.get().then(doc => {
+              if (!doc.exists) return Promise.resolve();
+              const batch2 = db.batch();
+              batch2.update(inviteRef, { targetId: userId });
+              const userInviteRef = db
+                .collection('usuario').doc(userId)
+                .collection('pendingCaixinhaInvites').doc(caxinhaInviteId);
+              batch2.set(userInviteRef, { ...doc.data(), targetId: userId, id: caxinhaInviteId });
+              return batch2.commit();
+            }).catch(() => {});
+          } catch (_) {}
+        });
+      }
 
       // Notificar via Socket.IO (realtime) — fire-and-forget
       try {
@@ -1158,6 +1302,21 @@ async _sendInviteNotification(data) {
       logger.info('linkToRegisteredUser: convite vinculado ao novo usuário', {
         caxinhaInviteId, caixinhaId, userId
       });
+
+      // ─── AUTO-ACCEPT: aceitar o convite automaticamente ──────────────────
+      // O usuário se registrou via convite de caixinha, então o aceite é implícito.
+      try {
+        await this.acceptInvite(caxinhaInviteId, userId);
+        logger.info('linkToRegisteredUser: convite auto-aceito com sucesso', {
+          caxinhaInviteId, caixinhaId, userId
+        });
+      } catch (acceptErr) {
+        // Não propagar — se auto-accept falhar, o convite fica pendente
+        // e o usuário pode aceitar manualmente depois
+        logger.warn('linkToRegisteredUser: falha no auto-accept (convite ficará pendente)', {
+          caxinhaInviteId, caixinhaId, userId, error: acceptErr.message
+        });
+      }
     } catch (error) {
       // Não propagar — o registro do usuário já foi concluído com sucesso
       logger.error('linkToRegisteredUser: erro', error);

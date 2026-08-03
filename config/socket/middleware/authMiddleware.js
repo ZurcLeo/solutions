@@ -4,9 +4,9 @@
  * Valida tokens de acesso e associa usuários autenticados aos sockets.
  */
 
+const jwt = require('jsonwebtoken');
 const { logger } = require('../../../logger');
 const socketManager = require('../socketManager');
-const verifyIdToken = require('../../../middlewares/auth');
 const { SYSTEM_EVENTS } = require('../socketEvents');
 
 /**
@@ -32,7 +32,14 @@ function socketAuthMiddleware(socket, next) {
     }
 
     // Validar o token
-    verifyIdToken(token)
+    new Promise((resolve, reject) => {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        resolve(decoded);
+      } catch (err) {
+        reject(err);
+      }
+    })
       .then(decoded => {
         if (!decoded || !decoded.uid) {
           throw new Error('Invalid token payload');

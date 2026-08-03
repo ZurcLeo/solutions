@@ -196,6 +196,9 @@ router.route('/active/:connectionId')
    */
   .delete(verifyToken, connectionsController.deleteActiveConnection);
 
+router.route('/:userId/friends/:friendId')
+  .delete(verifyToken, connectionsController.deleteFriendConnection);
+
 // ===== Conexões Solicitadas =====
 router.route('/requested')
   /**

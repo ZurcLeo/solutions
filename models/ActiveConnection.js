@@ -1,304 +1,276 @@
-const {getFirestore} = require('../firebaseAdmin');
+const { getSupabaseClient } = require('../config/supabase');
 const { logger } = require('../logger');
 
 class ActiveConnection {
   constructor(data) {
     this.id = data.id || null;
     this.nome = data.nome || 'Desconhecido';
+    this.username = data.username || null;
     this.fotoDoPerfil = data.fotoDoPerfil || '';
-    this.interesses = data.interesses|| {};
+    this.descricao = data.descricao || '';
     this.email = data.email || '';
     this.status = data.status || 'active';
     this.dataDoAceite = this.formatDate(data.dataDoAceite);
-  }  
+  }
 
   formatDate(dateInput) {
     if (!dateInput) return null;
-    
     try {
-        // Se for um timestamp do Firestore
-        if (dateInput._seconds || dateInput.seconds) {
-            const seconds = dateInput._seconds || dateInput.seconds;
-            return new Date(seconds * 1000);
-        }
-        
-        // Se for um timestamp comum (número)
-        if (typeof dateInput === 'number') {
-            return new Date(dateInput);
-        }
-        
-        // Se for uma string de data
-        if (typeof dateInput === 'string') {
-            return new Date(dateInput);
-        }
-        
-        // Se já for um objeto Date
-        if (dateInput instanceof Date) {
-            return dateInput;
-        }
-        
-        return null;
+      if (typeof dateInput === 'number') return new Date(dateInput);
+      if (typeof dateInput === 'string') return new Date(dateInput);
+      if (dateInput instanceof Date) return dateInput;
+      // Legacy Firestore timestamp format (may still exist in cached data)
+      if (dateInput._seconds || dateInput.seconds) {
+        return new Date((dateInput._seconds || dateInput.seconds) * 1000);
+      }
+      return null;
     } catch (error) {
-        console.error("Erro ao formatar data:", error);
-        return null;
+      logger.error('Erro ao formatar data:', { error: error.message });
+      return null;
     }
-}
+  }
 
+  // ---------------------------------------------------------------------------
+  // findOne
+  // ---------------------------------------------------------------------------
   static async findOne(conditions) {
-    const db = getFirestore();
-    try {
-      // Create a compound query based on conditions
-      let query = db.collection('ativas');
-      
-      // Add conditions to query
-      if (conditions.userId) {
-        query = query.where('userId', '==', conditions.userId);
-      }
-      if (conditions.friendId) {
-        query = query.where('friendId', '==', conditions.friendId);
-      }
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available');
 
-      // Execute query
-      const snapshot = await query.limit(1).get();
+    let query = supabase
+      .from('user_connections')
+      .select('*')
+      .eq('status', 'active')
+      .limit(1);
 
-      // If no documents found, return null
-      if (snapshot.empty) {
-        return null;
-      }
-
-      // Return first matching document
-      const doc = snapshot.docs[0];
-      return new ActiveConnection({ id: doc.id, ...doc.data() });
-
-    } catch (error) {
-      logger.error('Error in ActiveConnection.findOne', {
-        service: 'ActiveConnection',
-        method: 'findOne',
-        conditions,
-        error: error.message
-      });
-      throw new Error(`Failed to find connection: ${error.message}`);
+    if (conditions.userId) {
+      query = query.eq('user_id', conditions.userId);
     }
+    if (conditions.friendId) {
+      query = query.eq('connected_user_id', conditions.friendId);
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+
+    return new ActiveConnection({
+      id: data.id,
+      nome: data.sender_name || 'Desconhecido',
+      email: data.sender_email || '',
+      fotoDoPerfil: data.sender_photo_url || '',
+      status: data.status,
+      dataDoAceite: data.data_aceite,
+    });
   }
 
+  // ---------------------------------------------------------------------------
+  // exists
+  // ---------------------------------------------------------------------------
   static async exists(userId, friendId) {
-    try {
-      // Check in user document's friends array
-      const db = getFirestore();
-      const userDoc = await db.collection('usuario').doc(userId).get();
-      
-      if (!userDoc.exists) {
-        return false;
-      }
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available');
 
-      const userData = userDoc.data();
-      const friends = userData.amigos || [];
-      
-      return friends.includes(friendId);
+    const { count, error } = await supabase
+      .from('user_connections')
+      .select('id', { count: 'exact', head: true })
+      .or(
+        `and(user_id.eq.${userId},connected_user_id.eq.${friendId}),` +
+        `and(user_id.eq.${friendId},connected_user_id.eq.${userId})`
+      )
+      .eq('status', 'active');
 
-    } catch (error) {
-      logger.error('Error checking connection existence', {
-        service: 'ActiveConnection',
-        method: 'exists',
-        userId,
-        friendId,
-        error: error.message
-      });
-      throw error;
-    }
+    if (error) throw error;
+    return (count || 0) > 0;
   }
 
+  // ---------------------------------------------------------------------------
+  // getConnectionsByUserId
+  // ---------------------------------------------------------------------------
   static async getConnectionsByUserId(userId) {
-    const db = getFirestore();
-    
-    // Verificar se o usuário existe
-    const userDoc = await db.collection('usuario').doc(userId).get();
-    if (!userDoc.exists) {
-      throw new Error('Usuário não encontrado.');
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available');
+
+    const { data: rows, error } = await supabase
+      .from('user_connections')
+      .select('*')
+      .or(`user_id.eq.${userId},connected_user_id.eq.${userId}`)
+      .eq('status', 'active');
+
+    if (error) throw error;
+
+    if (!rows || rows.length === 0) {
+      return { friends: [], bestFriends: [] };
     }
-    
-    // Obter conexões ativas diretamente da coleção apropriada
-    const connectionsRef = db.collection('conexoes').doc(userId).collection('ativas');
-    const connectionsSnapshot = await connectionsRef.get();
-    
-    // Preparar arrays de resultado
-    const connections = {};
+
+    logger.info('Supabase: ActiveConnection.getConnectionsByUserId', { userId, count: rows.length });
+
     const friends = [];
     const bestFriends = [];
-    
-    // Processar cada documento de conexão ativa
-    if (!connectionsSnapshot.empty) {
-      // Obter IDs de todos os amigos para buscar seus perfis em lote
-      const friendIds = connectionsSnapshot.docs.map(doc => doc.id);
-      
-      // Buscar dados de perfil para todos os amigos em paralelo
-      const friendProfiles = await Promise.all(
-        friendIds.map(async friendId => {
-          try {
-            const friendDoc = await db.collection('usuario').doc(friendId).get();
-            if (!friendDoc.exists) {
-              logger.error(`Friend document not found: ${friendId}`);
-              return null;
-            }
-            
-            // Obter dados da conexão
-            const connectionDoc = connectionsSnapshot.docs.find(doc => doc.id === friendId);
-            const connectionData = connectionDoc.data();
-            
-            // Combinar dados do perfil com dados da conexão
-            return {
-              ...friendDoc.data(),
-              uid: friendId,
-              id: friendId,
-              // Propriedades da conexão
-              isBestFriend: connectionData.isBestFriend || false,
-              connectionDate: connectionData.dataCriacao || null,
-              connectionType: connectionData.tipo || 'regular'
+    const seenFriendIds = new Set();
+
+    await Promise.all(
+      rows.map(async (row) => {
+        try {
+          const friendId = row.user_id === userId ? row.connected_user_id : row.user_id;
+
+          // Deduplicar: acceptConnectionRequest cria 2 linhas (A→B e B→A)
+          if (seenFriendIds.has(friendId)) return;
+          seenFriendIds.add(friendId);
+
+          const isBestFriend = row.is_best_friend === true;
+
+          // Buscar perfil diretamente do Supabase users table
+          let profileData = {};
+          const { data: sbProfile } = await supabase
+            .from('users')
+            .select('full_name, username, email, avatar_url, descricao')
+            .eq('id', friendId)
+            .maybeSingle();
+
+          if (sbProfile) {
+            const rawEmail = sbProfile.email || '';
+            const resolvedEmail = rawEmail.startsWith('pending_sync_') ? null : rawEmail;
+            profileData = {
+              nome: sbProfile.full_name || sbProfile.username || (resolvedEmail ? resolvedEmail.split('@')[0] : null),
+              email: resolvedEmail,
+              fotoDoPerfil: sbProfile.avatar_url || '',
+              username: sbProfile.username || null,
+              descricao: sbProfile.descricao || '',
             };
-          } catch (error) {
-            logger.error(`Error fetching friend profile: ${friendId}`, error);
-            return null;
           }
-        })
-      );
-      
-      // Filtrar resultados nulos e classificar em amigos e melhores amigos
-      friendProfiles
-        .filter(profile => profile !== null)
-        .forEach(profile => {
-          const connection = new ActiveConnection(profile);
-          connections[profile.uid] = connection;
-          
-          if (profile.isBestFriend) {
+
+          const connection = new ActiveConnection({
+            id: friendId,
+            nome: profileData.nome || row.sender_name || 'Desconhecido',
+            username: profileData.username || null,
+            email: profileData.email || row.sender_email || '',
+            fotoDoPerfil: profileData.fotoDoPerfil || row.sender_photo_url || '',
+            descricao: profileData.descricao || '',
+            status: 'active',
+            dataDoAceite: row.data_aceite,
+          });
+
+          connection.uid = friendId;
+          connection.isBestFriend = isBestFriend;
+          connection.connectionDate = row.created_at || null;
+          connection.connectionType = 'regular';
+
+          if (isBestFriend) {
             bestFriends.push(connection);
           } else {
             friends.push(connection);
           }
-        });
-    }
-    
+        } catch (profileErr) {
+          logger.error('ActiveConnection — erro ao enriquecer perfil', {
+            friendId: row.user_id === userId ? row.connected_user_id : row.user_id,
+            error: profileErr.message,
+          });
+        }
+      })
+    );
+
     return { friends, bestFriends };
   }
 
+  // ---------------------------------------------------------------------------
+  // addBestFriend
+  // ---------------------------------------------------------------------------
   static async addBestFriend(userId, friendId) {
-    const db = getFirestore();
-    const userRef = db.collection('usuario').doc(userId);
-    const userSnap = await userRef.get();
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available');
 
-    if (!userSnap.exists) {
-      logger.error('User not found', { service: 'ActiveConnectionService', method: 'addBestFriend', userId });
-      throw new Error('Usuário não encontrado.');
-    }
+    const { data: existing, error: selectErr } = await supabase
+      .from('user_connections')
+      .select('id, user_id, connected_user_id, is_best_friend')
+      .or(
+        `and(user_id.eq.${userId},connected_user_id.eq.${friendId}),` +
+        `and(user_id.eq.${friendId},connected_user_id.eq.${userId})`
+      )
+      .eq('status', 'active');
 
-    const userData = userSnap.data();
-    const friends = userData.amigos || [];
-    const bestFriends = userData.amigosAutorizados || [];
+    if (selectErr) throw selectErr;
 
-    // 1. Confirmar que o amigo está registrado como uma conexão ativa
-    const activeConnectionSnapshot = await db
-      .collection('conexoes')
-      .doc(userId)
-      .collection('ativas')
-      .where('userId', '==', friendId)
-      .limit(1)
-      .get();
-
-    if (activeConnectionSnapshot.empty) {
-      logger.warn('Friend is not an active connection', { service: 'ActiveConnectionService', method: 'addBestFriend', userId, friendId });
+    if (!existing || existing.length === 0) {
       throw new Error('Este amigo não é uma conexão ativa.');
     }
 
-    // 2. Confirmar que o amigo está na lista de amigos do usuário
-    if (!friends.includes(friendId)) {
-      logger.warn('Friend is not in the user\'s friend list', { service: 'ActiveConnectionService', method: 'addBestFriend', userId, friendId });
-      throw new Error('Este amigo não está na sua lista de amigos.');
-    }
-
-    if (!bestFriends.includes(friendId)) {
-      // Adicionar o amigo aos melhores amigos se ainda não for
-      await userRef.update({ amigosAutorizados: [...bestFriends, friendId] });
-      return 'Melhor amigo adicionado com sucesso.';
-    } else {
+    const alreadyBestFriend = existing.some(row => row.is_best_friend === true);
+    if (alreadyBestFriend) {
       return 'Este amigo já é um melhor amigo.';
     }
+
+    const ids = existing.map(row => row.id);
+    const { error: updateErr } = await supabase
+      .from('user_connections')
+      .update({ is_best_friend: true, updated_at: new Date().toISOString() })
+      .in('id', ids);
+
+    if (updateErr) throw updateErr;
+
+    logger.info('Supabase: ActiveConnection.addBestFriend', { userId, friendId });
+    return 'Melhor amigo adicionado com sucesso.';
   }
 
+  // ---------------------------------------------------------------------------
+  // removeBestFriend
+  // ---------------------------------------------------------------------------
   static async removeBestFriend(userId, friendId) {
-    const db = getFirestore();
-    const userRef = db.collection('usuario').doc(userId);
-    const userSnap = await userRef.get();
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available');
 
-    if (!userSnap.exists) {
-      logger.error('User not found', { service: 'ActiveConnectionService', method: 'removeBestFriend', userId });
-      throw new Error('Usuário não encontrado.');
-    }
+    const { data: existing, error: selectErr } = await supabase
+      .from('user_connections')
+      .select('id, user_id, connected_user_id, is_best_friend')
+      .or(
+        `and(user_id.eq.${userId},connected_user_id.eq.${friendId}),` +
+        `and(user_id.eq.${friendId},connected_user_id.eq.${userId})`
+      )
+      .eq('status', 'active');
 
-    const userData = userSnap.data();
-    const friends = userData.amigos || [];
-    const bestFriends = userData.amigosAutorizados || [];
+    if (selectErr) throw selectErr;
 
-    // 1. Confirmar que o amigo está registrado como uma conexão ativa
-    const activeConnectionSnapshot = await db
-      .collection('conexoes')
-      .doc(userId)
-      .collection('ativas')
-      .where('userId', '==', friendId)
-      .limit(1)
-      .get();
-
-    if (activeConnectionSnapshot.empty) {
-      logger.warn('Friend is not an active connection', { service: 'ActiveConnectionService', method: 'removeBestFriend', userId, friendId });
+    if (!existing || existing.length === 0) {
       throw new Error('Este amigo não é uma conexão ativa.');
     }
 
-    // 2. Confirmar que o amigo está na lista de amigos do usuário
-    if (!friends.includes(friendId)) {
-      logger.warn('Friend is not in the user\'s friend list', { service: 'ActiveConnectionService', method: 'removeBestFriend', userId, friendId });
-      throw new Error('Este amigo não está na sua lista de amigos.');
-    }
-
-    if (bestFriends.includes(friendId)) {
-      // Remover o amigo dos melhores amigos se já for
-      const updatedBestFriends = bestFriends.filter(id => id !== friendId);
-      await userRef.update({ amigosAutorizados: updatedBestFriends });
-      return 'Melhor amigo removido com sucesso.';
-    } else {
+    const isBestFriend = existing.some(row => row.is_best_friend === true);
+    if (!isBestFriend) {
       return 'Este amigo já não é um melhor amigo.';
     }
+
+    const ids = existing.map(row => row.id);
+    const { error: updateErr } = await supabase
+      .from('user_connections')
+      .update({ is_best_friend: false, updated_at: new Date().toISOString() })
+      .in('id', ids);
+
+    if (updateErr) throw updateErr;
+
+    logger.info('Supabase: ActiveConnection.removeBestFriend', { userId, friendId });
+    return 'Melhor amigo removido com sucesso.';
   }
 
-  static async getById(userId) {
-    const db = getFirestore();
-    const doc = await db.collection('ativas').doc(userId).get();
-    if (!doc.exists) {
-      throw new Error('Conexão ativa não encontrada.');
-    }
-    return new ActiveConnection(doc.data());
-  }
+  // ---------------------------------------------------------------------------
+  // deleteByUserAndFriend
+  // ---------------------------------------------------------------------------
+  static async deleteByUserAndFriend(userId, friendId) {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available');
 
-  static async create(data) {
-    const db = getFirestore();
+    const { error } = await supabase
+      .from('user_connections')
+      .delete()
+      .or(
+        `and(user_id.eq.${userId},connected_user_id.eq.${friendId}),` +
+        `and(user_id.eq.${friendId},connected_user_id.eq.${userId})`
+      )
+      .eq('status', 'active');
 
-    const connection = new ActiveConnection(data);
-    const docRef = await db.collection('ativas').add({ ...connection });
-    connection.id = docRef.id;
-    return connection;
-  }
+    if (error) throw error;
 
-  static async update(id, data) {
-    const db = getFirestore();
-
-    const connectionRef = db.collection('ativas').doc(id);
-    await connectionRef.update(data);
-    const updatedDoc = await connectionRef.get();
-    return new ActiveConnection(updatedDoc.data());
-  }
-
-  static async delete(id) {
-    const db = getFirestore();
-
-    const connectionRef = db.collection('ativas').doc(id);
-    await connectionRef.delete();
+    logger.info('Supabase: ActiveConnection.deleteByUserAndFriend', { userId, friendId });
+    return { success: true };
   }
 }
 

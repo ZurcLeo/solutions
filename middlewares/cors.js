@@ -6,10 +6,10 @@ const { logger } = require('../logger');
 // URLs de infraestrutura (ex: URL do Fly.io) sem hardcode no código.
 const productionOrigins = [
   'https://eloscloud.com',
-  'https://eloscloud.com.br',
+  // 'https://eloscloud.com.br',
   'https://api.eloscloud.com',
   'https://accounts.google.com',
-  'https://elossolucoescloud-1804e.firebaseapp.com',
+  // Firebase Hosting URLs removidas — domínio normalizado para eloscloud.com (2026-06-16)
   'https://oauth2.googleapis.com',
   'https://apis.google.com',
   'https://www.googleapis.com',
@@ -103,7 +103,10 @@ const corsOptions = {
     'X-Firebase-Token',
     'X-Client-Version',
     'X-Firebase-AppCheck',
-    'X-Browser-Fingerprint'
+    'X-Browser-Fingerprint',
+    'X-OTP-Ticket',
+    'X-Session-Id',
+    'X-Seller-Context'
   ],
   
   // Headers exposed to the client
