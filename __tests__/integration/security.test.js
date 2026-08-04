@@ -37,6 +37,22 @@ jest.mock('../../middlewares/rateLimiter', () => ({
   rateLimiter: (req, res, next) => next()
 }));
 
+// Firebase Admin — os testes de RBAC não tocam o Firestore; o import é
+// efeito colateral da cadeia routes/rbac → roleService → RolePermission.
+jest.mock('../../firebaseAdmin', () => ({
+  getFirestore: jest.fn(() => ({
+    collection: jest.fn(() => ({
+      doc: jest.fn(() => ({
+        get: jest.fn(),
+        set: jest.fn(),
+        update: jest.fn(),
+      })),
+      where: jest.fn().mockReturnThis(),
+      get: jest.fn(),
+    })),
+  }))
+}));
+
 const rbacRoutes = require('../../routes/rbac');
 
 const app = express();
