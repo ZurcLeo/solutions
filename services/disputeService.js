@@ -100,25 +100,29 @@ const processDisputeResult = async (caixinhaId, disputeId) => {
 
     // [GAME-COV-004] fire-and-forget — não bloqueia o fluxo principal
     setImmediate(() => {
-      const gamificationService = require('./gamificationService');
-      gamificationService.triggerEvent('dispute_resolved', dispute.proposedBy)
-        .catch(err =>
-          logger.warn('Falha ao acionar gamificação em resolução de disputa', {
-            service: 'disputeService', userId: dispute.proposedBy, error: err.message
-          })
-        );
+      try {
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('dispute_resolved', dispute.proposedBy)
+          .catch(err =>
+            logger.warn('Falha ao acionar gamificação em resolução de disputa', {
+              service: 'disputeService', userId: dispute.proposedBy, error: err.message
+            })
+          );
 
-      // Trust Passport — disputa resolvida (negativo permanente para o perdedor)
-      const trustPassportService = require('./trustPassportService');
-      const loserId = isApproved ? dispute.targetUserId : dispute.proposedBy;
-      if (loserId) {
-        trustPassportService.recordEvent(loserId, 'moderation', 'dispute_lost', -5, true, {
-          disputeId, caixinhaId, status: newStatus,
-        }).catch(err =>
-          logger.warn('Falha ao registrar trust event dispute_lost', {
-            service: 'disputeService', userId: loserId, error: err.message
-          })
-        );
+        // Trust Passport — disputa resolvida (negativo permanente para o perdedor)
+        const trustPassportService = require('./trustPassportService');
+        const loserId = isApproved ? dispute.targetUserId : dispute.proposedBy;
+        if (loserId) {
+          trustPassportService.recordEvent(loserId, 'moderation', 'dispute_lost', -5, true, {
+            disputeId, caixinhaId, status: newStatus,
+          }).catch(err =>
+            logger.warn('Falha ao registrar trust event dispute_lost', {
+              service: 'disputeService', userId: loserId, error: err.message
+            })
+          );
+        }
+      } catch (err) {
+        logger.warn('Erro síncrono ao acionar gamificação/trust (dispute_resolved)', { error: err.message });
       }
     });
 
@@ -438,13 +442,17 @@ const voteOnDispute = async (caixinhaId, disputeId, voteData) => {
 
     // [GAME-COV-004] fire-and-forget — não bloqueia o fluxo principal
     setImmediate(() => {
-      const gamificationService = require('./gamificationService');
-      gamificationService.triggerEvent('dispute_voted', voteData.userId)
-        .catch(err =>
-          logger.warn('Falha ao acionar gamificação em voto de disputa', {
-            service: 'disputeService', userId: voteData.userId, error: err.message
-          })
-        );
+      try {
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('dispute_voted', voteData.userId)
+          .catch(err =>
+            logger.warn('Falha ao acionar gamificação em voto de disputa', {
+              service: 'disputeService', userId: voteData.userId, error: err.message
+            })
+          );
+      } catch (err) {
+        logger.warn('Erro síncrono ao acionar gamificação (dispute_voted)', { error: err.message });
+      }
     });
 
     // Processar resultado

@@ -3,6 +3,22 @@ jest.mock('../../../models/Caixinhas');
 jest.mock('../../../logger', () => ({
   logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
 }));
+jest.mock('../../../services/gamificationService', () => ({
+  triggerEvent: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../../../services/trustPassportService', () => ({
+  recordEvent: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock Supabase client used by voteOnDispute to check caixinha membership
+const mockSupabaseMaybeSingle = jest.fn();
+const mockSupabaseEq2 = jest.fn(() => ({ maybeSingle: mockSupabaseMaybeSingle }));
+const mockSupabaseEq1 = jest.fn(() => ({ eq: mockSupabaseEq2 }));
+const mockSupabaseSelect = jest.fn(() => ({ eq: mockSupabaseEq1 }));
+const mockSupabaseFrom = jest.fn(() => ({ select: mockSupabaseSelect }));
+jest.mock('../../../config/supabase', () => ({
+  getSupabaseClient: jest.fn(() => ({ from: mockSupabaseFrom })),
+}));
 
 const Dispute = require('../../../models/Dispute');
 const Caixinha = require('../../../models/Caixinhas');
@@ -250,6 +266,7 @@ describe('disputeService', () => {
   describe('voteOnDispute', () => {
     it('deve lançar erro quando votante não é membro da caixinha', async () => {
       Caixinha.getById.mockResolvedValue(makeCaixinha());
+      mockSupabaseMaybeSingle.mockResolvedValue({ data: null, error: null });
 
       await expect(
         disputeService.voteOnDispute('cx-1', 'd-1', { userId: 'outsider-99', vote: true })
@@ -266,6 +283,7 @@ describe('disputeService', () => {
         { userId: 'user-3', vote: true },
       ]});
       Caixinha.getById.mockResolvedValue(caixinha);
+      mockSupabaseMaybeSingle.mockResolvedValue({ data: { user_id: 'user-2' }, error: null });
       Dispute.addVote.mockResolvedValue();
       Dispute.getById.mockResolvedValue(dispute);
       Dispute.update.mockResolvedValue({ ...dispute, status: 'APPROVED' });

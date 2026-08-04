@@ -374,16 +374,18 @@ describe('Rifa — Fluxo Completo (JOGOS-OPS-002)', () => {
         payment_id:     PAY_ID,
       };
 
-      // Stub 1: buscar bilhete pelo payment_id (maybeSingle)
-      mockSbService.maybeSingle.mockResolvedValueOnce(ok(reservedTicket));
+      // Stub 1: buscar bilhetes pelo payment_id — awaited diretamente (sem .single/.maybeSingle)
+      // O serviço faz: await sbService().from('raffle_tickets').select('*').eq('payment_id', paymentId)
+      mockSbService._queueDirectResult(ok([reservedTicket]));
 
-      // Stub 2: UPDATE payment_status='paid' (single)
+      // Stub 2: UPDATE payment_status='paid' — também awaited diretamente (sem terminal)
+      // O serviço faz: await sbService().from('raffle_tickets').update({...}).eq(...).neq(...).select()
       const paidTicket = {
         ...reservedTicket,
         payment_status: 'paid',
         purchased_at:   new Date().toISOString(),
       };
-      mockSbService.single.mockResolvedValueOnce(ok(paidTicket));
+      mockSbService._queueDirectResult(ok([paidTicket]));
 
       const result = await raffleGamesService.confirmPayment(PAY_ID);
 
@@ -406,8 +408,10 @@ describe('Rifa — Fluxo Completo (JOGOS-OPS-002)', () => {
         payment_id:     PAY_ID,
       };
 
-      // Bilhete já está paid
-      mockSbService.maybeSingle.mockResolvedValueOnce(ok(alreadyPaidTicket));
+      // Bilhete já está paid — awaited diretamente (sem .single/.maybeSingle)
+      // O serviço faz: await sbService().from('raffle_tickets').select('*').eq('payment_id', paymentId)
+      // Retorna array com 1 bilhete já pago
+      mockSbService._queueDirectResult(ok([alreadyPaidTicket]));
 
       const result = await raffleGamesService.confirmPayment(PAY_ID);
 
@@ -417,7 +421,10 @@ describe('Rifa — Fluxo Completo (JOGOS-OPS-002)', () => {
     });
 
     it('deve retornar null se paymentId não corresponde a nenhum bilhete', async () => {
-      mockSbService.maybeSingle.mockResolvedValueOnce(ok(null));
+      // Nenhum bilhete encontrado — awaited diretamente (sem .single/.maybeSingle)
+      // O serviço faz: await sbService().from('raffle_tickets').select('*').eq('payment_id', paymentId)
+      // Retorna array vazio (nenhum bilhete com esse paymentId)
+      mockSbService._queueDirectResult(ok([]));
 
       const result = await raffleGamesService.confirmPayment('pay_inexistente');
 

@@ -7,6 +7,12 @@ const disputeService = require('../../../services/disputeService');
 jest.mock('../../../models/Emprestimos');
 jest.mock('../../../models/Caixinhas');
 jest.mock('../../../services/disputeService');
+jest.mock('../../../services/gamificationService', () => ({
+  triggerEvent: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../../../services/trustPassportService', () => ({
+  recordEvent: jest.fn().mockResolvedValue(undefined),
+}));
 
 jest.mock('../../../firebaseAdmin', () => {
   const createMockDoc = (path) => ({
@@ -53,6 +59,24 @@ jest.mock('../../../logger', () => ({
   }
 }));
 
+// --- Supabase mock (chainable query builder for approveLoan / makePayment) ---
+const mockRpcFn = jest.fn();
+function createSupabaseChain(resolveValue) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(resolveValue || { data: null, error: null }),
+    update: jest.fn().mockReturnThis(),
+  };
+}
+const mockSupabase = {
+  from: jest.fn(() => createSupabaseChain()),
+  rpc: mockRpcFn,
+};
+jest.mock('../../../config/supabase', () => ({
+  getSupabaseClient: jest.fn(() => mockSupabase)
+}));
+
 const { mockDb, mockTransaction, createMockDoc, createMockCollection } = require('../../../firebaseAdmin');
 
 describe('loanService', () => {
@@ -72,12 +96,21 @@ describe('loanService', () => {
 
   describe('approveLoan', () => {
     it('deve rejeitar se saldoTotal ficaria negativo', async () => {
-      const loanData = { valorSolicitado: 1000, status: 'pendente', memberId: userId };
-      const caixinhaData = { adminId: adminId, saldoTotal: 500, members: [adminId, userId] };
+      // Loan requesting 1000 but caixinha only has 500
+      const loanChain = createSupabaseChain({
+        data: { id: loanId, status: 'pendente', valor_solicitado: 1000, valor_total: 1000, user_id: userId },
+        error: null
+      });
+      const caixinhaChain = createSupabaseChain({
+        data: { admin_id: adminId, saldo_total: 500 },
+        error: null
+      });
 
-      mockTransaction.get.mockImplementation((ref) => {
-        if (ref.path && ref.path.includes('emprestimos')) return Promise.resolve({ exists: true, data: () => loanData });
-        return Promise.resolve({ exists: true, data: () => caixinhaData });
+      let fromCallCount = 0;
+      mockSupabase.from.mockImplementation(() => {
+        fromCallCount++;
+        if (fromCallCount === 1) return loanChain;
+        return caixinhaChain;
       });
 
       await expect(loanService.approveLoan(caixinhaId, loanId, adminId))
@@ -85,18 +118,36 @@ describe('loanService', () => {
     });
 
     it('deve debitar saldo e registrar empréstimo de forma atômica', async () => {
-      const loanData = { valorSolicitado: 100, status: 'pendente', memberId: userId };
-      const caixinhaData = { adminId: adminId, saldoTotal: 1000, members: [adminId, userId] };
-
-      mockTransaction.get.mockImplementation((ref) => {
-        if (ref.path && ref.path.includes('emprestimos')) return Promise.resolve({ exists: true, data: () => loanData });
-        return Promise.resolve({ exists: true, data: () => caixinhaData });
+      // Loan requesting 100, caixinha has 1000
+      const loanChain = createSupabaseChain({
+        data: { id: loanId, status: 'pendente', valor_solicitado: 100, valor_total: 100, user_id: userId },
+        error: null
       });
+      const caixinhaChain = createSupabaseChain({
+        data: { admin_id: adminId, saldo_total: 1000 },
+        error: null
+      });
+      const updateChain = createSupabaseChain({ data: null, error: null });
+
+      let fromCallCount = 0;
+      mockSupabase.from.mockImplementation(() => {
+        fromCallCount++;
+        if (fromCallCount === 1) return loanChain;    // emprestimos select
+        if (fromCallCount === 2) return caixinhaChain; // caixinhas select
+        return updateChain;                            // emprestimos update
+      });
+
+      // RPC update_caixinha_saldo — success
+      mockRpcFn.mockResolvedValue({ data: null, error: null });
 
       const result = await loanService.approveLoan(caixinhaId, loanId, adminId);
       expect(result.success).toBe(true);
-      expect(mockTransaction.update).toHaveBeenCalledTimes(2);
-      expect(mockTransaction.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ saldoTotal: 900 }));
+      // Verify RPC was called to debit 100 from the caixinha balance
+      expect(mockRpcFn).toHaveBeenCalledWith('update_caixinha_saldo', {
+        p_caixinha_id: caixinhaId,
+        p_delta: -100,
+        p_min_saldo: 100
+      });
     });
   });
 
@@ -160,27 +211,37 @@ describe('loanService', () => {
 
   describe('makePayment', () => {
     it('deve registrar pagamento e atualizar saldo da caixinha de forma atômica', async () => {
-      const loanData = { id: loanId, valorTotal: 1000, status: 'aprovado', parcelas: [] };
-      const caixinhaData = { saldoTotal: 5000 };
-
-      mockTransaction.get.mockImplementation((ref) => {
-        if (ref.path && ref.path.includes('emprestimos')) return Promise.resolve({ exists: true, data: () => loanData });
-        return Promise.resolve({ exists: true, data: () => caixinhaData });
+      // RPC registrar_pagamento_emprestimo returns parcial status (200 of 1000)
+      mockRpcFn.mockResolvedValue({
+        data: {
+          novo_status: 'parcial',
+          valor_pago_total: 200,
+          pagamento_id: 'pag-1',
+          transacao_id: 'txn-1'
+        },
+        error: null
       });
 
       const result = await loanService.makePayment(caixinhaId, loanId, { valor: 200 });
       expect(result.success).toBe(true);
-      expect(mockTransaction.update).toHaveBeenCalledTimes(2);
-      expect(mockTransaction.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ saldoTotal: 5200 }));
+      expect(result.data.valor_pago).toBe(200);
+      expect(mockRpcFn).toHaveBeenCalledWith('registrar_pagamento_emprestimo', expect.objectContaining({
+        p_emprestimo_id: loanId,
+        p_caixinha_id: caixinhaId,
+        p_valor: 200
+      }));
     });
 
     it('deve marcar empréstimo como quitado quando valor total é atingido', async () => {
-      const loanData = { id: loanId, valorTotal: 1000, status: 'parcial', parcelas: [{ valor: 800 }] };
-      const caixinhaData = { saldoTotal: 5800 };
-
-      mockTransaction.get.mockImplementation((ref) => {
-        if (ref.path && ref.path.includes('emprestimos')) return Promise.resolve({ exists: true, data: () => loanData });
-        return Promise.resolve({ exists: true, data: () => caixinhaData });
+      // RPC returns quitado status (final payment reaches total)
+      mockRpcFn.mockResolvedValue({
+        data: {
+          novo_status: 'quitado',
+          valor_pago_total: 1000,
+          pagamento_id: 'pag-2',
+          transacao_id: 'txn-2'
+        },
+        error: null
       });
 
       const result = await loanService.makePayment(caixinhaId, loanId, { valor: 200 });

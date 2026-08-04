@@ -514,13 +514,17 @@ const invalidateInvite = async (inviteId, newUserId) => {
 
     // GAMIF-1: acionar missões de convite para o remetente (fire-and-forget)
     setImmediate(() => {
-      const gamificationService = require('./gamificationService');
-      gamificationService.triggerEvent('invite_accepted', userId, { invitedUserId: newUserId })
-        .catch(err =>
-          logger.warn('Falha ao acionar gamificação em aceite de convite', {
-            service: 'inviteService', userId, inviteId, error: err.message
-          })
-        );
+      try {
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('invite_accepted', userId, { invitedUserId: newUserId })
+          .catch(err =>
+            logger.warn('Falha ao acionar gamificação em aceite de convite', {
+              service: 'inviteService', userId, inviteId, error: err.message
+            })
+          );
+      } catch (err) {
+        logger.warn('Erro síncrono ao acionar gamificação (invite_accepted)', { error: err.message });
+      }
     });
 
     return {

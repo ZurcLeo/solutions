@@ -29,6 +29,7 @@ const mockSupabaseQuery = (data, error = null) => {
     from: jest.fn().mockReturnThis(),
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
     single: jest.fn().mockResolvedValue({ data, error }),
   };
   getSupabaseClient.mockReturnValue(chain);

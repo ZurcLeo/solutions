@@ -1,10 +1,56 @@
+// ── Supabase chainable mock ──────────────────────────────────────────────────
+const mockRpc = jest.fn();
+const mockFrom = jest.fn();
+const mockSupabaseClient = { rpc: mockRpc, from: mockFrom };
+
+jest.mock('../../../config/supabase', () => ({
+  getSupabaseClient: () => mockSupabaseClient,
+}));
+
 jest.mock('../../../models/Caixinhas');
 jest.mock('../../../logger', () => ({
   logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
 }));
+jest.mock('../../../services/gamificationService', () => ({
+  triggerEvent: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../../../services/asaasService', () => ({
+  createSubaccount: jest.fn().mockResolvedValue({ id: 'sub_mock' }),
+}));
 
 const Caixinha = require('../../../models/Caixinhas');
 const caixinhaService = require('../../../services/caixinhaService');
+
+// ── Helper: configura mockFrom para updateCaixinha (caixinhas select + members count) ──
+function setupUpdateCaixinhaMocks(currentData = {}, membrosCount = 0) {
+  mockFrom.mockImplementation((table) => {
+    if (table === 'caixinhas') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({
+              data: { contribuicao_mensal: null, dia_vencimento: null, ...currentData },
+              error: null,
+            }),
+          }),
+        }),
+      };
+    }
+    if (table === 'caixinha_members') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ count: membrosCount, error: null }),
+          }),
+        }),
+      };
+    }
+    // fallback (e.g. audit_log)
+    return {
+      insert: jest.fn().mockReturnValue({ catch: jest.fn() }),
+    };
+  });
+}
 
 describe('caixinhaService', () => {
   beforeEach(() => {
@@ -80,6 +126,9 @@ describe('caixinhaService', () => {
   // ─── updateCaixinha ────────────────────────────────────────────────────────
   describe('updateCaixinha', () => {
     it('deve atualizar e retornar a caixinha', async () => {
+      // Supabase queries: fetch current caixinha + count members
+      setupUpdateCaixinhaMocks({}, 0);
+
       const updated = { id: 'cx-1', name: 'Novo Nome' };
       Caixinha.update.mockResolvedValue(updated);
 
@@ -136,56 +185,69 @@ describe('caixinhaService', () => {
     });
   });
 
-  // ─── updateSaldo ───────────────────────────────────────────────────────────
+  // ─── updateSaldo (Supabase RPC: update_caixinha_saldo) ─────────────────────
   describe('updateSaldo', () => {
     describe('INVARIANTE: saldoTotal nunca vai negativo', () => {
       it('deve lançar erro quando debito excede saldoTotal', async () => {
-        Caixinha.getById.mockResolvedValue({ id: 'cx-1', saldoTotal: 300 });
+        // RPC raises SALDO_INSUFICIENTE when balance would go negative
+        mockRpc.mockResolvedValue({ data: null, error: { message: 'SALDO_INSUFICIENTE' } });
 
         await expect(caixinhaService.updateSaldo('cx-1', 500, 'debito'))
-          .rejects.toThrow('Saldo insuficiente');
+          .rejects.toThrow('SALDO_INSUFICIENTE');
 
-        expect(Caixinha.update).not.toHaveBeenCalled();
+        expect(mockRpc).toHaveBeenCalledWith('update_caixinha_saldo', {
+          p_caixinha_id: 'cx-1',
+          p_delta: -500,
+          p_min_saldo: 500,
+        });
       });
 
-      it('deve lançar erro quando debito é igual ao saldo (resultado seria zero — borda)', async () => {
-        // saldo 0 não é "negativo", então este caso deve passar
-        // testar que saldo exatamente igual ao valor é permitido
-        const updated = { id: 'cx-1', saldoTotal: 0 };
-        Caixinha.getById.mockResolvedValue({ id: 'cx-1', saldoTotal: 100 });
-        Caixinha.update.mockResolvedValue(updated);
+      it('deve permitir debito igual ao saldo (resultado zero — borda)', async () => {
+        // saldo 0 não é "negativo", então RPC retorna novo saldo = 0
+        mockRpc.mockResolvedValue({ data: 0, error: null });
+        Caixinha.update.mockResolvedValue(undefined); // fire-and-forget sync
 
         const result = await caixinhaService.updateSaldo('cx-1', 100, 'debito');
 
-        expect(Caixinha.update).toHaveBeenCalledWith('cx-1', { saldoTotal: 0 });
-        expect(result).toEqual(updated);
+        expect(mockRpc).toHaveBeenCalledWith('update_caixinha_saldo', {
+          p_caixinha_id: 'cx-1',
+          p_delta: -100,
+          p_min_saldo: 100,
+        });
+        expect(result).toEqual({ saldoTotal: 0 });
       });
     });
 
     it('deve debitar saldo corretamente quando suficiente', async () => {
-      const updated = { id: 'cx-1', saldoTotal: 900 };
-      Caixinha.getById.mockResolvedValue({ id: 'cx-1', saldoTotal: 1000 });
-      Caixinha.update.mockResolvedValue(updated);
+      mockRpc.mockResolvedValue({ data: 900, error: null });
+      Caixinha.update.mockResolvedValue(undefined);
 
       const result = await caixinhaService.updateSaldo('cx-1', 100, 'debito');
 
-      expect(Caixinha.update).toHaveBeenCalledWith('cx-1', { saldoTotal: 900 });
-      expect(result).toEqual(updated);
+      expect(mockRpc).toHaveBeenCalledWith('update_caixinha_saldo', {
+        p_caixinha_id: 'cx-1',
+        p_delta: -100,
+        p_min_saldo: 100,
+      });
+      expect(result).toEqual({ saldoTotal: 900 });
     });
 
     it('deve creditar saldo corretamente', async () => {
-      const updated = { id: 'cx-1', saldoTotal: 1100 };
-      Caixinha.getById.mockResolvedValue({ id: 'cx-1', saldoTotal: 1000 });
-      Caixinha.update.mockResolvedValue(updated);
+      mockRpc.mockResolvedValue({ data: 1100, error: null });
+      Caixinha.update.mockResolvedValue(undefined);
 
       const result = await caixinhaService.updateSaldo('cx-1', 100, 'credito');
 
-      expect(Caixinha.update).toHaveBeenCalledWith('cx-1', { saldoTotal: 1100 });
-      expect(result).toEqual(updated);
+      expect(mockRpc).toHaveBeenCalledWith('update_caixinha_saldo', {
+        p_caixinha_id: 'cx-1',
+        p_delta: 100,
+        p_min_saldo: 0,
+      });
+      expect(result).toEqual({ saldoTotal: 1100 });
     });
 
-    it('deve propagar erro quando Caixinha.getById falha', async () => {
-      Caixinha.getById.mockRejectedValue(new Error('cx not found'));
+    it('deve propagar erro quando RPC falha', async () => {
+      mockRpc.mockResolvedValue({ data: null, error: { message: 'cx not found' } });
 
       await expect(caixinhaService.updateSaldo('cx-999', 100, 'credito'))
         .rejects.toThrow('cx not found');

@@ -20,6 +20,12 @@ function initializeFirebaseApp() {
     let credential;
     const serviceAccountPath = process.env.FIREBASE_CREDENTIALS;
 
+    if (!serviceAccountPath) {
+      throw new Error(
+        'FIREBASE_CREDENTIALS não está definida. Configure a variável de ambiente com o JSON ou caminho do service account.'
+      );
+    }
+
     // Verificar se o valor da variável de ambiente é um caminho ou um JSON
     if (serviceAccountPath.startsWith('{')) {
       // É um JSON direto

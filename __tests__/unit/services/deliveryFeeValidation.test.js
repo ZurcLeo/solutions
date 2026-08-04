@@ -35,6 +35,26 @@ jest.mock('../../../services/gamificationService', () => ({
   spendCoins: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../../../services/subscriptionService', () => ({
+  isSellerBlocked: jest.fn().mockResolvedValue(false),
+  getCommissionRate: jest.fn().mockResolvedValue({ rate: 0.05, source: 'default', planSlug: 'lojista_basico' }),
+  getActiveSubscription: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../../../services/asaasService', () => ({}));
+jest.mock('../../../services/SupportService', () => ({}));
+jest.mock('../../../services/validators/ProductValidator', () => ({}));
+jest.mock('../../../services/NotificationDispatcher', () => ({
+  dispatchOrderEvent: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../../../services/userPreferencesService', () => ({
+  getOptedOutUserIds: jest.fn().mockResolvedValue([]),
+}));
+jest.mock('../../../services/handleService', () => ({}));
+jest.mock('../../../utils/geocoding', () => ({
+  geocodeAddress: jest.fn().mockResolvedValue(null),
+}));
+
 // Mock deliveryService.findEligibleDeliverers diretamente
 const mockFindEligible = jest.fn();
 jest.mock('../../../services/deliveryService', () => ({
@@ -113,12 +133,19 @@ describe('Correção 2: Validação server-side do delivery_fee', () => {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         in: jest.fn().mockReturnThis(),
+        neq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        range: jest.fn().mockReturnThis(),
         single: jest.fn().mockResolvedValue({ data: null, error: null }),
         maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
         insert: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
             single: jest.fn().mockResolvedValue({ data: {}, error: null }),
           }),
+        }),
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: null, error: null }),
         }),
       };
     });

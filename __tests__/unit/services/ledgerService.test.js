@@ -29,8 +29,14 @@ jest.mock('../../../firebaseAdmin', () => {
     batch: jest.fn(() => mockBatch)
   };
 
+  const FieldValue = {
+    increment: jest.fn((n) => `increment(${n})`),
+    serverTimestamp: jest.fn(() => 'server-ts'),
+  };
+
   return {
     getFirestore: jest.fn(() => mockDb),
+    FieldValue,
     _mockDb: mockDb,
     _mockBatch: mockBatch,
     _mockDoc: mockDoc,

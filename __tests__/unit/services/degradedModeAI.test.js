@@ -1,6 +1,10 @@
+// Mock AI clients para forçar modo fallback (determinístico em qualquer ambiente)
+jest.mock('../../../config/anthropic/anthropicClient', () => null);
+jest.mock('../../../config/deepseek/deepseekClient', () => null);
+
 const aiService = require('../../../services/AIService');
 
-// Mock da SDK OpenAI
+// Mock da SDK OpenAI (legado, mantido para não quebrar imports internos)
 jest.mock('openai', () => {
   return jest.fn().mockImplementation(() => ({
     chat: {
@@ -71,7 +75,9 @@ describe('AIService - Modo Degradado', () => {
 
     const response = await aiService.processMessage('user123', 'conv123', 'MEU DINHEIRO SUMIU!');
 
-    expect(response).toContain('equipe de suporte especializada');
+    // "MEU DINHEIRO SUMIU" é mensagem de crise → texto de crise é retornado
+    // mesmo quando o ticket de escalonamento falha (catch silencioso)
+    expect(response).toContain('atendente humano imediatamente');
     expect(response).not.toContain('Database offline');
   });
 });

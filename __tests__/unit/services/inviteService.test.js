@@ -35,6 +35,11 @@ jest.mock('../../../services/notificationService', () => ({
   createNotification: jest.fn().mockResolvedValue(true)
 }));
 
+jest.mock('../../../services/gamificationService', () => ({
+  triggerEvent: jest.fn().mockResolvedValue(undefined),
+  spendCoins: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('qrcode', () => ({
   toDataURL: jest.fn().mockResolvedValue('data:image/png;base64,mockqrcode'),
   toBuffer:  jest.fn().mockResolvedValue(Buffer.from('mockbuffer'))
@@ -81,6 +86,26 @@ jest.mock('../../../firebaseAdmin', () => {
     mockDb, mockTransaction, mockAuth, mockBucket
   };
 });
+
+// ── Supabase mock (primary path since migration) ────────────────────────────
+const mockSupabaseRpc = jest.fn().mockResolvedValue({ error: null });
+const mockSupabaseUpsert = jest.fn().mockResolvedValue({ error: null });
+const mockSupabaseSingle = jest.fn().mockResolvedValue({ data: null, error: null });
+const mockSupabaseEq = jest.fn().mockReturnValue({ single: mockSupabaseSingle });
+const mockSupabaseSelect = jest.fn().mockReturnValue({ eq: mockSupabaseEq });
+const mockSupabaseFrom = jest.fn().mockReturnValue({
+  upsert:  mockSupabaseUpsert,
+  select:  mockSupabaseSelect,
+});
+
+const mockSupabaseClient = {
+  from: mockSupabaseFrom,
+  rpc:  mockSupabaseRpc,
+};
+
+jest.mock('../../../config/supabase', () => ({
+  getSupabaseClient: jest.fn(() => mockSupabaseClient),
+}));
 
 jest.mock('../../../logger', () => ({
   logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() }
@@ -131,6 +156,13 @@ describe('inviteService', () => {
     // Defaults úteis para a maioria dos testes
     Invite.updateByInviteId.mockResolvedValue(true);
     Invite.create.mockResolvedValue(true);
+    // Supabase defaults (re-set after clearAllMocks)
+    mockSupabaseRpc.mockResolvedValue({ error: null });
+    mockSupabaseUpsert.mockResolvedValue({ error: null });
+    mockSupabaseSingle.mockResolvedValue({ data: null, error: null });
+    mockSupabaseEq.mockReturnValue({ single: mockSupabaseSingle });
+    mockSupabaseSelect.mockReturnValue({ eq: mockSupabaseEq });
+    mockSupabaseFrom.mockReturnValue({ upsert: mockSupabaseUpsert, select: mockSupabaseSelect });
   });
 
   // ===========================================================================
@@ -485,26 +517,36 @@ describe('inviteService', () => {
       );
     });
 
-    it('deve criar relacionamento de ancestralidade no Firestore para o novo usuário', async () => {
+    it('deve criar relacionamento de ancestralidade no Supabase para o novo usuário', async () => {
       setupValidPendingInvite();
 
       await inviteService.invalidateInvite('invite-abc', 'new-user-001');
 
-      expect(mockDb.runTransaction).toHaveBeenCalledTimes(1);
-      // transaction.set deve ser chamado ao menos 3x: ancestralidade, descendentes, compras
-      expect(mockTransaction.set.mock.calls.length).toBeGreaterThanOrEqual(3);
+      // Supabase-primary: upsert em user_ancestry
+      expect(mockSupabaseFrom).toHaveBeenCalledWith('user_ancestry');
+      const ancestryCall = mockSupabaseUpsert.mock.calls.find(
+        ([data]) => data?.user_id === 'new-user-001' && data?.ancestor_id === 'user-001'
+      );
+      expect(ancestryCall).toBeDefined();
+      expect(ancestryCall[0]).toMatchObject({
+        user_id:     'new-user-001',
+        ancestor_id: 'user-001',
+        invite_id:   'invite-abc',
+      });
     });
 
-    it('deve conceder 5000 ElosCoins de boas-vindas ao novo usuário', async () => {
+    it('deve conceder 500 ElosCoins de boas-vindas ao novo usuário via Supabase', async () => {
       setupValidPendingInvite();
 
       await inviteService.invalidateInvite('invite-abc', 'new-user-001');
 
-      const comprasCall = mockTransaction.set.mock.calls.find(
-        ([, data]) => data?.meioPagamento === 'oferta-boas-vindas'
-      );
-      expect(comprasCall).toBeDefined();
-      expect(comprasCall[1].quantidade).toBe(5000);
+      // Supabase-primary: grant_xp RPC com 500 coins
+      expect(mockSupabaseRpc).toHaveBeenCalledWith('grant_xp', expect.objectContaining({
+        p_user_id:   'new-user-001',
+        p_coins:     500,
+        p_source:    'welcome_bonus',
+        p_source_id: expect.stringContaining('welcome_new-user-001'),
+      }));
     });
 
     it('deve enviar email de boas-vindas ao novo usuário', async () => {

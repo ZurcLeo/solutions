@@ -226,13 +226,17 @@ const createCaixinha = async (data) => {
 
     // [GAME-COV-002] fire-and-forget — não bloqueia o fluxo principal
     setImmediate(() => {
-      const gamificationService = require('./gamificationService');
-      gamificationService.triggerEvent('caixinha_created', data.adminId)
-        .catch(err =>
-          logger.warn('Falha ao acionar gamificação em criação de caixinha', {
-            service: 'caixinhaService', userId: data.adminId, error: err.message
-          })
-        );
+      try {
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('caixinha_created', data.adminId)
+          .catch(err =>
+            logger.warn('Falha ao acionar gamificação em criação de caixinha', {
+              service: 'caixinhaService', userId: data.adminId, error: err.message
+            })
+          );
+      } catch (err) {
+        logger.warn('Erro síncrono ao acionar gamificação (caixinha_created)', { error: err.message });
+      }
     });
 
     // [PAYMENT-001] fire-and-forget — cria subconta Asaas com retry automático (CAI-H0-005)

@@ -1,3 +1,7 @@
+// Mock AI clients para forçar modo fallback (determinístico em qualquer ambiente)
+jest.mock('../../config/anthropic/anthropicClient', () => null);
+jest.mock('../../config/deepseek/deepseekClient', () => null);
+
 const AIService = require('../../services/AIService');
 const SupportService = require('../../services/SupportService');
 
@@ -29,7 +33,8 @@ describe('AIService Integration Tests', () => {
       const response = await AIService.processMessage('user123', 'conv456', 'Eu quero reclamar de um roubo');
       
       expect(SupportService.requestEscalation).toHaveBeenCalledWith('conv456', 'user123');
-      expect(response).toContain('transferir sua conversa para nossa equipe de suporte');
+      // Texto de escalonamento reescrito — agora usa tom mais conversacional
+      expect(response).toContain('ajuda mais especializada');
     });
   });
 

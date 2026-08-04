@@ -235,12 +235,16 @@ const requestLoan = async (caixinhaId, loanData) => {
 
     // [CX-P2-M1] Gamificação — fire-and-forget
     setImmediate(() => {
-      const gamificationService = require('./gamificationService');
-      gamificationService.triggerEvent('loan_requested', loanData.userId, {
-        caixinhaId, loanId: loan.id, amount: loanData.valor
-      }).catch(err => logger.warn('Falha ao acionar gamificação em solicitação de empréstimo', {
-        service: 'loanService', userId: loanData.userId, error: err.message
-      }));
+      try {
+        const gamificationService = require('./gamificationService');
+        gamificationService.triggerEvent('loan_requested', loanData.userId, {
+          caixinhaId, loanId: loan.id, amount: loanData.valor
+        }).catch(err => logger.warn('Falha ao acionar gamificação em solicitação de empréstimo', {
+          service: 'loanService', userId: loanData.userId, error: err.message
+        }));
+      } catch (err) {
+        logger.warn('Erro síncrono ao acionar gamificação (loan_requested)', { error: err.message });
+      }
     });
 
     return {
@@ -298,20 +302,24 @@ const makePayment = async (caixinhaId, loanId, paymentData) => {
 
       // [CX-P2-M1] Gamificação — fire-and-forget
       setImmediate(() => {
-        const gamificationService = require('./gamificationService');
-        gamificationService.triggerEvent('loan_paid', paymentData.userId || 'unknown', {
-          caixinhaId, loanId, amount: paymentData.valor, newStatus: result.novo_status
-        }).catch(err => logger.warn('Falha ao acionar gamificação em pagamento de empréstimo', {
-          service: 'loanService', loanId, error: err.message
-        }));
+        try {
+          const gamificationService = require('./gamificationService');
+          gamificationService.triggerEvent('loan_paid', paymentData.userId || 'unknown', {
+            caixinhaId, loanId, amount: paymentData.valor, newStatus: result.novo_status
+          }).catch(err => logger.warn('Falha ao acionar gamificação em pagamento de empréstimo', {
+            service: 'loanService', loanId, error: err.message
+          }));
 
-        // Trust Passport — parcela paga (+2 financial)
-        const trustPassportService = require('./trustPassportService');
-        trustPassportService.recordEvent(paymentData.userId || 'unknown', 'financial', 'loan_payment', 2, false, {
-          caixinhaId, loanId, amount: paymentData.valor,
-        }).catch(err => logger.warn('Falha ao registrar trust event loan_payment', {
-          service: 'loanService', loanId, error: err.message
-        }));
+          // Trust Passport — parcela paga (+2 financial)
+          const trustPassportService = require('./trustPassportService');
+          trustPassportService.recordEvent(paymentData.userId || 'unknown', 'financial', 'loan_payment', 2, false, {
+            caixinhaId, loanId, amount: paymentData.valor,
+          }).catch(err => logger.warn('Falha ao registrar trust event loan_payment', {
+            service: 'loanService', loanId, error: err.message
+          }));
+        } catch (err) {
+          logger.warn('Erro síncrono ao acionar gamificação/trust (loan_paid)', { error: err.message });
+        }
       });
 
       return {
@@ -430,12 +438,16 @@ const approveLoan = async (caixinhaId, loanId, adminOrObj) => {
 
       // [CX-P2-M1] Gamificação — notificar mutuário que empréstimo foi aprovado
       setImmediate(() => {
-        const gamificationService = require('./gamificationService');
-        gamificationService.triggerEvent('loan_approved', loan.user_id, {
-          caixinhaId, loanId, amount: valorSolicitado, approvedBy: adminId
-        }).catch(err => logger.warn('Falha ao acionar gamificação em aprovação de empréstimo', {
-          service: 'loanService', loanId, error: err.message
-        }));
+        try {
+          const gamificationService = require('./gamificationService');
+          gamificationService.triggerEvent('loan_approved', loan.user_id, {
+            caixinhaId, loanId, amount: valorSolicitado, approvedBy: adminId
+          }).catch(err => logger.warn('Falha ao acionar gamificação em aprovação de empréstimo', {
+            service: 'loanService', loanId, error: err.message
+          }));
+        } catch (err) {
+          logger.warn('Erro síncrono ao acionar gamificação (loan_approved)', { error: err.message });
+        }
       });
 
       return { success: true, data: { ...loan, id: loanId, status: 'aprovado' } };

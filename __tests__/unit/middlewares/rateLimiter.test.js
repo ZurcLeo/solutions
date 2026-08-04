@@ -49,8 +49,11 @@ describe('rateLimiter middlewares', () => {
   });
 
   describe('inicialização', () => {
-    it('deve criar 6 instâncias de RateLimiterMemory (uma por tipo)', () => {
-      expect(RateLimiterMemory).toHaveBeenCalledTimes(6);
+    it('deve criar 13 instâncias de RateLimiterMemory (uma por tipo)', () => {
+      // 13 limiters: standard, auth, read, write, connection, banking,
+      // icon_api, icon_api_write, pin_redeem, ml_oauth, ml_webhook,
+      // channel_link_init, channel_link_ip_breaker
+      expect(RateLimiterMemory).toHaveBeenCalledTimes(13);
     });
 
     it('deve exportar todos os 6 middlewares', () => {
