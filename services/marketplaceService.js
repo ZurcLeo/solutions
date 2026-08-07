@@ -347,7 +347,7 @@ async function getSellerProfile(sellerIdOrHandle) {
       accepts_eloscoins, coins_discount_rate, max_coins_per_order,
       commission_rate, status, creci, business_hours,
       fulfillment_types, freight_mode, document_validated, created_at,
-      avg_rating, total_reviews,
+      avg_rating, total_reviews, cover_image_url,
       owner:user_id ( full_name, avatar_url, username )
     `)
     .eq('id', sellerId)
@@ -489,7 +489,7 @@ async function listSellers({ category, address_city, address_neighborhood } = {}
 
   let query = sb()
     .from('seller_profiles')
-    .select('id, business_name, trading_name, category, description, address_neighborhood, address_city, address_lat, address_lng, service_radius_km, accepts_eloscoins, coins_discount_rate, max_coins_per_order, avg_rating, total_reviews, google_place_id, google_rating, google_reviews_count, google_business_name, google_business_status, status, created_at', { count: 'exact' })
+    .select('id, user_id, business_name, trading_name, category, description, address_neighborhood, address_city, address_lat, address_lng, service_radius_km, accepts_eloscoins, coins_discount_rate, max_coins_per_order, avg_rating, total_reviews, google_place_id, google_rating, google_reviews_count, google_business_name, google_business_status, status, cover_image_url, username, created_at', { count: 'exact' })
     .eq('status', 'active')
     .range(offset, offset + safeLimit - 1);
 
@@ -951,6 +951,9 @@ async function listProducts({ seller_id, category, listing_type, min_price, max_
   // Imóveis: usar product_type como âncora (robusto mesmo se category vier NULL)
   if (category === 'imoveis') {
     query = query.eq('product_type', 'property');
+  } else if (seller_id) {
+    // Visualizando loja de um seller específico: mostrar TODOS os produtos dele (incluindo imóveis)
+    if (category) query = query.eq('category', category);
   } else {
     if (category) query = query.eq('category', category);
     query = query.neq('product_type', 'property');
@@ -3475,7 +3478,7 @@ async function approveSellerProfile(sellerId, { approved, reason = '', agentUser
             userName:     user.nome || user.displayName || 'Usuário',
             businessName: profile.business_name,
             reason:       reason || '',
-            supportUrl:   'https://eloscloud.com/suporte',
+            supportUrl:   'https://eloscloud.com/ajuda/chamados',
           },
           userId:        profile.user_id,
           reference:     profile.id,

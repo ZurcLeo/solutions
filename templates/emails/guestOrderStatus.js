@@ -139,7 +139,7 @@ module.exports = function guestOrderStatusTemplate(data) {
       <div style="border-top:1px solid ${BORDER}; padding-top:24px; text-align:center;">
         <p style="font-family:${FONT}; font-size:13px; color:${TEXT2}; line-height:1.5; margin:0;">
           Dúvidas sobre seu pedido? Fale conosco em
-          <a href="${process.env.FRONTEND_URL || 'https://eloscloud.com'}/suporte" style="color:${P}; text-decoration:none;">eloscloud.com/suporte</a>.
+          <a href="${process.env.FRONTEND_URL || 'https://eloscloud.com'}/ajuda/chamados" style="color:${P}; text-decoration:none;">eloscloud.com/ajuda/chamados</a>.
         </p>
       </div>
   `;

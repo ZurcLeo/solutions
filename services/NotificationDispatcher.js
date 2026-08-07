@@ -532,9 +532,9 @@ class NotificationDispatcher {
     } else if (type === 'support_ticket_created') {
       const title = data.ticketTitle || 'seu ticket';
       baseContent.in_app.content = `Seu ticket de suporte "${title}" foi criado. Prazo estimado: ${data.estimatedResolutionDate || 'em breve'}.`;
-      baseContent.in_app.url = '/suporte';
+      baseContent.in_app.url = '/ajuda/chamados';
       baseContent.push.body = `Ticket criado: ${title}`;
-      baseContent.push.url = '/suporte';
+      baseContent.push.url = '/ajuda/chamados';
       baseContent.email = {
         templateType: 'support_ticket_created',
         subject: `Ticket #${data.ticketId} criado — ${title}`,
@@ -544,9 +544,9 @@ class NotificationDispatcher {
     } else if (type === 'support_ticket_update') {
       const title = data.ticketTitle || 'seu ticket';
       baseContent.in_app.content = `Seu ticket "${title}" foi atualizado para: ${data.newStatus || 'em andamento'}.`;
-      baseContent.in_app.url = '/suporte';
+      baseContent.in_app.url = '/ajuda/chamados';
       baseContent.push.body = `Ticket atualizado: ${title}`;
-      baseContent.push.url = '/suporte';
+      baseContent.push.url = '/ajuda/chamados';
       baseContent.email = {
         templateType: 'support_ticket_update',
         subject: `Atualização no ticket #${data.ticketId} — ${title}`,
@@ -556,9 +556,9 @@ class NotificationDispatcher {
     } else if (type === 'support_ticket_resolved') {
       const title = data.ticketTitle || 'seu ticket';
       baseContent.in_app.content = `Seu ticket "${title}" foi resolvido! Confira o resumo.`;
-      baseContent.in_app.url = '/suporte';
+      baseContent.in_app.url = '/ajuda/chamados';
       baseContent.push.body = `Ticket resolvido: ${title}`;
-      baseContent.push.url = '/suporte';
+      baseContent.push.url = '/ajuda/chamados';
       baseContent.email = {
         templateType: 'support_ticket_resolved',
         subject: `Ticket #${data.ticketId} resolvido — ${title}`,
@@ -578,9 +578,9 @@ class NotificationDispatcher {
       if (data.sellerId) baseContent.webhook = { event_type: 'pendencia.resolved', sellerId: data.sellerId, payload: { pendenciaId: data.pendenciaId, titulo: data.titulo, clientPhone: data.clientPhone, clientName: data.clientName } };
     } else if (type === 'suspension_created') {
       baseContent.in_app.content = `Sua conta foi suspensa. Motivo: ${data.reason || 'Violação dos termos'}`;
-      baseContent.in_app.url = '/suporte';
+      baseContent.in_app.url = '/ajuda/chamados';
       baseContent.push.body = 'Sua conta foi suspensa';
-      baseContent.push.url = '/suporte';
+      baseContent.push.url = '/ajuda/chamados';
       baseContent.email = { templateType: 'padrao', subject: 'Conta suspensa', data: { content: `Sua conta na ElosCloud foi suspensa. Motivo: ${data.reason || 'Violação dos termos'}. Entre em contato pelo suporte se acredita que houve um erro.` } };
       if (data.sellerId) baseContent.webhook = { event_type: 'suspension.created', sellerId: data.sellerId, payload: { userId: data.userId, userName: data.userName, reason: data.reason, clientPhone: data.clientPhone } };
     } else if (type === 'trust_level_changed') {

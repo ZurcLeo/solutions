@@ -327,7 +327,9 @@ async function createRide(driverId, data) {
     dest_address, dest_neighborhood, dest_city, dest_state, dest_cep,
     departure_at, total_seats, price_per_seat_brl,
     accepts_luggage, accepts_pets, smoking_allowed, notes,
+    luggage_options, pet_options, conversation_level, music_level,
     required_trust_level, accepts_eloscoins,
+    stops: rawStops,
   } = data;
 
   // Validações básicas
@@ -389,29 +391,77 @@ async function createRide(driverId, data) {
     if (geo) { dest_lat = geo.lat; dest_lng = geo.lng; }
   }
 
-  // Calcular distância e duração
+  // ── Validar e geocodar paradas intermediárias (max 3) ────
+  const stops = [];
+  if (Array.isArray(rawStops) && rawStops.length > 0) {
+    for (let i = 0; i < Math.min(rawStops.length, 3); i++) {
+      const s = rawStops[i];
+      if (!s.city && !s.address) continue;
+      let sLat = s.lat || null;
+      let sLng = s.lng || null;
+      if (!sLat && s.cep) {
+        const geo = await geocodeCep(s.cep);
+        if (geo) { sLat = geo.lat; sLng = geo.lng; }
+      }
+      if (!sLat && s.city) {
+        const geo = await geocodeAddress(`${s.city}, ${s.state || ''}, Brasil`).catch(() => null);
+        if (geo) { sLat = geo.lat; sLng = geo.lng; }
+      }
+      stops.push({
+        stop_order: i,
+        address: s.address || s.city,
+        neighborhood: s.neighborhood || null,
+        city: s.city || null,
+        state: s.state || null,
+        cep: s.cep || null,
+        lat: sLat,
+        lng: sLng,
+      });
+    }
+  }
+
+  // Calcular distância, duração e pedágios (Routes API v2 com fallback)
   let route_km = null;
   let duration_minutes = null;
   let distance_source = 'haversine';
+  let tollData = null; // { totalBrl, count } ou null
 
   if (origin_lat && origin_lng && dest_lat && dest_lng) {
     try {
-      const dist = await distanceService.getRoadDistance(origin_lat, origin_lng, dest_lat, dest_lng);
+      const validWaypoints = stops.filter(s => s.lat && s.lng).map(s => ({ lat: s.lat, lng: s.lng }));
+      const dist = await distanceService.getRouteWithTolls(
+        { lat: origin_lat, lng: origin_lng },
+        { lat: dest_lat, lng: dest_lng },
+        validWaypoints,
+      );
       route_km = dist.distanceKm;
       duration_minutes = dist.durationMinutes;
       distance_source = dist.source;
+      tollData = dist.tolls;
     } catch (distErr) {
       logWarn(fn, `Distância não calculada: ${distErr.message}`, { driverId });
     }
   }
 
-  // Fallback Haversine se Google Maps falhou
+  // Fallback Haversine se Routes API falhou
   if (!route_km && origin_lat && dest_lat) {
-    route_km = distanceService.haversineKm(origin_lat, origin_lng, dest_lat, dest_lng) * 1.3;
+    if (stops.length > 0) {
+      const points = [
+        { lat: origin_lat, lng: origin_lng },
+        ...stops.filter(s => s.lat && s.lng).map(s => ({ lat: s.lat, lng: s.lng })),
+        { lat: dest_lat, lng: dest_lng },
+      ];
+      route_km = 0;
+      for (let i = 0; i < points.length - 1; i++) {
+        route_km += distanceService.haversineKm(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng) * 1.3;
+      }
+    } else {
+      route_km = distanceService.haversineKm(origin_lat, origin_lng, dest_lat, dest_lng) * 1.3;
+    }
     distance_source = 'haversine';
   }
 
-  // Teto legal INSS
+  // Teto legal aplica APENAS sobre o preço base (pedágio é custo real, não lucro)
   let effectivePrice = price_per_seat_brl || 0;
   let legalCap = null;
   if (route_km && route_km > 0) {
@@ -419,6 +469,14 @@ async function createRide(driverId, data) {
     effectivePrice = Math.min(effectivePrice, legalCap);
   }
   effectivePrice = Math.max(effectivePrice, 0);
+
+  // Pedágio: motorista escolhe split ou absorb
+  const toll_split_mode = data.toll_split_mode === 'split' ? 'split' : 'absorb';
+  const has_tolls = !!(tollData && tollData.totalBrl > 0);
+  const toll_total_brl = has_tolls ? tollData.totalBrl : null;
+  const toll_per_seat_brl = has_tolls && toll_split_mode === 'split'
+    ? Math.round((tollData.totalBrl / seats) * 100) / 100
+    : null;
 
   // Estimated arrival
   const estimated_arrival = duration_minutes
@@ -446,9 +504,17 @@ async function createRide(driverId, data) {
       accepts_luggage: accepts_luggage || false,
       accepts_pets: accepts_pets || false,
       smoking_allowed: smoking_allowed || false,
+      luggage_options: luggage_options || {},
+      pet_options: pet_options || {},
+      conversation_level: conversation_level != null ? Math.max(0, Math.min(100, Number(conversation_level))) : 50,
+      music_level: music_level != null ? Math.max(0, Math.min(100, Number(music_level))) : 50,
       notes: notes || null,
       required_trust_level: required_trust_level || MIN_TRUST_PASSENGER,
       accepts_eloscoins: false, // desabilitado (2026-07-09)
+      has_tolls,
+      toll_total_brl,
+      toll_per_seat_brl,
+      toll_split_mode,
       status: 'open',
     })
     .select()
@@ -456,14 +522,23 @@ async function createRide(driverId, data) {
 
   if (error) throw new Error(`Erro ao criar viagem: ${error.message}`);
 
+  // Inserir paradas intermediárias
+  if (stops.length > 0) {
+    const stopRows = stops.map(s => ({ ...s, ride_id: ride.id }));
+    const { error: stopsErr } = await sbService().from('carona_ride_stops').insert(stopRows);
+    if (stopsErr) logWarn(fn, `Erro ao inserir paradas: ${stopsErr.message}`, { rideId: ride.id });
+  }
+
   log(fn, 'Viagem criada', {
     driverId, rideId: ride.id, routeKm: route_km,
-    price: effectivePrice, legalCap, seats,
+    price: effectivePrice, legalCap, seats, stops: stops.length,
+    hasTolls: has_tolls, tollTotal: toll_total_brl, tollSplitMode: toll_split_mode,
   });
 
   gamificationService.triggerEvent('carona_ride_offered', driverId, { rideId: ride.id })
     .catch(err => logWarn(fn, `gamification falhou: ${err.message}`));
 
+  ride.stops = stops;
   return ride;
 }
 
@@ -536,7 +611,10 @@ async function searchRides(passengerId, params) {
   log(fn, `Busca PostGIS retornou ${results?.length || 0} resultados`, { passengerId });
 
   // Normaliza ride_id → id para compatibilidade com frontend RideCard
-  return (results || []).map(r => ({ ...r, id: r.ride_id }));
+  const normalized = (results || []).map(r => ({ ...r, id: r.ride_id }));
+
+  // Anexar stop_cities por ride
+  return _attachStopCities(normalized);
 }
 
 /**
@@ -562,7 +640,8 @@ async function searchRidesByCityName(passengerId, params) {
       departure_at, estimated_arrival,
       price_per_seat_brl, legal_cap_brl,
       seats_available, total_seats,
-      route_km, duration_minutes, accepts_luggage, accepts_pets, smoking_allowed, notes
+      route_km, duration_minutes, accepts_luggage, accepts_pets, smoking_allowed,
+      luggage_options, pet_options, conversation_level, music_level, notes
     `)
     .eq('status', 'open')
     .gt('seats_available', 0)
@@ -607,6 +686,10 @@ async function searchRidesByCityName(passengerId, params) {
     accepts_luggage:    r.accepts_luggage,
     accepts_pets:       r.accepts_pets,
     smoking_allowed:    r.smoking_allowed,
+    luggage_options:    r.luggage_options || {},
+    pet_options:        r.pet_options || {},
+    conversation_level: r.conversation_level ?? 50,
+    music_level:        r.music_level ?? 50,
     notes:              r.notes,
     driver_avg_rating:  r.driver_profile?.average_rating || 0,
     driver_total_rides: r.driver_profile?.total_rides || 0,
@@ -616,7 +699,41 @@ async function searchRidesByCityName(passengerId, params) {
   }));
 
   log(fn, `Fallback por cidade retornou ${normalized.length} resultados`, { passengerId, pickup_city, dropoff_city });
-  return normalized;
+
+  // Anexar stop_cities por ride
+  return _attachStopCities(normalized);
+}
+
+/**
+ * Busca cidades das paradas intermediárias para um array de rides
+ * e anexa stop_cities em cada resultado.
+ */
+async function _attachStopCities(rides) {
+  if (!rides?.length) return rides;
+
+  const rideIds = rides.map(r => r.id || r.ride_id).filter(Boolean);
+  if (!rideIds.length) return rides;
+
+  const { data: allStops } = await sb()
+    .from('carona_ride_stops')
+    .select('ride_id, city, stop_order')
+    .in('ride_id', rideIds)
+    .order('stop_order', { ascending: true });
+
+  if (!allStops?.length) {
+    return rides.map(r => ({ ...r, stop_cities: [] }));
+  }
+
+  const stopsByRide = {};
+  for (const s of allStops) {
+    if (!stopsByRide[s.ride_id]) stopsByRide[s.ride_id] = [];
+    if (s.city) stopsByRide[s.ride_id].push(s.city);
+  }
+
+  return rides.map(r => ({
+    ...r,
+    stop_cities: stopsByRide[r.id || r.ride_id] || [],
+  }));
 }
 
 /**
@@ -683,6 +800,10 @@ async function listRecentRides({ sort = 'recent', limit: queryLimit = 10 } = {})
     accepts_luggage:    r.accepts_luggage,
     accepts_pets:       r.accepts_pets,
     smoking_allowed:    r.smoking_allowed,
+    luggage_options:    r.luggage_options || {},
+    pet_options:        r.pet_options || {},
+    conversation_level: r.conversation_level ?? 50,
+    music_level:        r.music_level ?? 50,
     notes:              r.notes,
     driver_avg_rating:  r.driver_profile?.average_rating || 0,
     driver_total_rides: r.driver_profile?.total_rides || 0,
@@ -726,6 +847,7 @@ async function getRideDetail(userId, rideId) {
     .select(`
       id, passenger_id, pickup_address, pickup_city, dropoff_address, dropoff_city,
       status, amount_brl, platform_fee_brl, boarded_at, completed_at,
+      seats_booked, is_pet_seat,
       passenger:users!carona_seats_passenger_id_fkey(id, full_name, avatar_url)
     `)
     .eq('ride_id', rideId)
@@ -759,6 +881,15 @@ async function getRideDetail(userId, rideId) {
     passenger_avatar_url: s.passenger?.avatar_url || null,
     passenger: undefined,
   }));
+
+  // Buscar paradas intermediárias
+  const { data: rideStops } = await sb()
+    .from('carona_ride_stops')
+    .select('id, stop_order, address, neighborhood, city, state, cep, lat, lng')
+    .eq('ride_id', rideId)
+    .order('stop_order', { ascending: true });
+
+  result.stops = rideStops || [];
   return result;
 }
 
@@ -781,17 +912,132 @@ async function updateRide(driverId, rideId, updates) {
   // Campos editáveis
   const allowed = [
     'departure_at', 'notes', 'accepts_luggage', 'accepts_pets', 'smoking_allowed',
-    'price_per_seat_brl', 'total_seats',
+    'luggage_options', 'pet_options', 'conversation_level', 'music_level',
+    'price_per_seat_brl', 'total_seats', 'toll_split_mode',
   ];
   const filtered = {};
   for (const key of allowed) {
     if (updates[key] !== undefined) filtered[key] = updates[key];
   }
 
-  if (Object.keys(filtered).length === 0) throw new Error('Nenhum campo válido para atualizar.');
+  const hasStopsUpdate = updates.stops !== undefined;
+  if (Object.keys(filtered).length === 0 && !hasStopsUpdate) {
+    throw new Error('Nenhum campo válido para atualizar.');
+  }
 
-  // Recalcular teto se preço mudou
-  if (filtered.price_per_seat_brl != null) {
+  // Atualizar paradas intermediárias
+  if (hasStopsUpdate) {
+    // Deletar paradas existentes
+    await sbService().from('carona_ride_stops').delete().eq('ride_id', rideId);
+
+    const newStops = Array.isArray(updates.stops) ? updates.stops.slice(0, 3) : [];
+    if (newStops.length > 0) {
+      const stopRows = [];
+      for (let i = 0; i < newStops.length; i++) {
+        const s = newStops[i];
+        if (!s.city && !s.address) continue;
+        let sLat = s.lat || null;
+        let sLng = s.lng || null;
+        if (!sLat && s.cep) {
+          const geo = await geocodeCep(s.cep);
+          if (geo) { sLat = geo.lat; sLng = geo.lng; }
+        }
+        if (!sLat && s.city) {
+          const geo = await geocodeAddress(`${s.city}, ${s.state || ''}, Brasil`).catch(() => null);
+          if (geo) { sLat = geo.lat; sLng = geo.lng; }
+        }
+        stopRows.push({
+          ride_id: rideId,
+          stop_order: i,
+          address: s.address || s.city,
+          neighborhood: s.neighborhood || null,
+          city: s.city || null,
+          state: s.state || null,
+          cep: s.cep || null,
+          lat: sLat,
+          lng: sLng,
+        });
+      }
+      if (stopRows.length > 0) {
+        await sbService().from('carona_ride_stops').insert(stopRows);
+      }
+
+      // Recalcular distância com novos waypoints
+      const { data: fullRide } = await sb().from('carona_rides')
+        .select('origin_lat, origin_lng, dest_lat, dest_lng, total_seats')
+        .eq('id', rideId).single();
+
+      if (fullRide?.origin_lat && fullRide?.dest_lat) {
+        const validWaypoints = stopRows.filter(s => s.lat && s.lng).map(s => ({ lat: s.lat, lng: s.lng }));
+        try {
+          const dist = await distanceService.getRouteWithTolls(
+            { lat: fullRide.origin_lat, lng: fullRide.origin_lng },
+            { lat: fullRide.dest_lat, lng: fullRide.dest_lng },
+            validWaypoints,
+          );
+          if (dist.distanceKm) {
+            filtered.route_km = dist.distanceKm;
+            filtered.duration_minutes = dist.durationMinutes;
+            filtered.distance_source = dist.source;
+            const seats = filtered.total_seats || fullRide.total_seats;
+            filtered.legal_cap_brl = Math.round(((dist.distanceKm * INSS_RATE_PER_KM) / seats) * 100) / 100;
+            if (filtered.price_per_seat_brl != null) {
+              filtered.price_per_seat_brl = Math.min(filtered.price_per_seat_brl, filtered.legal_cap_brl);
+            }
+            filtered.estimated_arrival = dist.durationMinutes
+              ? new Date(new Date(ride.departure_at || updates.departure_at).getTime() + dist.durationMinutes * 60000).toISOString()
+              : null;
+            // Recalcular pedágio
+            const hasTolls = !!(dist.tolls && dist.tolls.totalBrl > 0);
+            const splitMode = filtered.toll_split_mode || fullRide.toll_split_mode || 'absorb';
+            filtered.has_tolls = hasTolls;
+            filtered.toll_total_brl = hasTolls ? dist.tolls.totalBrl : null;
+            filtered.toll_per_seat_brl = hasTolls && splitMode === 'split'
+              ? Math.round((dist.tolls.totalBrl / seats) * 100) / 100 : null;
+          }
+        } catch (distErr) {
+          logWarn(fn, `Recalc distância falhou: ${distErr.message}`, { rideId });
+        }
+      }
+    } else {
+      // Sem paradas — recalcular distância direta
+      const { data: fullRide } = await sb().from('carona_rides')
+        .select('origin_lat, origin_lng, dest_lat, dest_lng, total_seats, departure_at, toll_split_mode')
+        .eq('id', rideId).single();
+
+      if (fullRide?.origin_lat && fullRide?.dest_lat) {
+        try {
+          const dist = await distanceService.getRouteWithTolls(
+            { lat: fullRide.origin_lat, lng: fullRide.origin_lng },
+            { lat: fullRide.dest_lat, lng: fullRide.dest_lng },
+            [],
+          );
+          if (dist.distanceKm) {
+            filtered.route_km = dist.distanceKm;
+            filtered.duration_minutes = dist.durationMinutes;
+            filtered.distance_source = dist.source;
+            const seats = filtered.total_seats || fullRide.total_seats;
+            filtered.legal_cap_brl = Math.round(((dist.distanceKm * INSS_RATE_PER_KM) / seats) * 100) / 100;
+            if (filtered.price_per_seat_brl != null) {
+              filtered.price_per_seat_brl = Math.min(filtered.price_per_seat_brl, filtered.legal_cap_brl);
+            }
+            // Recalcular pedágio
+            const hasTolls = !!(dist.tolls && dist.tolls.totalBrl > 0);
+            const splitMode = filtered.toll_split_mode || fullRide.toll_split_mode || 'absorb';
+            filtered.has_tolls = hasTolls;
+            filtered.toll_total_brl = hasTolls ? dist.tolls.totalBrl : null;
+            filtered.toll_per_seat_brl = hasTolls && splitMode === 'split'
+              ? Math.round((dist.tolls.totalBrl / seats) * 100) / 100 : null;
+          }
+        } catch (distErr) {
+          logWarn(fn, `Recalc distância falhou: ${distErr.message}`, { rideId });
+        }
+      }
+    }
+  }
+
+  // Recalcular teto se preço mudou (sem update de stops)
+  if (!hasStopsUpdate && filtered.price_per_seat_brl != null) {
     const { data: fullRide } = await sb().from('carona_rides').select('route_km, total_seats').eq('id', rideId).single();
     const seats = filtered.total_seats || fullRide.total_seats;
     if (fullRide.route_km) {
@@ -801,16 +1047,35 @@ async function updateRide(driverId, rideId, updates) {
     }
   }
 
-  const { data: updated, error } = await sb()
-    .from('carona_rides')
-    .update(filtered)
-    .eq('id', rideId)
-    .select()
-    .single();
+  // Recalcular toll_per_seat_brl se toll_split_mode mudou (sem update de rota)
+  if (!hasStopsUpdate && filtered.toll_split_mode) {
+    const { data: fullRide } = await sb().from('carona_rides')
+      .select('toll_total_brl, has_tolls, total_seats')
+      .eq('id', rideId).single();
+    if (fullRide?.has_tolls && fullRide.toll_total_brl) {
+      const seats = filtered.total_seats || fullRide.total_seats;
+      filtered.toll_per_seat_brl = filtered.toll_split_mode === 'split'
+        ? Math.round((fullRide.toll_total_brl / seats) * 100) / 100
+        : null;
+    }
+  }
 
-  if (error) throw new Error(`Erro ao atualizar viagem: ${error.message}`);
+  let updated;
+  if (Object.keys(filtered).length > 0) {
+    const { data: updatedData, error: updateError } = await sb()
+      .from('carona_rides')
+      .update(filtered)
+      .eq('id', rideId)
+      .select()
+      .single();
+    if (updateError) throw new Error(`Erro ao atualizar viagem: ${updateError.message}`);
+    updated = updatedData;
+  } else {
+    const { data: refetch } = await sb().from('carona_rides').select().eq('id', rideId).single();
+    updated = refetch;
+  }
 
-  log(fn, 'Viagem atualizada', { driverId, rideId, fields: Object.keys(filtered) });
+  log(fn, 'Viagem atualizada', { driverId, rideId, fields: Object.keys(filtered), stopsUpdated: hasStopsUpdate });
 
   // Notificar passageiros confirmados
   const { data: seats } = await sb()
@@ -933,6 +1198,7 @@ async function bookSeat(passengerId, rideId, data) {
     pickup_address, pickup_city, pickup_lat, pickup_lng,
     dropoff_address, dropoff_city, dropoff_lat, dropoff_lng,
     pickup_neighborhood, dropoff_neighborhood,
+    pet_extra_seat,
   } = data;
 
   if (!pickup_address) throw new Error('pickup_address é obrigatório.');
@@ -951,16 +1217,25 @@ async function bookSeat(passengerId, rideId, data) {
   if (ride.status !== 'open') throw new Error('Esta viagem não está aceitando passageiros.');
   if (ride.driver_id === passengerId) throw new Error('Motorista não pode reservar vaga na própria viagem.');
 
+  // Pet extra seat: validar que a carona aceita e que há vagas suficientes
+  const isPetSeat = !!pet_extra_seat && ride.pet_options?.extra_seat;
+  const seatsCount = isPetSeat ? 2 : 1;
+
+  if (isPetSeat && ride.seats_available < 2) {
+    throw new Error('Vagas insuficientes para reserva com pet (necessário 2 vagas).');
+  }
+
   // Trust gate passageiro
   const passport = await trustPassportService.getPassport(passengerId);
   if ((passport?.trust_level ?? 1) < (ride.required_trust_level || MIN_TRUST_PASSENGER)) {
     throw new Error(`Trust Level insuficiente. Mínimo: ${ride.required_trust_level}. Atual: ${passport?.trust_level ?? 1}.`);
   }
 
-  // Reserva atômica via RPC
+  // Reserva atômica via RPC (p_seats_count para pet extra seat)
   const { data: bookResult, error: bookErr } = await sb().rpc('book_carona_seat', {
     p_ride_id: rideId,
     p_passenger_id: passengerId,
+    p_seats_count: seatsCount,
   });
 
   if (bookErr) throw new Error(`Erro ao reservar vaga: ${bookErr.message}`);
@@ -969,7 +1244,8 @@ async function bookSeat(passengerId, rideId, data) {
   // Determinar taxa da plataforma
   const sub = await subscriptionService.getActiveSubscription(passengerId);
   const platformFee = (sub && sub.status === 'active') ? 0.00 : PLATFORM_FEE_BRL;
-  const totalAmount = ride.price_per_seat_brl + platformFee;
+  const seatPrice = ride.price_per_seat_brl * seatsCount; // 2× preço para pet extra seat
+  const totalAmount = seatPrice + platformFee;
 
   // Calcular desvio do segmento
   let segmentKm = null;
@@ -990,16 +1266,18 @@ async function bookSeat(passengerId, rideId, data) {
       dropoff_address, dropoff_neighborhood: dropoff_neighborhood || null,
       dropoff_city, dropoff_lat: dropoff_lat || null, dropoff_lng: dropoff_lng || null,
       segment_km: segmentKm,
-      amount_brl: ride.price_per_seat_brl,
+      amount_brl: seatPrice,
       platform_fee_brl: platformFee,
+      seats_booked: seatsCount,
+      is_pet_seat: isPetSeat,
       status: 'pending_payment',
     })
     .select()
     .single();
 
   if (seatErr) {
-    // Rollback: devolver vaga
-    await sb().rpc('release_carona_seat', { p_ride_id: rideId });
+    // Rollback: devolver vaga(s)
+    await sb().rpc('release_carona_seat', { p_ride_id: rideId, p_seats_count: seatsCount });
     throw new Error(`Erro ao criar reserva: ${seatErr.message}`);
   }
 
@@ -1028,9 +1306,9 @@ async function bookSeat(passengerId, rideId, data) {
     log(fn, 'Asaas hold criado', { seatId: seat.id, paymentId });
   } catch (paymentErr) {
     logError(fn, paymentErr, { seatId: seat.id });
-    // Rollback seat e vaga
+    // Rollback seat e vaga(s)
     await sb().from('carona_seats').update({ status: 'cancelled_passenger', cancellation_reason: 'payment_init_failed' }).eq('id', seat.id);
-    await sb().rpc('release_carona_seat', { p_ride_id: rideId });
+    await sb().rpc('release_carona_seat', { p_ride_id: rideId, p_seats_count: seatsCount });
     throw new Error(`Erro ao inicializar pagamento: ${paymentErr.message}`);
   }
 
@@ -1099,7 +1377,7 @@ async function cancelSeat(passengerId, seatId) {
 
   const { data: seat } = await sb()
     .from('carona_seats')
-    .select('id, ride_id, passenger_id, payment_intent_id, payment_status, status')
+    .select('id, ride_id, passenger_id, payment_intent_id, payment_status, status, seats_booked')
     .eq('id', seatId)
     .single();
 
@@ -1157,8 +1435,8 @@ async function cancelSeat(passengerId, seatId) {
     });
   }
 
-  // Devolver vaga
-  await sb().rpc('release_carona_seat', { p_ride_id: seat.ride_id });
+  // Devolver vaga(s) — seats_booked pode ser 2 para pet extra seat
+  await sb().rpc('release_carona_seat', { p_ride_id: seat.ride_id, p_seats_count: seat.seats_booked || 1 });
 
   // Notificar waitlist (fire-and-forget) — CARONA-GAP-005
   setImmediate(() => {
@@ -1565,6 +1843,13 @@ async function _spawnRecurringChildren(driverId, parent, rule) {
   const baseDep = new Date(parent.departure_at);
   const until = rule.until ? new Date(rule.until) : new Date(Date.now() + 28 * 86400000);
 
+  // Buscar paradas do parent UMA VEZ antes do loop
+  const { data: parentStops } = await sb()
+    .from('carona_ride_stops')
+    .select('stop_order, address, neighborhood, city, state, cep, lat, lng')
+    .eq('ride_id', parent.id)
+    .order('stop_order', { ascending: true });
+
   for (let week = 1; week <= 4; week++) {
     for (const dayOfWeek of rule.days) {
       const childDep = _nextDayOfWeek(baseDep, dayOfWeek, week);
@@ -1606,6 +1891,10 @@ async function _spawnRecurringChildren(driverId, parent, rule) {
             accepts_luggage: parent.accepts_luggage,
             accepts_pets: parent.accepts_pets,
             smoking_allowed: parent.smoking_allowed,
+            luggage_options: parent.luggage_options || {},
+            pet_options: parent.pet_options || {},
+            conversation_level: parent.conversation_level ?? 50,
+            music_level: parent.music_level ?? 50,
             notes: parent.notes,
             required_trust_level: parent.required_trust_level,
             accepts_eloscoins: parent.accepts_eloscoins,
@@ -1616,7 +1905,25 @@ async function _spawnRecurringChildren(driverId, parent, rule) {
           .select('id, departure_at')
           .single();
 
-        if (!error && child) children.push(child);
+        if (!error && child) {
+          // Copiar paradas do parent para o child
+          if (parentStops?.length) {
+            const childStopRows = parentStops.map(s => ({
+              ride_id: child.id,
+              stop_order: s.stop_order,
+              address: s.address,
+              neighborhood: s.neighborhood,
+              city: s.city,
+              state: s.state,
+              cep: s.cep,
+              lat: s.lat,
+              lng: s.lng,
+            }));
+            await sbService().from('carona_ride_stops').insert(childStopRows)
+              .catch(e => logWarn(fn, `Falha ao copiar paradas para child: ${e.message}`, { childId: child.id }));
+          }
+          children.push(child);
+        }
       } catch (err) {
         logWarn(fn, `Falha ao spawnar child: ${err.message}`, { parentId: parent.id, week, dayOfWeek });
       }
@@ -2146,11 +2453,45 @@ async function triggerSOS(rideId, userId, coords) {
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// ESTIMATIVA DE ROTA (read-only, sem criar nada no banco)
+// ═══════════════════════════════════════════════════════════════════
+
+async function getRouteEstimate({ origin, destination, waypoints = [], totalSeats }) {
+  if (!origin?.lat || !origin?.lng) throw new Error('origin é obrigatório (lat, lng)');
+  if (!destination?.lat || !destination?.lng) throw new Error('destination é obrigatório (lat, lng)');
+
+  const seats = Number(totalSeats) || 1;
+  if (seats < 1 || seats > MAX_SEATS) throw new Error(`totalSeats deve ser entre 1 e ${MAX_SEATS}.`);
+
+  const validWaypoints = (waypoints || []).filter(w => w?.lat && w?.lng);
+
+  const routeData = await distanceService.getRouteWithTolls(
+    origin, destination, validWaypoints,
+  );
+
+  const km = routeData.distanceKm;
+  const legalCap = km ? Math.round(((km * INSS_RATE_PER_KM) / seats) * 100) / 100 : null;
+  const suggestedPrice = legalCap ? Math.round(legalCap * 0.7 * 100) / 100 : null;
+
+  return {
+    km,
+    durationMinutes: routeData.durationMinutes,
+    legalCap,
+    suggestedPrice,
+    tolls: routeData.tolls, // { totalBrl, count } ou null
+    source: routeData.source,
+  };
+}
+
 module.exports = {
   // Perfil de motorista
   registerDriver,
   verifyDriver,
   getDriverProfile,
+
+  // Estimativa de rota
+  getRouteEstimate,
 
   // Viagens
   createRide,

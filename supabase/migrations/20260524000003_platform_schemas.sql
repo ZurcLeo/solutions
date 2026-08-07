@@ -70,7 +70,7 @@ VALUES
     ('juridico',    'Jurídico',    'Legal',        'Contratos digitais, assinaturas e validação OAB.',                     '#7C3AED', '#F5F3FF', 'Scale',          '/juridico',    'juridico@eloscloud.com',    3),
     ('mercado',     'Mercado',     'Marketplace',  'Lojas locais, produtos, pedidos e metas comunitárias.',                '#D97706', '#FFFBEB', 'Store',          '/mercado',     'comercial@eloscloud.com',   4),
     ('gamificacao', 'Conquistas',  'Achievements', 'Missões, XP, níveis, selos e loja de ElosCoins.',                     '#DC2626', '#FEF2F2', 'Gamepad2',       '/game',        'conquistas@eloscloud.com',  5),
-    ('suporte',     'Suporte',     'Support',      'Central de atendimento, tickets, IA assistente e knowledge base.',    '#0284C7', '#F0F9FF', 'HeadphonesIcon', '/suporte',     'suporte@eloscloud.com',     6)
+    ('suporte',     'Suporte',     'Support',      'Central de atendimento, tickets, IA assistente e knowledge base.',    '#0284C7', '#F0F9FF', 'HeadphonesIcon', '/ajuda/chamados', 'suporte@eloscloud.com',  6)
 ON CONFLICT (id) DO UPDATE SET
     label         = EXCLUDED.label,
     label_en      = EXCLUDED.label_en,

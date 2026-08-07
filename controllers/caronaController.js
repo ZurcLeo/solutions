@@ -63,6 +63,20 @@ exports.verifyDriver = async (req, res) => {
 };
 
 // ──────────────────────────────────────────────────────
+// Estimativa de rota (read-only, sem criar nada)
+// ──────────────────────────────────────────────────────
+
+exports.routeEstimate = async (req, res) => {
+  try {
+    const data = await caronaService.getRouteEstimate(req.body);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    logger.warn(`[${CTRL}] routeEstimate: ${err.message}`);
+    res.status(mapStatus(err.message)).json({ success: false, message: err.message });
+  }
+};
+
+// ──────────────────────────────────────────────────────
 // Viagens
 // ──────────────────────────────────────────────────────
 
