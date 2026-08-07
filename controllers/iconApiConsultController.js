@@ -684,7 +684,7 @@ exports.getSellerServices = async (req, res) => {
       .from('marketplace_products')
       .select(`
         id, name, description, price_brl, duration_minutes,
-        cancellation_policy, service_mode, images, active
+        cancellation_policy, service_mode, fulfillment_types, images, active
       `)
       .eq('seller_id', sellerId)
       .eq('product_type', 'service')
@@ -704,6 +704,7 @@ exports.getSellerServices = async (req, res) => {
         priceBrl: Number(s.price_brl),
         durationMinutes: s.duration_minutes,
         serviceMode: s.service_mode,
+        fulfillmentTypes: s.fulfillment_types || [],
         cancellationPolicy: s.cancellation_policy,
         imageUrl: Array.isArray(s.images) && s.images.length > 0 ? s.images[0] : null,
       })),

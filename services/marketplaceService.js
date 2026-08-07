@@ -174,6 +174,7 @@ async function createSellerProfile(userId, data) {
     address_lat: explicitLat, address_lng: explicitLng,
     // [BUG-001] Campos do wizard que eram silenciosamente descartados
     seller_subtype,
+    seller_subtype_custom,
     delivery_modes,
     service_mode,
     service_area_bairros,
@@ -184,6 +185,17 @@ async function createSellerProfile(userId, data) {
   } = data;
 
   if (!business_name) throw new Error('business_name é obrigatório');
+
+  // ── Validação de subtipo customizado ──────────────────────────────────────
+  const OUTROS_SLUGS = ['outros_alimentacao', 'outros_servicos', 'outros_imoveis', 'outros_produtos'];
+  let resolvedSubtypeCustom = null;
+  if (OUTROS_SLUGS.includes(seller_subtype)) {
+    const trimmed = (seller_subtype_custom || '').trim();
+    if (trimmed.length < 3 || trimmed.length > 60) {
+      throw new Error('Para o subtipo "Outro", informe uma descrição entre 3 e 60 caracteres');
+    }
+    resolvedSubtypeCustom = trimmed;
+  }
 
   // ── Validação de documento / KYC ─────────────────────────────────────────
   if (document_type === 'cnpj') {
@@ -269,6 +281,7 @@ async function createSellerProfile(userId, data) {
       registro_profissional_uf:     registro_profissional_uf || null,
       // [BUG-001] Campos do wizard que eram silenciosamente descartados
       seller_subtype:        seller_subtype || null,
+      seller_subtype_custom: resolvedSubtypeCustom,
       delivery_modes:        Array.isArray(delivery_modes) ? delivery_modes : [],
       service_mode:          Array.isArray(service_mode) ? service_mode : [],
       service_area_bairros:  Array.isArray(service_area_bairros) ? service_area_bairros : [],
@@ -372,7 +385,7 @@ const SELLER_SAFE_COLS = [
   'creci',
   'registro_profissional_tipo', 'registro_profissional_numero', 'registro_profissional_uf',
   'registro_profissional_verificado', 'registro_profissional_verificado_em',
-  'seller_subtype',
+  'seller_subtype', 'seller_subtype_custom',
   'delivery_modes', 'service_mode', 'service_area_bairros', 'avg_prep_time_min',
   'business_hours',
   'avg_rating', 'total_reviews',
@@ -580,6 +593,20 @@ async function updateSellerProfile(userId, updates) {
     } catch { /* silently skip — telefone sync is best-effort */ }
   }
 
+  // ── Validação cruzada de subtipo customizado ───────────────────────────────
+  const OUTROS_SLUGS_UPD = ['outros_alimentacao', 'outros_servicos', 'outros_imoveis', 'outros_produtos'];
+  if (updates.seller_subtype !== undefined) {
+    if (OUTROS_SLUGS_UPD.includes(updates.seller_subtype)) {
+      const trimmed = (updates.seller_subtype_custom || '').trim();
+      if (trimmed.length < 3 || trimmed.length > 60) {
+        throw new Error('Para o subtipo "Outro", informe uma descrição entre 3 e 60 caracteres');
+      }
+      updates.seller_subtype_custom = trimmed;
+    } else {
+      updates.seller_subtype_custom = null;
+    }
+  }
+
   // [HANDLE-004] Auto-set username_last_changed_at quando username muda
   // [HANDLE-005] Record old handle in history before changing
   if (updates.username !== undefined) {
@@ -659,6 +686,7 @@ async function createProduct(userId, data, sellerId = null) {
     product_type, menu_category_id, prep_time_min, serves, allergens,
     is_available_now, weight_kg, dimensions_cm, sku, unit_of_measure,
     duration_minutes, cancellation_policy, service_mode,
+    min_capacity, booking_deadline_hours,
   } = validated;
 
   // Resolve fulfillment_types: usa o fornecido, ou aplica default da categoria do seller
@@ -689,9 +717,11 @@ async function createProduct(userId, data, sellerId = null) {
       allergens:         allergens         ?? null,
       is_available_now:  is_available_now  ?? true,
       // Serviços
-      duration_minutes:     duration_minutes     ?? null,
-      cancellation_policy:  cancellation_policy  ?? null,
-      service_mode:         service_mode         ?? null,
+      duration_minutes:        duration_minutes        ?? null,
+      cancellation_policy:     cancellation_policy     ?? null,
+      service_mode:            service_mode            ?? 'individual',
+      min_capacity:            min_capacity            ?? 1,
+      booking_deadline_hours:  booking_deadline_hours  ?? 24,
       // Produtos físicos
       weight_kg:         weight_kg         ?? null,
       dimensions_cm:     dimensions_cm     ?? null,

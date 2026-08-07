@@ -67,7 +67,7 @@ async function getPublicSeller(sellerIdOrHandle) {
       google_rating, google_reviews_count, google_business_name,
       google_url, google_business_status,
       fulfillment_types, business_hours, cover_image_url,
-      seller_subtype, plan_slug, accepts_guest_orders, status,
+      seller_subtype, seller_subtype_custom, plan_slug, accepts_guest_orders, status,
       owner:user_id ( full_name, avatar_url )
     `)
     .eq('id', sellerId)

@@ -1261,7 +1261,7 @@ exports.createProduct = async (req, res) => {
       description: Joi.string().allow('', null).max(2000),
       stock: Joi.number().integer().min(0).allow(null),
       duration_minutes: Joi.number().valid(15, 30, 45, 60, 90, 120, 180, 240, 480).allow(null),
-      service_mode: Joi.string().valid('presencial', 'remoto', 'hibrido').allow(null),
+      service_mode: Joi.string().valid('individual', 'group').allow(null),
       cancellation_policy: Joi.string().allow('', null),
       weight_kg: Joi.number().positive().allow(null),
       dimensions_cm: Joi.object({
