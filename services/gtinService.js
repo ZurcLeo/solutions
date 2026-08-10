@@ -8,6 +8,36 @@ const SVC = 'gtinService';
 const OSCBR_BASE = 'https://api.oscbr.com/v3';
 
 // ---------------------------------------------------------------------------
+// Fetch isolado — usa undici Agent próprio, imune a qualquer config global
+// (BE-005: fetch nativo falhava dentro do app por interferência de node-fetch)
+// ---------------------------------------------------------------------------
+let _oscbrFetch = globalThis.fetch; // fallback: native fetch
+
+try {
+  const undici = require('undici');
+  const agent = new undici.Agent({ connect: { timeout: 15_000 } });
+  _oscbrFetch = (url, opts = {}) => undici.fetch(url, { ...opts, dispatcher: agent });
+  logger.info(`[${SVC}] Using isolated undici.Agent for OSCBR calls`);
+} catch {
+  logger.info(`[${SVC}] undici not available, using native fetch`);
+}
+
+/**
+ * Helper: extrai causa raiz de erros de fetch (e.cause chain)
+ */
+function _fetchErrorDetail(err) {
+  const detail = { message: err.message };
+  if (err.cause) {
+    detail.cause = err.cause.code || err.cause.message || String(err.cause);
+    if (err.cause.cause) {
+      detail.rootCause = err.cause.cause.code || err.cause.cause.message || String(err.cause.cause);
+    }
+  }
+  if (err.code) detail.code = err.code;
+  return detail;
+}
+
+// ---------------------------------------------------------------------------
 // Supabase helper
 // ---------------------------------------------------------------------------
 
@@ -93,7 +123,7 @@ async function getOscbrToken(forceRefresh = false) {
 
   try {
     const basicAuth = Buffer.from(`${user}:${pass}`).toString('base64');
-    const resp = await fetch(`${OSCBR_BASE}/auth`, {
+    const resp = await _oscbrFetch(`${OSCBR_BASE}/auth`, {
       method: 'POST',
       headers: {
         Authorization: `Basic ${basicAuth}`,
@@ -116,7 +146,7 @@ async function getOscbrToken(forceRefresh = false) {
     logger.info(`[${SVC}] OSCBR token obtained, cached 55min`);
     return _oscbrToken;
   } catch (err) {
-    logger.error(`[${SVC}] OSCBR auth error`, { error: err.message });
+    logger.error(`[${SVC}] OSCBR auth error`, _fetchErrorDetail(err));
     return null;
   }
 }
@@ -182,7 +212,7 @@ async function downloadAndStoreImage(linkFoto, gtin) {
     const token = await getOscbrToken();
     if (!token) return null;
 
-    const resp = await fetch(linkFoto, {
+    const resp = await _oscbrFetch(linkFoto, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15000),
     });
@@ -225,7 +255,7 @@ async function downloadAndStoreImage(linkFoto, gtin) {
     logger.info(`[${SVC}] Image stored for ${gtin}`, { publicUrl });
     return publicUrl;
   } catch (err) {
-    logger.error(`[${SVC}] downloadAndStoreImage error for ${gtin}`, { error: err.message });
+    logger.error(`[${SVC}] downloadAndStoreImage error for ${gtin}`, _fetchErrorDetail(err));
     return null;
   }
 }
@@ -249,7 +279,7 @@ async function lookupOscbr(gtin) {
     if (!token) return null;
 
     try {
-      let resp = await fetch(`${OSCBR_BASE}/products/${gtin}`, {
+      let resp = await _oscbrFetch(`${OSCBR_BASE}/products/${gtin}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
@@ -263,7 +293,7 @@ async function lookupOscbr(gtin) {
         token = await getOscbrToken(true);
         if (!token) return null;
 
-        resp = await fetch(`${OSCBR_BASE}/products/${gtin}`, {
+        resp = await _oscbrFetch(`${OSCBR_BASE}/products/${gtin}`, {
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/json',
@@ -320,7 +350,7 @@ async function lookupOscbr(gtin) {
       return product;
     } catch (err) {
       // Timeout, network error etc. — graceful degradation
-      logger.error(`[${SVC}] OSCBR lookup error for ${gtin}`, { error: err.message });
+      logger.error(`[${SVC}] OSCBR lookup error for ${gtin}`, _fetchErrorDetail(err));
       return null;
     }
   });

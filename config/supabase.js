@@ -33,7 +33,8 @@ function getSupabaseClient() {
   try {
     supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
-      global: { fetch: require('node-fetch') },
+      // Node 20+ tem fetch nativo (undici) — node-fetch removido pois
+      // interferia com fetch de saída em outros services (BE-005)
       realtime: { websocket: WebSocket }
     });
     return supabase;
