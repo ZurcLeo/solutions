@@ -38,14 +38,55 @@ function _generatePkce() {
 }
 
 /**
- * Gera URL de autorizacao OAuth do ML.
- * O state contem sellerId + code_verifier (PKCE) para validar no callback.
+ * [BUG-006] Assina o state com HMAC-SHA256 usando ML_CLIENT_SECRET.
+ * Formato: base64url(payload).hmac — impede forjamento de sellerId/userId.
  */
-function getAuthorizationUrl(sellerId) {
+function _signState(payload) {
+    const { secret } = _getConfig();
+    const raw = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const sig = crypto.createHmac('sha256', secret).update(raw).digest('base64url');
+    return `${raw}.${sig}`;
+}
+
+/**
+ * [BUG-006] Verifica HMAC + expiração do state.
+ * @returns {object|null} payload se válido, null se inválido/expirado
+ */
+function verifyState(state, { maxAgeMs = 10 * 60 * 1000 } = {}) {
+    try {
+        const { secret } = _getConfig();
+        const dotIdx = state.lastIndexOf('.');
+        if (dotIdx < 1) return null;
+
+        const raw = state.substring(0, dotIdx);
+        const sig = state.substring(dotIdx + 1);
+        const expected = crypto.createHmac('sha256', secret).update(raw).digest('base64url');
+
+        // Timing-safe comparison
+        if (sig.length !== expected.length) return null;
+        if (!crypto.timingSafeEqual(Buffer.from(sig, 'utf8'), Buffer.from(expected, 'utf8'))) return null;
+
+        const payload = JSON.parse(Buffer.from(raw, 'base64url').toString());
+
+        // Expiração (default 10 min)
+        if (payload.ts && (Date.now() - payload.ts > maxAgeMs)) return null;
+
+        return payload;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Gera URL de autorizacao OAuth do ML.
+ * [BUG-006] State agora inclui userId e é HMAC-signed.
+ * @param {string} sellerId
+ * @param {string} userId - quem iniciou o connect (audit + seguranca)
+ */
+function getAuthorizationUrl(sellerId, userId) {
     const { appId, redirectUri } = _getConfig();
     const { verifier, challenge } = _generatePkce();
-    // State: sellerId + code_verifier para CSRF + PKCE
-    const state = Buffer.from(JSON.stringify({ sellerId, cv: verifier, ts: Date.now() })).toString('base64url');
+    const state = _signState({ sid: sellerId, uid: userId, cv: verifier, ts: Date.now() });
     const params = new URLSearchParams({
         response_type: 'code',
         client_id: appId,
@@ -121,8 +162,9 @@ async function getMlUser(accessToken) {
 /**
  * Salva ou atualiza a conexao ML do seller.
  * Upsert por (seller_id, platform='mercadolivre').
+ * [BUG-006] connectedBy registra quem executou o OAuth.
  */
-async function saveConnection(sellerId, tokenData, mlUser) {
+async function saveConnection(sellerId, tokenData, mlUser, connectedBy = null) {
     const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
 
     const row = {
@@ -138,6 +180,7 @@ async function saveConnection(sellerId, tokenData, mlUser) {
         sync_error: null,
         connected_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        ...(connectedBy && { connected_by: connectedBy }),
     };
 
     const { data, error } = await sb()
@@ -227,7 +270,7 @@ async function disconnect(sellerId) {
 async function getConnectionStatus(sellerId) {
     const { data, error } = await sb()
         .from('seller_external_accounts')
-        .select('id, platform, external_user_id, external_username, account_status, last_sync_at, sync_error, connected_at')
+        .select('id, platform, external_user_id, external_username, account_status, last_sync_at, sync_error, connected_at, connected_by')
         .eq('seller_id', sellerId)
         .eq('platform', 'mercadolivre')
         .maybeSingle();
@@ -238,6 +281,7 @@ async function getConnectionStatus(sellerId) {
 
 module.exports = {
     getAuthorizationUrl,
+    verifyState,
     exchangeCode,
     refreshAccessToken,
     getMlUser,
