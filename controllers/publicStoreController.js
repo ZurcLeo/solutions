@@ -103,6 +103,15 @@ exports.listProducts = async (req, res) => {
   }
 };
 
+exports.listCategories = async (req, res) => {
+  try {
+    const categories = await guestCheckoutService.listPublicMenuCategories(req.params.sellerId);
+    res.json({ success: true, data: categories });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
 exports.getProduct = async (req, res) => {
   try {
     const product = await guestCheckoutService.getPublicProduct(req.params.sellerId, req.params.productId);

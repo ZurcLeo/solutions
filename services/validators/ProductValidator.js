@@ -63,9 +63,9 @@ const TYPE_RULES = {
 
   physical_product: {
     required: ['name', 'price_brl', 'weight_kg'],
-    forbidden: ['prep_time_min', 'serves', 'allergens', 'menu_category_id', 'duration_minutes'],
+    forbidden: ['prep_time_min', 'serves', 'allergens', 'duration_minutes'],
     optional: [
-      'description', 'images', 'stock',
+      'description', 'images', 'stock', 'menu_category_id',
       'dimensions_cm', 'sku', 'unit_of_measure', 'max_coins_discount',
     ],
     defaults: {
@@ -196,7 +196,7 @@ class ProductValidator {
       produtos: {
         has_modifiers: false, has_prep_time: false, has_delivery_modes: true,
         has_scheduling: false, has_weight: true, has_stock: true,
-        has_portfolio: false, has_menu_categories: false,
+        has_portfolio: false, has_menu_categories: true,
       },
       imoveis: {
         has_modifiers: false, has_prep_time: false, has_delivery_modes: false,
@@ -206,7 +206,7 @@ class ProductValidator {
       outros: {
         has_modifiers: false, has_prep_time: false, has_delivery_modes: true,
         has_scheduling: false, has_weight: true, has_stock: true,
-        has_portfolio: false, has_menu_categories: false,
+        has_portfolio: false, has_menu_categories: true,
       },
     };
     return CAP[sellerCategory] ?? CAP['outros'];

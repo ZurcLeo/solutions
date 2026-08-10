@@ -21,6 +21,7 @@ router.use((req, res, next) => {
 
 // Leitura pública
 router.get('/:sellerId',                      readLimit, ctrl.getStore);
+router.get('/:sellerId/categories',             readLimit, ctrl.listCategories);
 router.get('/:sellerId/products',              readLimit, ctrl.listProducts);
 router.get('/:sellerId/products/:productId',   readLimit, ctrl.getProduct);
 router.post('/:sellerId/delivery-estimate',    writeLimit, ctrl.estimateDelivery);

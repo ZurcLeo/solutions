@@ -22,6 +22,7 @@ const notificationDispatcher = require('./NotificationDispatcher');
 const { getOptedOutUserIds } = require('./userPreferencesService');
 const handleService           = require('./handleService');
 const { geocodeAddress }      = require('../utils/geocoding');
+const gtinService             = require('./gtinService');
 
 const SERVICE = 'marketplaceService';
 
@@ -937,7 +938,21 @@ async function createProduct(userId, data, sellerId = null) {
     is_available_now, weight_kg, dimensions_cm, sku, unit_of_measure,
     duration_minutes, cancellation_policy, service_mode,
     min_capacity, booking_deadline_hours,
+    gtin,
   } = validated;
+
+  // Validar que menu_category_id pertence ao seller (se fornecido)
+  if (menu_category_id) {
+    const { data: catRow, error: catErr } = await sb()
+      .from('menu_categories')
+      .select('id')
+      .eq('id', menu_category_id)
+      .eq('seller_id', seller.id)
+      .single();
+    if (catErr || !catRow) {
+      throw new Error('Categoria informada não pertence a este vendedor.');
+    }
+  }
 
   // Resolve fulfillment_types: usa o fornecido, ou aplica default da categoria do seller
   const resolvedFulfillment = fulfillment_types != null
@@ -981,6 +996,8 @@ async function createProduct(userId, data, sellerId = null) {
       property_details:  property_details  ?? null,
       listing_type:      listing_type      ?? null,
       ...(product_type === 'property' ? { property_status: property_status || 'disponivel' } : {}),
+      // GTIN (código de barras — ELOS-BE-004)
+      gtin:              gtin              ?? null,
       active: true,
     })
     .select()
@@ -988,6 +1005,14 @@ async function createProduct(userId, data, sellerId = null) {
 
   if (error) throw new Error(`Erro ao criar produto: ${error.message}`);
   log('createProduct', 'Produto criado', { productId: product.id, product_type });
+
+  // Fire-and-forget: enriquece catálogo canônico com dados do merchant (ELOS-BE-004)
+  if (gtin) {
+    gtinService.upsertCatalogOnSave(gtin, { name, brand: null, weight_kg, dimensions_cm }).catch(err => {
+      logger.warn('[marketplaceService] upsertCatalogOnSave fire-and-forget error', { gtin, error: err.message });
+    });
+  }
+
   return product;
 }
 
@@ -1325,6 +1350,19 @@ async function updateProduct(userId, productId, updates, sellerId = null) {
     validateFulfillmentTypes(updates.fulfillment_types);
   }
 
+  // Valida menu_category_id pertence ao seller (se fornecido)
+  if (updates.menu_category_id) {
+    const { data: catRow, error: catErr } = await sb()
+      .from('menu_categories')
+      .select('id')
+      .eq('id', updates.menu_category_id)
+      .eq('seller_id', seller.id)
+      .single();
+    if (catErr || !catRow) {
+      throw new Error('Categoria informada não pertence a este vendedor.');
+    }
+  }
+
   // Valida property_status se fornecido
   if (updates.property_status != null) {
     const validStatuses = ['disponivel', 'reservado', 'alugado', 'vendido', 'inativo'];
@@ -1344,6 +1382,19 @@ async function updateProduct(userId, productId, updates, sellerId = null) {
     .single();
 
   if (error || !data) throw new Error('Produto não encontrado ou sem permissão');
+
+  // Fire-and-forget: enriquece catálogo canônico com dados do merchant (ELOS-BE-004)
+  if (data.gtin) {
+    gtinService.upsertCatalogOnSave(data.gtin, {
+      name: data.name,
+      brand: null,
+      weight_kg: data.weight_kg,
+      dimensions_cm: data.dimensions_cm,
+    }).catch(err => {
+      logger.warn('[marketplaceService] upsertCatalogOnSave (update) fire-and-forget error', { gtin: data.gtin, error: err.message });
+    });
+  }
+
   return data;
 }
 
@@ -3872,8 +3923,11 @@ async function approveSellerProfile(sellerId, { approved, reason = '', agentUser
 async function createMenuCategory(userId, data) {
   const seller = await getMySellerProfile(userId);
   if (seller.status !== 'active') throw new Error('Perfil de vendedor não está ativo.');
-  if (seller.category !== 'alimentacao') {
-    throw new Error('Categorias de cardápio são exclusivas para vendedores de alimentação.');
+  const caps = ProductValidator.mergedCapabilitiesFor(
+    Array.isArray(seller.category) ? seller.category : [seller.category]
+  );
+  if (!caps.has_menu_categories) {
+    throw new Error('Seu tipo de negócio não suporta categorias de produto.');
   }
 
   const { name, description, sort_order } = data;
