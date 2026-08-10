@@ -44,7 +44,8 @@ exports.connect = async (req, res) => {
             return res.status(400).json({ error: 'seller_context_required', message: 'Voce precisa ter uma loja ativa.' });
         }
 
-        const url = mlAuthService.getAuthorizationUrl(sellerId);
+        // [BUG-006] Inclui userId no state assinado (audit + seguranca)
+        const url = mlAuthService.getAuthorizationUrl(sellerId, req.user.uid);
         return res.json({ authorization_url: url });
     } catch (err) {
         logger.error(`[${CTRL}] connect error`, { error: err.message });
@@ -58,30 +59,35 @@ exports.connect = async (req, res) => {
  * Troca code por tokens, salva, redireciona para o painel.
  */
 exports.callback = async (req, res) => {
+    const frontUrl = process.env.FRONTEND_URL || 'https://eloscloud.com';
     try {
         const { error: joiErr, value: query } = SCHEMAS.callback.validate(req.query, { abortEarly: true });
 
         if (query?.error || joiErr) {
             const reason = query?.error ? 'denied' : 'invalid_callback';
             if (query?.error) logger.warn(`[${CTRL}] ML OAuth denied`);
-            return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/mercado/vendedor?ml_error=${reason}`);
+            return res.redirect(`${frontUrl}/mercado/vendedor?ml_error=${reason}`);
         }
 
         const { code, state } = query;
 
-        // Decodificar state para obter sellerId
-        let stateData;
-        try {
-            stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
-        } catch {
-            return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/mercado/vendedor?ml_error=invalid_state`);
+        // [BUG-006] Verificar HMAC + expiração do state (impede forjamento de sellerId)
+        const stateData = mlAuthService.verifyState(state);
+        if (!stateData) {
+            logger.warn(`[${CTRL}] callback invalid/expired state`);
+            return res.redirect(`${frontUrl}/mercado/vendedor?ml_error=invalid_state`);
         }
 
-        // Se for request admin (token para testes), trocar code por token e redirecionar com token
+        // ── Admin flow (test panel) ───────────────────────────
         if (stateData.admin) {
             try {
-                const { appId, secret, redirectUri } = { appId: process.env.ML_APP_ID, secret: process.env.ML_CLIENT_SECRET, redirectUri: process.env.ML_REDIRECT_URI };
-                const exchangeParams = { grant_type: 'authorization_code', client_id: appId, client_secret: secret, code, redirect_uri: redirectUri };
+                const exchangeParams = {
+                    grant_type: 'authorization_code',
+                    client_id: process.env.ML_APP_ID,
+                    client_secret: process.env.ML_CLIENT_SECRET,
+                    code,
+                    redirect_uri: process.env.ML_REDIRECT_URI,
+                };
                 if (stateData.cv) exchangeParams.code_verifier = stateData.cv;
                 const tokenResp = await fetch('https://api.mercadolibre.com/oauth/token', {
                     method: 'POST',
@@ -90,39 +96,53 @@ exports.callback = async (req, res) => {
                 });
                 if (tokenResp.ok) {
                     const tokenData = await tokenResp.json();
-                    // Token é curto (6h) e admin-only — seguro passar na URL uma vez
-                    return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/admin/testes?ml_token=${encodeURIComponent(tokenData.access_token)}`);
+                    return res.redirect(`${frontUrl}/admin/testes?ml_token=${encodeURIComponent(tokenData.access_token)}`);
                 }
                 const errBody = await tokenResp.text();
                 logger.error(`[${CTRL}] admin token exchange failed`, { status: tokenResp.status, body: errBody });
-                return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/admin/testes?ml_error=token_exchange_failed`);
+                return res.redirect(`${frontUrl}/admin/testes?ml_error=token_exchange_failed`);
             } catch (adminErr) {
                 logger.error(`[${CTRL}] admin token exchange error`, { error: adminErr.message });
-                return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/admin/testes?ml_error=token_exchange_error`);
+                return res.redirect(`${frontUrl}/admin/testes?ml_error=token_exchange_error`);
             }
         }
 
-        const { sellerId, cv: codeVerifier } = stateData;
-        if (!sellerId) {
-            return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/mercado/vendedor?ml_error=missing_seller`);
+        // ── Seller OAuth flow ─────────────────────────────────
+        const { sid: sellerId, uid: userId, cv: codeVerifier } = stateData;
+        if (!sellerId || !userId) {
+            return res.redirect(`${frontUrl}/mercado/vendedor?ml_error=missing_seller`);
         }
 
-        // Trocar code por tokens (PKCE: code_verifier viaja no state)
+        // [BUG-006] Verificar que o user que iniciou o flow é owner do seller
+        const supabase = getSupabaseClient();
+        const { data: isOwner } = await supabase
+            .from('seller_profiles')
+            .select('id')
+            .eq('id', sellerId)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (!isOwner) {
+            logger.warn(`[${CTRL}] callback user is not owner of seller`, { sellerId, userId });
+            return res.redirect(`${frontUrl}/mercado/vendedor?ml_error=unauthorized`);
+        }
+
+        // Trocar code por tokens (PKCE: code_verifier viaja no state assinado)
         const tokenData = await mlAuthService.exchangeCode(code, codeVerifier);
 
         // Buscar dados do usuario ML
         const mlUser = await mlAuthService.getMlUser(tokenData.access_token);
 
-        // Salvar conexao
-        await mlAuthService.saveConnection(sellerId, tokenData, mlUser);
+        // Salvar conexao com audit trail
+        await mlAuthService.saveConnection(sellerId, tokenData, mlUser, userId);
 
-        logger.info(`[${CTRL}] ML connected`, { sellerId });
+        logger.info(`[${CTRL}] ML connected`, { sellerId, connectedBy: userId });
 
         // Redirecionar para o painel com sucesso
-        return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/mercado/vendedor?ml_connected=true&ml_user=${encodeURIComponent(mlUser.nickname || '')}`);
+        return res.redirect(`${frontUrl}/mercado/vendedor?ml_connected=true&ml_user=${encodeURIComponent(mlUser.nickname || '')}`);
     } catch (err) {
         logger.error(`[${CTRL}] callback error`, { error: err.message, stack: err.stack });
-        return res.redirect(`${process.env.FRONTEND_URL || 'https://eloscloud.com'}/mercado/vendedor?ml_error=exchange_failed`);
+        return res.redirect(`${frontUrl}/mercado/vendedor?ml_error=exchange_failed`);
     }
 };
 

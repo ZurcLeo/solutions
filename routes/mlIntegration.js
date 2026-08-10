@@ -21,9 +21,10 @@ const { mlOAuthLimit, mlWebhookLimit, readLimit, writeLimit } = require('../midd
 const mlCtrl = require('../controllers/mlIntegrationController');
 
 // Rotas autenticadas (seller context obrigatorio)
-router.get('/connect',    verifyToken, requireSellerTeamAccess(), mlOAuthLimit, mlCtrl.connect);
+// [BUG-006] connect/disconnect exigem owner — impede employee de trocar conta ML da loja
+router.get('/connect',    verifyToken, requireSellerTeamAccess('owner'), mlOAuthLimit, mlCtrl.connect);
 router.get('/status',     verifyToken, requireSellerTeamAccess(), readLimit, mlCtrl.getStatus);
-router.post('/disconnect', verifyToken, requireSellerTeamAccess(), writeLimit, mlCtrl.disconnect);
+router.post('/disconnect', verifyToken, requireSellerTeamAccess('owner'), writeLimit, mlCtrl.disconnect);
 
 // Sync / Catalogo ML
 router.post('/import',    verifyToken, requireSellerTeamAccess(), writeLimit, mlCtrl.importCatalog);

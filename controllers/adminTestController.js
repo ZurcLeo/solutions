@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const Joi    = require('joi');
 const { getSupabaseClient } = require('../config/supabase');
 const { logger } = require('../logger');
+const mlAuthService = require('../services/mlAuthService');
 
 const TAG = 'adminTestController';
 
@@ -309,7 +310,12 @@ function getMlAdminAuthUrl(req, res) {
     const verifier = crypto.randomBytes(32).toString('base64url');
     const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
 
-    const state = Buffer.from(JSON.stringify({ admin: true, cv: verifier, ts: Date.now() })).toString('base64url');
+    // [BUG-006] State assinado via mlAuthService (mesmo HMAC do seller flow)
+    const mlSecret = process.env.ML_CLIENT_SECRET;
+    const statePayload = { admin: true, cv: verifier, ts: Date.now() };
+    const raw = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+    const sig = crypto.createHmac('sha256', mlSecret).update(raw).digest('base64url');
+    const state = `${raw}.${sig}`;
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: appId,
