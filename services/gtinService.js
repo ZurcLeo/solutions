@@ -5,7 +5,9 @@ const { logger } = require('../logger');
 
 const SVC = 'gtinService';
 
-const OSCBR_BASE = 'https://api.oscbr.com/v3';
+// Base real da API GTIN (RSC Sistemas / OSCBR)
+// Doc: token POST /oauth/token, info GET /api/gtin/infor/:gtin, img GET /api/gtin/img/:gtin
+const OSCBR_BASE = 'https://gtin.rscsistemas.com.br';
 
 // ---------------------------------------------------------------------------
 // Fetch isolado — usa undici Agent próprio, imune a qualquer config global
@@ -123,7 +125,7 @@ async function getOscbrToken(forceRefresh = false) {
 
   try {
     const basicAuth = Buffer.from(`${user}:${pass}`).toString('base64');
-    const resp = await _oscbrFetch(`${OSCBR_BASE}/auth`, {
+    const resp = await _oscbrFetch(`${OSCBR_BASE}/oauth/token`, {
       method: 'POST',
       headers: {
         Authorization: `Basic ${basicAuth}`,
@@ -198,28 +200,27 @@ async function _processQueue() {
 // ---------------------------------------------------------------------------
 
 /**
- * Baixa imagem da OSCBR e armazena no Supabase Storage (bucket product-catalog).
- * Nunca hotlinka URL da OSCBR — imagem é interna.
+ * Baixa imagem via endpoint dedicado GET /api/gtin/img/:gtin e armazena
+ * no Supabase Storage (bucket product-catalog). Nunca hotlinka OSCBR.
  *
- * @param {string} linkFoto — URL da imagem na OSCBR
- * @param {string} gtin — código EAN/UPC para nomear o arquivo
+ * Códigos documentados: 200 PNG, 204 sem imagem, 404 não encontrado.
+ *
+ * @param {string} gtin — código EAN/UPC
  * @returns {Promise<string|null>} URL pública do Storage ou null se falhar
  */
-async function downloadAndStoreImage(linkFoto, gtin) {
-  if (!linkFoto) return null;
-
+async function downloadAndStoreImage(gtin) {
   try {
     const token = await getOscbrToken();
     if (!token) return null;
 
-    const resp = await _oscbrFetch(linkFoto, {
+    const resp = await _oscbrFetch(`${OSCBR_BASE}/api/gtin/img/${gtin}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15000),
     });
 
-    // 204 = no image available
-    if (resp.status === 204) {
-      logger.info(`[${SVC}] OSCBR image 204 (no image) for ${gtin}`);
+    // 204 = sem imagem, 404 = não encontrado — ambos OK, produto existe mas sem foto
+    if (resp.status === 204 || resp.status === 404) {
+      logger.info(`[${SVC}] OSCBR image ${resp.status} (no image) for ${gtin}`);
       return null;
     }
 
@@ -261,12 +262,12 @@ async function downloadAndStoreImage(linkFoto, gtin) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. lookupOscbr — GET /products/{gtin}
+// 5. lookupOscbr — GET /api/gtin/infor/{gtin}
 // ---------------------------------------------------------------------------
 
 /**
- * Consulta produto na OSCBR API v3.
- * Mapeia campos: nome→name, marca→brand, ncm→ncm(padStart), etc.
+ * Consulta produto na API GTIN (RSC Sistemas / OSCBR).
+ * Mapeia campos: nome→name, marca→brand, ncm→ncm(padStart 8), etc.
  *
  * NUNCA lança exceção — retorna null em caso de erro (graceful degradation).
  *
@@ -279,7 +280,7 @@ async function lookupOscbr(gtin) {
     if (!token) return null;
 
     try {
-      let resp = await _oscbrFetch(`${OSCBR_BASE}/products/${gtin}`, {
+      let resp = await _oscbrFetch(`${OSCBR_BASE}/api/gtin/infor/${gtin}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
@@ -293,7 +294,7 @@ async function lookupOscbr(gtin) {
         token = await getOscbrToken(true);
         if (!token) return null;
 
-        resp = await _oscbrFetch(`${OSCBR_BASE}/products/${gtin}`, {
+        resp = await _oscbrFetch(`${OSCBR_BASE}/api/gtin/infor/${gtin}`, {
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/json',
@@ -326,8 +327,8 @@ async function lookupOscbr(gtin) {
       const ncmRaw = data.ncm;
       const ncm = ncmRaw != null ? String(ncmRaw).padStart(8, '0') : null;
 
-      // Download e armazenamento da imagem (nunca hotlink)
-      const imageUrl = await downloadAndStoreImage(data.link_foto, gtin);
+      // Download via endpoint dedicado /api/gtin/img/:gtin (nunca hotlink link_foto)
+      const imageUrl = await downloadAndStoreImage(gtin);
 
       const product = {
         gtin: String(data.ean || gtin),
