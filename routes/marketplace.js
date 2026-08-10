@@ -103,6 +103,15 @@ router.post('/shipping/quote',                verifyToken, readLimit,  ctrl.getS
 router.get('/shipping/:orderId/tracking',     verifyToken, readLimit,  ctrl.getShippingTracking);
 
 // ──────────────────────────────────────────────────────
+// GTIN / EAN / UPC — Lookup de código de barras (ELOS-BE-004)
+// GET    /api/marketplace/gtin/:code       — busca cascata (catálogo → OSCBR)
+// ──────────────────────────────────────────────────────
+
+const gtinCtrl = require('../controllers/gtinController');
+
+router.get('/gtin/:code', verifyToken, readLimit, gtinCtrl.lookupGtin);
+
+// ──────────────────────────────────────────────────────
 // Produtos
 // POST   /api/marketplace/products         — criar produto (requer seller ativo)
 // GET    /api/marketplace/products         — listar produtos (?seller_id, ?category, ?min_price, ?max_price)

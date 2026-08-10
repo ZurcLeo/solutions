@@ -105,7 +105,7 @@ async function listPublicProducts(sellerIdOrHandle, { page = 1, limit = 50, q, c
 
   let query = supabase
     .from('marketplace_products')
-    .select('id, name, description, price_brl, images, category, product_type, listing_type, duration_minutes, fulfillment_types, active, seller_id, created_at', { count: 'exact' })
+    .select('id, name, description, price_brl, images, category, product_type, listing_type, duration_minutes, fulfillment_types, active, seller_id, created_at, menu_category_id', { count: 'exact' })
     .eq('seller_id', sellerId)
     .eq('active', true);
 
@@ -149,6 +149,23 @@ async function listPublicProducts(sellerIdOrHandle, { page = 1, limit = 50, q, c
 
   if (error) throw new Error(`Erro ao buscar produtos: ${error.message}`);
   return { products: data || [], total: count || 0, page, limit };
+}
+
+/**
+ * Lista categorias de produto de um seller (público).
+ * Retorna apenas categorias ativas, ordenadas por sort_order.
+ */
+async function listPublicMenuCategories(sellerIdOrHandle) {
+  const sellerId = await _resolveSellerUuid(sellerIdOrHandle);
+  const { data, error } = await sb()
+    .from('menu_categories')
+    .select('id, name, sort_order')
+    .eq('seller_id', sellerId)
+    .eq('active', true)
+    .order('sort_order', { ascending: true });
+
+  if (error) throw new Error(`Erro ao buscar categorias: ${error.message}`);
+  return data || [];
 }
 
 /**
@@ -848,6 +865,7 @@ function _notifySellerNewOrder(order, guestBuyer) {
 module.exports = {
   getPublicSeller,
   listPublicProducts,
+  listPublicMenuCategories,
   getPublicProduct,
   estimateDeliveryForGuest,
   createGuestOrder,
