@@ -85,7 +85,7 @@ module.exports = function supportTicketResolvedTemplate(data) {
       <div style="border-top:1px solid ${BORDER}; padding-top:24px; text-align:center;">
         <p style="font-family:${FONT}; font-size:13px; color:${TEXT2}; line-height:1.5; margin:0;">
           Ainda precisa de ajuda? Fale conosco em
-          <a href="${APP_URL}/suporte" style="color:${P}; text-decoration:none;">eloscloud.com/suporte</a>.
+          <a href="${APP_URL}/ajuda/chamados" style="color:${P}; text-decoration:none;">eloscloud.com/ajuda/chamados</a>.
         </p>
       </div>
   `;

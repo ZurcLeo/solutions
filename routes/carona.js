@@ -63,6 +63,9 @@ router.patch('/drivers/:id/verify',  verifyToken, writeLimit, ctrl.verifyDriver)
 // ── Dashboard ──────────────────────────────────────────
 router.get('/dashboard',             verifyToken, readLimit,  ctrl.getDriverDashboard);
 
+// ── Estimativa de rota (read-only) ─────────────────────
+router.post('/route-estimate',       verifyToken, readLimit,  ctrl.routeEstimate);
+
 // ── Viagens (rotas estáticas ANTES de :id) ─────────────
 router.post('/rides',                verifyToken, writeLimit, ctrl.createRide);
 router.get('/rides/search',          verifyToken, readLimit,  ctrl.searchRides);

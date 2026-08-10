@@ -53,7 +53,25 @@ async function listRides(req, res) {
     const { data, count, error: dbErr } = await query;
     if (dbErr) throw dbErr;
 
-    res.json({ success: true, data, pagination: { page, limit, total: count } });
+    // Anexar stop_cities por ride
+    const rideIds = (data || []).map(r => r.id).filter(Boolean);
+    let stopsByRide = {};
+    if (rideIds.length) {
+      const { data: allStops } = await sb()
+        .from('carona_ride_stops')
+        .select('ride_id, city, stop_order')
+        .in('ride_id', rideIds)
+        .order('stop_order', { ascending: true });
+      if (allStops?.length) {
+        for (const s of allStops) {
+          if (!stopsByRide[s.ride_id]) stopsByRide[s.ride_id] = [];
+          if (s.city) stopsByRide[s.ride_id].push(s.city);
+        }
+      }
+    }
+    const enriched = (data || []).map(r => ({ ...r, stop_cities: stopsByRide[r.id] || [] }));
+
+    res.json({ success: true, data: enriched, pagination: { page, limit, total: count } });
   } catch (err) {
     logger.error(`${TAG} listRides error`, { error: err.message });
     res.status(500).json({ success: false, message: 'Erro ao listar corridas' });
@@ -91,7 +109,14 @@ async function getRideDetail(req, res) {
       .eq('ride_id', rideId)
       .order('created_at', { ascending: true });
 
-    res.json({ success: true, data: { ...ride, seats: seats || [] } });
+    // Buscar paradas intermediárias
+    const { data: stops } = await sb()
+      .from('carona_ride_stops')
+      .select('id, stop_order, address, neighborhood, city, state, cep, lat, lng')
+      .eq('ride_id', rideId)
+      .order('stop_order', { ascending: true });
+
+    res.json({ success: true, data: { ...ride, seats: seats || [], stops: stops || [] } });
   } catch (err) {
     logger.error(`${TAG} getRideDetail error`, { error: err.message });
     res.status(500).json({ success: false, message: 'Erro ao buscar detalhe' });
@@ -231,7 +256,33 @@ async function createTestRide(req, res) {
       departure_at: Joi.string().isoDate().required(),
       total_seats: Joi.number().integer().min(1).max(4).default(3),
       price_per_seat_brl: Joi.number().min(0).default(0),
+      accepts_luggage: Joi.boolean().default(false),
+      accepts_pets: Joi.boolean().default(false),
+      smoking_allowed: Joi.boolean().default(false),
+      luggage_options: Joi.object({
+        backpack: Joi.boolean(),
+        small_suitcase: Joi.boolean(),
+        medium_suitcase: Joi.boolean(),
+        large_suitcase: Joi.boolean(),
+      }).default({}),
+      pet_options: Joi.object({
+        carrier_only: Joi.boolean(),
+        small_only: Joi.boolean(),
+        extra_seat: Joi.boolean(),
+      }).default({}),
+      conversation_level: Joi.number().integer().min(0).max(100).default(50),
+      music_level: Joi.number().integer().min(0).max(100).default(50),
+      toll_split_mode: Joi.string().valid('absorb', 'split').default('absorb'),
       notes: Joi.string().allow('').max(500),
+      stops: Joi.array().max(3).items(Joi.object({
+        address: Joi.string().allow('', null).max(200),
+        neighborhood: Joi.string().allow('', null).max(100),
+        city: Joi.string().allow('', null).max(100),
+        state: Joi.string().allow('', null).max(60),
+        cep: Joi.string().allow('', null).max(10),
+        lat: Joi.number().min(-90).max(90).allow(null),
+        lng: Joi.number().min(-180).max(180).allow(null),
+      })),
     });
 
     const { value: body, error } = schema.validate(req.body);
@@ -289,12 +340,28 @@ async function createTestRide(req, res) {
       if (!dest_lat && destCoords) { dest_lat = destCoords.lat; dest_lng = destCoords.lng; }
     }
 
+    // Preparar waypoints das paradas para cálculo de distância
+    const stopWaypoints = (body.stops || [])
+      .filter(s => s.lat && s.lng)
+      .map(s => ({ lat: Number(s.lat), lng: Number(s.lng) }));
+
     if (origin_lat && origin_lng && dest_lat && dest_lng) {
       try {
-        const dist = await distanceService.getRoadDistance(origin_lat, origin_lng, dest_lat, dest_lng);
-        route_km = dist.distanceKm;
-        duration_minutes = dist.durationMinutes;
-        distance_source = dist.source;
+        if (stopWaypoints.length > 0) {
+          const dist = await distanceService.getRoadDistanceWithWaypoints(
+            { lat: origin_lat, lng: origin_lng },
+            { lat: dest_lat, lng: dest_lng },
+            stopWaypoints,
+          );
+          route_km = dist.distanceKm;
+          duration_minutes = dist.durationMinutes;
+          distance_source = dist.source;
+        } else {
+          const dist = await distanceService.getRoadDistance(origin_lat, origin_lng, dest_lat, dest_lng);
+          route_km = dist.distanceKm;
+          duration_minutes = dist.durationMinutes;
+          distance_source = dist.source;
+        }
       } catch (distErr) {
         logger.warn(`${TAG} Distância não calculada: ${distErr.message}`);
       }
@@ -335,6 +402,14 @@ async function createTestRide(req, res) {
         price_per_seat_brl: body.price_per_seat_brl,
         route_km: route_km ? Math.round(route_km * 100) / 100 : null,
         distance_source,
+        accepts_luggage: body.accepts_luggage || false,
+        accepts_pets: body.accepts_pets || false,
+        smoking_allowed: body.smoking_allowed || false,
+        luggage_options: body.luggage_options || {},
+        pet_options: body.pet_options || {},
+        conversation_level: body.conversation_level != null ? Math.max(0, Math.min(100, body.conversation_level)) : 50,
+        music_level: body.music_level != null ? Math.max(0, Math.min(100, body.music_level)) : 50,
+        toll_split_mode: body.toll_split_mode || 'absorb',
         notes: body.notes || '[TESTE] Corrida criada pelo admin',
       })
       .select()
@@ -342,7 +417,29 @@ async function createTestRide(req, res) {
 
     if (rideErr) throw rideErr;
 
-    logger.info(`${TAG} Admin created test ride`, { rideId: ride.id, adminId, route_km, distance_source });
+    // Inserir paradas intermediárias
+    if (body.stops?.length) {
+      const stopRows = body.stops
+        .filter(s => s.city || s.address)
+        .slice(0, 3)
+        .map((s, i) => ({
+          ride_id: ride.id,
+          stop_order: i,
+          address: s.address || s.city,
+          neighborhood: s.neighborhood || null,
+          city: s.city || null,
+          state: s.state || null,
+          cep: s.cep || null,
+          lat: s.lat || null,
+          lng: s.lng || null,
+        }));
+      if (stopRows.length) {
+        const { error: stopErr } = await sb().from('carona_ride_stops').insert(stopRows);
+        if (stopErr) logger.warn(`${TAG} Erro ao inserir paradas: ${stopErr.message}`);
+      }
+    }
+
+    logger.info(`${TAG} Admin created test ride`, { rideId: ride.id, adminId, route_km, distance_source, stops: body.stops?.length || 0 });
     res.status(201).json({ success: true, data: ride });
   } catch (err) {
     logger.error(`${TAG} createTestRide error`, { error: err.message });

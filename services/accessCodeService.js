@@ -146,26 +146,32 @@ async function verifyAccessCode(email, code) {
   const normalizedEmail = email.toLowerCase().trim();
   const normalizedCode = code.replace(/-/g, '').toUpperCase();
 
+  logger.info(`[${fn}] Iniciando verificação`, { email: normalizedEmail, codeLen: normalizedCode.length });
+
   // 1. Verificar lockout
   const lockout = await checkLockout(normalizedEmail);
   if (lockout.is_locked) {
+    logger.warn(`[${fn}] Conta bloqueada`, { email: normalizedEmail, until: lockout.locked_until });
     return { success: false, error: 'account_locked', locked_until: lockout.locked_until };
   }
 
   // 2. Resolver usuário
-  const { data: user } = await sb()
+  const { data: user, error: userErr } = await sb()
     .from('users')
     .select('id, email')
     .eq('email', normalizedEmail)
     .maybeSingle();
 
   if (!user) {
+    logger.warn(`[${fn}] Usuário não encontrado`, { email: normalizedEmail, dbError: userErr?.message });
     await recordAttempt(normalizedEmail, 'access_code', false);
     return { success: false, error: 'invalid_code' };
   }
 
+  logger.info(`[${fn}] Usuário encontrado`, { userId: user.id });
+
   // 3. Buscar código ativo (não usado, não expirado)
-  const { data: activeCode } = await sb()
+  const { data: activeCode, error: codeErr } = await sb()
     .from('user_access_codes')
     .select('id, code_hash, expires_at')
     .eq('user_id', user.id)
@@ -176,9 +182,12 @@ async function verifyAccessCode(email, code) {
     .maybeSingle();
 
   if (!activeCode) {
+    logger.warn(`[${fn}] Nenhum código ativo encontrado`, { userId: user.id, dbError: codeErr?.message });
     await recordAttempt(normalizedEmail, 'access_code', false);
     return { success: false, error: 'invalid_code' };
   }
+
+  logger.info(`[${fn}] Código ativo encontrado`, { codeId: activeCode.id, expiresAt: activeCode.expires_at });
 
   // 4. Verificar hash (timing-safe)
   const candidateHash = hashCode(normalizedCode, user.id);
@@ -188,6 +197,7 @@ async function verifyAccessCode(email, code) {
   );
 
   if (!isValid) {
+    logger.warn(`[${fn}] Hash não corresponde`, { userId: user.id, codeId: activeCode.id });
     await recordAttempt(normalizedEmail, 'access_code', false);
     return { success: false, error: 'invalid_code' };
   }

@@ -436,6 +436,7 @@ router.get('/negocios/plans', readLimit, requireAdmin, businessAdminController.l
 router.post('/negocios/plans', writeLimit, requireAdmin, businessAdminController.createPlan);
 router.patch('/negocios/plans/:slug', writeLimit, requireAdmin, businessAdminController.updatePlan);
 router.patch('/negocios/plans/:slug/toggle', writeLimit, requireAdmin, businessAdminController.togglePlan);
+router.get('/negocios/team/:sellerId', readLimit, requireAdmin, businessAdminController.listSellerTeam);
 router.get('/negocios/exemptions', readLimit, requireAdmin, businessAdminController.listExemptions);
 router.post('/negocios/exemptions', writeLimit, requireAdmin, businessAdminController.createExemption);
 router.patch('/negocios/exemptions/:id/revoke', writeLimit, requireAdmin, businessAdminController.revokeExemption);

@@ -10,6 +10,7 @@
 
 const bookingService        = require('../services/bookingService');
 const bookingPaymentService = require('../services/bookingPaymentService');
+const asaasService          = require('../services/asaasService');
 const { logger }            = require('../logger');
 
 const CTRL = 'bookingController';
@@ -119,39 +120,78 @@ async function getAvailableSlots(req, res) {
 
 /**
  * POST /api/bookings
- * Body: { service_id, slot_start, notes? }
- * Cria um agendamento e — opcionalmente — inicia o PaymentIntent Stripe.
+ * Body: { service_id, slot_start, notes?, card_data?: { creditCard, creditCardHolderInfo } }
+ * Cria um agendamento e — se serviço pago — autoriza hold Asaas no cartão.
  *
- * Se STRIPE_SECRET_KEY estiver configurado, cria o PaymentIntent imediatamente
- * e retorna clientSecret para o frontend confirmar o hold.
+ * Se o serviço tem valor > 0, card_data é obrigatório.
+ * O customer Asaas é resolvido automaticamente a partir dos dados do usuário.
  */
 async function createBooking(req, res) {
   const fn = 'createBooking';
   try {
     const booking = await bookingService.createBooking(req.user.uid, req.body);
 
-    // Tentar criar PaymentIntent (hold) se Stripe estiver configurado
+    // Se serviço é pago, processar pré-autorização de cartão
     let paymentData = null;
-    if (process.env.STRIPE_SECRET_KEY && booking.amount_brl > 0) {
-      try {
-        paymentData = await bookingPaymentService.authorizeBookingPayment(
-          booking.id,
-          booking.amount_brl,
-          req.body.stripe_customer_id ?? null,
-          req.body.service_description ?? null,
-        );
-      } catch (payErr) {
-        // Pagamento falhou — não bloquear criação do booking mas avisar
-        logger.warn(`[${CTRL}] ${fn}: Stripe indisponível, booking criado sem hold`, {
-          bookingId: booking.id, error: payErr.message,
+    if (booking.amount_brl > 0) {
+      const { card_data } = req.body;
+      if (!card_data?.creditCard || !card_data?.creditCardHolderInfo) {
+        return res.status(400).json({
+          success: false,
+          error: 'Dados do cartão são obrigatórios para serviços pagos.',
         });
       }
+
+      // Resolver customer Asaas a partir dos dados do usuário
+      const { getSupabaseClient } = require('../config/supabase');
+      const encryptionService = require('../services/encryptionService');
+      const supabase = getSupabaseClient();
+
+      const { data: userData } = await supabase
+        .from('users')
+        .select('full_name, email, telefone, cpf_encrypted')
+        .eq('id', req.user.uid)
+        .single();
+
+      let cpfRaw = null;
+      if (userData?.cpf_encrypted) {
+        try {
+          const parsed = typeof userData.cpf_encrypted === 'string'
+            ? JSON.parse(userData.cpf_encrypted)
+            : userData.cpf_encrypted;
+          cpfRaw = String(await encryptionService.decrypt(parsed, { dataType: 'cpf', aad: req.user.uid }));
+        } catch (decErr) {
+          logger.warn(`[${CTRL}] ${fn}: falha ao decriptar CPF`, { error: decErr.message });
+        }
+      }
+
+      // Se holder não enviou CPF mas temos no cadastro, injetar
+      if (cpfRaw && !card_data.creditCardHolderInfo.cpfCnpj) {
+        card_data.creditCardHolderInfo.cpfCnpj = cpfRaw;
+      }
+
+      const customer = await asaasService.createCustomer({
+        name: userData?.full_name || card_data.creditCardHolderInfo.name || req.user.email,
+        email: userData?.email || card_data.creditCardHolderInfo.email,
+        cpfCnpj: card_data.creditCardHolderInfo.cpfCnpj || cpfRaw || undefined,
+        phone: userData?.telefone || card_data.creditCardHolderInfo.phone || undefined,
+        externalReference: req.user.uid,
+      });
+
+      paymentData = await bookingPaymentService.authorizeBookingPayment(
+        booking.id,
+        booking.amount_brl,
+        customer.id,
+        `Agendamento: ${booking.service_name || 'Serviço ElosCloud'}`,
+        card_data.creditCard,
+        card_data.creditCardHolderInfo,
+      );
     }
 
     return res.status(201).json({
       success: true,
       data: booking,
-      payment: paymentData,  // null se Stripe não configurado
+      payment: paymentData,
     });
   } catch (err) {
     return handleError(res, err, fn);
@@ -391,7 +431,7 @@ async function getServiceTeam(req, res) {
 async function generateCheckin(req, res) {
   const fn = 'generateCheckin';
   try {
-    const { token, expiresAt } = await bookingService.generateCheckinCode(
+    const { token, pin, expiresAt } = await bookingService.generateCheckinCode(
       req.user.uid,
       req.params.id,
     );
@@ -400,7 +440,7 @@ async function generateCheckin(req, res) {
 
     return res.status(200).json({
       success: true,
-      data: { token, qrData, expiresAt },
+      data: { token, pin, qrData, expiresAt },
     });
   } catch (err) {
     return handleError(res, err, fn);
@@ -419,6 +459,38 @@ async function performCheckin(req, res) {
     if (!token) return res.status(400).json({ success: false, error: 'token é obrigatório.' });
 
     const data = await bookingService.checkinBooking(token, req.user.uid);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err, fn);
+  }
+}
+
+/**
+ * POST /api/bookings/checkin-pin
+ * Cliente faz check-in digitando o PIN de 6 dígitos (fallback F1).
+ * Body: { pin }
+ */
+async function performCheckinByPin(req, res) {
+  const fn = 'performCheckinByPin';
+  try {
+    const { pin } = req.body;
+    if (!pin) return res.status(400).json({ success: false, error: 'PIN é obrigatório.' });
+
+    const data = await bookingService.checkinByPin(pin, req.user.uid);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err, fn);
+  }
+}
+
+/**
+ * POST /api/bookings/:id/manual-checkin
+ * Prestador faz check-in manual de um participante (fallback F2).
+ */
+async function manualCheckin(req, res) {
+  const fn = 'manualCheckin';
+  try {
+    const data = await bookingService.manualCheckin(req.user.uid, req.params.id);
     return res.status(200).json({ success: true, data });
   } catch (err) {
     return handleError(res, err, fn);
@@ -529,9 +601,11 @@ module.exports = {
   cancelBooking,
   checkConflicts,
   getServiceTeam,
-  // [SCHED-CAP-011] Check-in QR Code
+  // [SCHED-CAP-011] Check-in QR Code + Fallbacks
   generateCheckin,
   performCheckin,
+  performCheckinByPin,
+  manualCheckin,
   getCheckins,
   // [SCHED-CAP-013] Waitlist / Fila de Espera
   joinWaitlist,

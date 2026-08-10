@@ -134,6 +134,14 @@ router.post('/payment-methods',              verifyToken, bankingLimit, userPaym
 router.post('/payment-methods/:id/validate', verifyToken, bankingLimit, userPaymentMethodController.validate);
 router.delete('/payment-methods/:id',        verifyToken, bankingLimit, userPaymentMethodController.remove);
 
+// ─── Cartões salvos (tokenização Asaas) — PAY-CARD-001 ───────────────────────
+const savedCardController = require('../controllers/savedCardController');
+
+router.get('/saved-cards',              verifyToken, rateLimiter, savedCardController.list);
+router.post('/saved-cards',             verifyToken, bankingLimit, savedCardController.save);
+router.delete('/saved-cards/:id',       verifyToken, rateLimiter, savedCardController.remove);
+router.patch('/saved-cards/:id/default', verifyToken, rateLimiter, savedCardController.setDefault);
+
 router.get('/:userId', verifyToken, rateLimiter, validate(userSchema), userController.getUserById);
 
 /**

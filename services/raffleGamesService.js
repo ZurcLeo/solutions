@@ -527,7 +527,18 @@ async function confirmPayment(paymentId) {
     triggerGameEvent('raffle_ticket_bought', t.owner_id);
   }
 
-  return confirmed[0] || tickets[0];
+  // ── Unified Ledger (W5): record raffle ticket revenue ─
+  // Fire-and-forget — ledger never blocks the payment flow
+  const firstTicket = confirmed[0] || tickets[0];
+  setImmediate(() => {
+    _recordLedgerForRaffle({
+      gameId:    firstTicket.game_id,
+      paymentId,
+      tickets:   confirmed.length > 0 ? confirmed : tickets,
+    });
+  });
+
+  return firstTicket;
 }
 
 // ──────────────────────────────────────────────────────
@@ -896,6 +907,10 @@ async function drawRaffle(gameId, userId) {
     }
   });
 
+  // ── Unified Ledger (W5): promote raffle entries to available ─
+  // Sorteio concluído = dinheiro liberado para o criador da rifa
+  setImmediate(() => _promoteLedgerForRaffle(gameId));
+
   // 9. Gamification (Lei do Time) — fire-and-forget
   triggerGameEvent('raffle_drawn', userId);         // owner realizou sorteio
   triggerGameEvent('raffle_won', winnerUserId);     // ganhador
@@ -915,6 +930,141 @@ async function drawRaffle(gameId, userId) {
     drawnAt:      timestamp,
     gameResultId: gameResult.id,
   };
+}
+
+// ──────────────────────────────────────────────────────
+// Unified Ledger helpers (W5) — fire-and-forget
+// ──────────────────────────────────────────────────────
+
+/**
+ * Records ledger entries when raffle ticket payment is confirmed.
+ * D2: Rifa credita criador da rifa (owner do game).
+ * Per-ticket entries: owner receives ticket_price, platform debits.
+ * Uses paymentId as source_id for idempotency (one PIX = one ledger txn).
+ *
+ * @param {object} params
+ * @param {string} params.gameId
+ * @param {string} params.paymentId - Asaas payment ID (source_id)
+ * @param {Array}  params.tickets   - confirmed tickets (need game_id)
+ */
+async function _recordLedgerForRaffle({ gameId, paymentId, tickets }) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    // Idempotency: check if entries already exist for this paymentId
+    const { data: existing } = await sb()
+      .from('ledger_entries')
+      .select('id')
+      .eq('source_type', 'rifa')
+      .eq('source_id', paymentId)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      log('_recordLedgerForRaffle', 'Ledger entries already exist — skipping', {
+        action: 'LEDGER_IDEMPOTENT_SKIP', gameId, paymentId,
+      });
+      return;
+    }
+
+    // Fetch game to get owner_id (raffle creator) and ticket_price
+    const { data: game, error: gameErr } = await sb()
+      .from('games')
+      .select('owner_id, ticket_price')
+      .eq('id', gameId)
+      .maybeSingle();
+
+    if (gameErr || !game) {
+      logWarn('_recordLedgerForRaffle', 'Game not found for ledger', {
+        gameId, error: gameErr?.message,
+      });
+      return;
+    }
+
+    const totalBrl = Number(game.ticket_price) * tickets.length;
+    if (totalBrl <= 0) return;
+
+    const creatorAccountId = await ledger.ensureAccount('user', game.owner_id);
+    const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+    await ledger.recordTransaction([
+      {
+        accountId:   creatorAccountId,
+        amountBrl:   totalBrl,
+        status:      'pending',
+        sourceType:  'rifa',
+        sourceId:    paymentId,
+        description: `Venda de ${tickets.length} bilhete(s) — rifa ${gameId.substring(0, 8)}`,
+        asaasRef:    paymentId,
+      },
+      {
+        accountId:   platformAccountId,
+        amountBrl:   -totalBrl,
+        status:      'pending',
+        sourceType:  'rifa',
+        sourceId:    paymentId,
+        description: `Repasse rifa criador — rifa ${gameId.substring(0, 8)}`,
+        asaasRef:    paymentId,
+      },
+    ]);
+
+    log('_recordLedgerForRaffle', 'Ledger recorded for raffle tickets', {
+      action: 'LEDGER_RECORD_OK', gameId, paymentId, totalBrl, ticketCount: tickets.length,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger recording failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_RECORD_FAILED',
+      severity: 'CRITICAL',
+      gameId, paymentId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Promotes raffle ledger entries from pending → available.
+ * Called when the draw is completed (game closed).
+ * Promotes ALL entries for this gameId (multiple payments/tickets).
+ *
+ * @param {string} gameId
+ */
+async function _promoteLedgerForRaffle(gameId) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    // Raffle entries use paymentId as source_id, not gameId.
+    // We need to find all raffle entries for this game by querying tickets first.
+    const { data: tickets } = await sb()
+      .from('raffle_tickets')
+      .select('payment_id')
+      .eq('game_id', gameId)
+      .eq('payment_status', 'paid')
+      .not('payment_id', 'is', null);
+
+    if (!tickets || tickets.length === 0) return;
+
+    const paymentIds = [...new Set(tickets.map(t => t.payment_id))];
+    let totalPromoted = 0;
+
+    for (const pid of paymentIds) {
+      const promoted = await ledger.promoteToAvailable('rifa', pid);
+      totalPromoted += promoted;
+    }
+
+    if (totalPromoted > 0) {
+      log('_promoteLedgerForRaffle', 'Ledger entries promoted to available', {
+        action: 'LEDGER_PROMOTE_OK', gameId, promoted: totalPromoted,
+      });
+    }
+  } catch (ledgerErr) {
+    logger.error('Ledger promotion failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_PROMOTE_FAILED',
+      severity: 'CRITICAL',
+      gameId,
+      error: ledgerErr.message,
+    });
+  }
 }
 
 // ──────────────────────────────────────────────────────

@@ -603,10 +603,11 @@ class AsaasService {
    * Cobrança imediata em cartão (sem hold — débito instantâneo).
    * Uso: compra de ElosCoins, cobranças extras.
    */
-  async createCardCharge({ customerId, value, description, externalReference, creditCard, creditCardHolderInfo }) {
+  async createCardCharge({ customerId, value, description, externalReference, creditCard, creditCardHolderInfo, creditCardToken, remoteIp }) {
     try {
       logger.info('Criando cobrança de cartão imediata', {
         service: 'AsaasService', method: 'createCardCharge', customerId, value, externalReference,
+        usingSavedCard: !!creditCardToken,
       });
 
       if (value < 5) throw new Error('Valor mínimo para cartão no Asaas é R$ 5,00.');
@@ -617,6 +618,7 @@ class AsaasService {
         value,
         description,
         externalReference,
+        ...(creditCardToken ? { creditCardToken, remoteIp } : {}),
         ...(creditCard && { creditCard }),
         ...(creditCardHolderInfo && { creditCardHolderInfo }),
       };
@@ -634,6 +636,42 @@ class AsaasService {
         error: error.response?.data || error.message,
       });
       throw this._normalizeError(error, 'Falha ao cobrar cartão');
+    }
+  }
+
+  /**
+   * Tokeniza cartão de crédito via Asaas para cobranças futuras.
+   * Retorna creditCardToken + brand + últimos 4 dígitos.
+   */
+  async tokenizeCreditCard({ customerId, creditCard, creditCardHolderInfo, remoteIp }) {
+    try {
+      logger.info('Tokenizando cartão de crédito', {
+        service: 'AsaasService', method: 'tokenizeCreditCard', customerId,
+      });
+
+      const { data } = await this.client.post('/creditCard/tokenize', {
+        customer: customerId,
+        creditCard,
+        creditCardHolderInfo,
+        remoteIp,
+      });
+
+      logger.info('Cartão tokenizado com sucesso', {
+        service: 'AsaasService', method: 'tokenizeCreditCard',
+        brand: data.creditCardBrand, lastFour: data.creditCardNumber,
+      });
+
+      return {
+        creditCardToken: data.creditCardToken,
+        creditCardBrand: data.creditCardBrand,
+        creditCardNumber: data.creditCardNumber,
+      };
+    } catch (error) {
+      logger.error('Erro ao tokenizar cartão', {
+        service: 'AsaasService', method: 'tokenizeCreditCard',
+        error: error.response?.data || error.message,
+      });
+      throw this._normalizeError(error, 'Falha ao tokenizar cartão');
     }
   }
 

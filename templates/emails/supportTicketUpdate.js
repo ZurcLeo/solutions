@@ -97,13 +97,13 @@ module.exports = function supportTicketUpdateTemplate(data) {
 
       <!-- CTA — §05 button primary -->
       <div style="text-align:center; margin-bottom:32px;">
-        <a href="${APP_URL}/suporte" class="btn" style="display:inline-block; background:${P}; color:#FFFFFF !important; padding:12px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:14px;">Acompanhar meu ticket &rarr;</a>
+        <a href="${APP_URL}/ajuda/chamados" class="btn" style="display:inline-block; background:${P}; color:#FFFFFF !important; padding:12px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:14px;">Acompanhar meu ticket &rarr;</a>
       </div>
 
       <div style="border-top:1px solid ${BORDER}; padding-top:24px; text-align:center;">
         <p style="font-family:${FONT}; font-size:13px; color:${TEXT2}; line-height:1.5; margin:0;">
           Dúvidas? Fale com nossa equipe em
-          <a href="${APP_URL}/suporte" style="color:${P}; text-decoration:none;">eloscloud.com/suporte</a>.
+          <a href="${APP_URL}/ajuda/chamados" style="color:${P}; text-decoration:none;">eloscloud.com/ajuda/chamados</a>.
         </p>
       </div>
   `;

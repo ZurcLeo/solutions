@@ -178,6 +178,61 @@ exports._processAsaasEvent = async (event, payment) => {
               controller: 'WebhookController', paymentId: payment.id,
               sellerUserId, balanceId, amount: payment.value,
             });
+
+            // ── Unified Ledger (W5): record subscription_debt payment ─
+            // Seller pays accumulated commission → platform receives
+            try {
+              const ledger = require('../services/unifiedLedgerService');
+              const sourceId = `billing_${balanceId}_${payment.id}`;
+
+              // Idempotency check
+              const { data: existingEntries } = await supabase
+                .from('ledger_entries')
+                .select('id')
+                .eq('source_type', 'subscription_debt')
+                .eq('source_id', sourceId)
+                .limit(1);
+
+              if (!existingEntries || existingEntries.length === 0) {
+                const amountBrl = Number(payment.value) || 0;
+                if (amountBrl > 0) {
+                  const sellerAccountId = await ledger.ensureAccount('user', sellerUserId);
+                  const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+                  await ledger.recordTransaction([
+                    {
+                      accountId:   sellerAccountId,
+                      amountBrl:   -amountBrl,
+                      status:      'available',
+                      sourceType:  'subscription_debt',
+                      sourceId,
+                      description: `Comissao acumulada — billing ${balanceId.substring(0, 8)}`,
+                      asaasRef:    payment.id,
+                    },
+                    {
+                      accountId:   platformAccountId,
+                      amountBrl:   amountBrl,
+                      status:      'available',
+                      sourceType:  'subscription_debt',
+                      sourceId,
+                      description: `Receita comissao — seller ${sellerUserId.substring(0, 8)}`,
+                      asaasRef:    payment.id,
+                    },
+                  ]);
+
+                  logger.info('Ledger recorded for billing commission payment', {
+                    controller: 'WebhookController', action: 'LEDGER_RECORD_OK',
+                    sellerUserId, balanceId, amountBrl, paymentId: payment.id,
+                  });
+                }
+              }
+            } catch (ledgerErr) {
+              logger.error('Ledger recording failed for billing payment (non-blocking)', {
+                controller: 'WebhookController', action: 'LEDGER_RECORD_FAILED',
+                severity: 'CRITICAL', sellerUserId, balanceId,
+                error: ledgerErr.message,
+              });
+            }
           } catch (err) {
             logger.error('Billing payment processing failed', {
               controller: 'WebhookController', paymentId: payment.id,
@@ -218,6 +273,62 @@ exports._processAsaasEvent = async (event, payment) => {
               controller: 'WebhookController', paymentId: payment.id,
               userId, planSlug, cycle, amount: payment.value,
             });
+
+            // ── Unified Ledger (W5): record subscription payment ─
+            // Direction: seller pays → platform receives (inverse of marketplace)
+            try {
+              const ledger = require('../services/unifiedLedgerService');
+              const sourceId = `sub_${payment.id}`;
+
+              // Idempotency check
+              const supabaseLedger = getSupabaseClient();
+              const { data: existingEntries } = await supabaseLedger
+                .from('ledger_entries')
+                .select('id')
+                .eq('source_type', 'subscription')
+                .eq('source_id', sourceId)
+                .limit(1);
+
+              if (!existingEntries || existingEntries.length === 0) {
+                const amountBrl = Number(payment.value) || 0;
+                if (amountBrl > 0) {
+                  const sellerAccountId = await ledger.ensureAccount('user', userId);
+                  const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+                  await ledger.recordTransaction([
+                    {
+                      accountId:   sellerAccountId,
+                      amountBrl:   -amountBrl,
+                      status:      'available',
+                      sourceType:  'subscription',
+                      sourceId,
+                      description: `Assinatura ${planSlug} — pagamento ${cycle}`,
+                      asaasRef:    payment.id,
+                    },
+                    {
+                      accountId:   platformAccountId,
+                      amountBrl:   amountBrl,
+                      status:      'available',
+                      sourceType:  'subscription',
+                      sourceId,
+                      description: `Receita assinatura ${planSlug} — ${userId.substring(0, 8)}`,
+                      asaasRef:    payment.id,
+                    },
+                  ]);
+
+                  logger.info('Ledger recorded for subscription payment', {
+                    controller: 'WebhookController', action: 'LEDGER_RECORD_OK',
+                    userId, planSlug, amountBrl, paymentId: payment.id,
+                  });
+                }
+              }
+            } catch (ledgerErr) {
+              logger.error('Ledger recording failed for subscription (non-blocking)', {
+                controller: 'WebhookController', action: 'LEDGER_RECORD_FAILED',
+                severity: 'CRITICAL', userId, planSlug,
+                error: ledgerErr.message,
+              });
+            }
           } catch (err) {
             logger.error('Subscription payment processing failed', {
               controller: 'WebhookController', paymentId: payment.id,
@@ -486,6 +597,46 @@ exports._processAsaasEvent = async (event, payment) => {
       return;
     }
 
+    // Raffle refund: "raffle_{gameId}_ticket_{num}" or "raffle_{gameId}_batch_{ts}"
+    if (ref.startsWith('raffle_')) {
+      // ── Unified Ledger (W5): reverse raffle entries on refund ─
+      setImmediate(async () => {
+        try {
+          const ledger = require('../services/unifiedLedgerService');
+          const supabase = getSupabaseClient();
+
+          const { data: entries } = await supabase
+            .from('ledger_entries')
+            .select('transaction_id')
+            .eq('source_type', 'rifa')
+            .eq('asaas_ref', payment.id)
+            .is('reversed_by', null);
+
+          if (entries && entries.length > 0) {
+            const txnIds = [...new Set(entries.map(e => e.transaction_id))];
+            for (const txnId of txnIds) {
+              await ledger.reverseTransaction(txnId, `Reembolso rifa — payment ${payment.id}`);
+            }
+            logger.info('Ledger entries reversed for refunded raffle', {
+              controller: 'WebhookController', action: 'LEDGER_REVERSE_OK',
+              paymentId: payment.id, ref, transactionsReversed: txnIds.length,
+            });
+          }
+        } catch (ledgerErr) {
+          logger.error('Ledger reversal on raffle refund failed (non-blocking)', {
+            controller: 'WebhookController', action: 'LEDGER_REVERSE_FAILED',
+            severity: 'CRITICAL', paymentId: payment.id, ref,
+            error: ledgerErr.message,
+          });
+        }
+      });
+
+      logger.info('Raffle payment refunded via Asaas', {
+        controller: 'WebhookController', paymentId: payment.id, ref,
+      });
+      return;
+    }
+
     // IconChat payment refund: "icon_payment:{sellerId}:{orderId}"
     if (ref.startsWith('icon_payment:')) {
       const parts = ref.split(':');
@@ -508,6 +659,52 @@ exports._processAsaasEvent = async (event, payment) => {
         });
         logger.info('IconChat payment refunded via Asaas', {
           controller: 'WebhookController', paymentId: payment.id, sellerId, orderId,
+        });
+      }
+      return;
+    }
+
+    // Marketplace order refund: "marketplace_order_{orderId}" or "icon_payment:{sellerId}:{orderId}"
+    if (ref.startsWith('marketplace_order_') || ref.startsWith('icon_payment:')) {
+      const orderId = ref.startsWith('marketplace_order_')
+        ? ref.replace('marketplace_order_', '')
+        : ref.split(':')[2];
+
+      if (orderId) {
+        // ── Unified Ledger (W3): reverse entries on Asaas refund ─
+        setImmediate(async () => {
+          try {
+            const ledger = require('../services/unifiedLedgerService');
+            const supabase = getSupabaseClient();
+
+            const { data: entries } = await supabase
+              .from('ledger_entries')
+              .select('transaction_id')
+              .eq('source_type', 'marketplace_order')
+              .eq('source_id', orderId)
+              .is('reversed_by', null);
+
+            if (entries && entries.length > 0) {
+              const txnIds = [...new Set(entries.map(e => e.transaction_id))];
+              for (const txnId of txnIds) {
+                await ledger.reverseTransaction(txnId, `Reembolso Asaas — payment ${payment.id}`);
+              }
+              logger.info('Ledger entries reversed for refunded order', {
+                controller: 'WebhookController', action: 'LEDGER_REVERSE_OK',
+                orderId, paymentId: payment.id, transactionsReversed: txnIds.length,
+              });
+            }
+          } catch (ledgerErr) {
+            logger.error('Ledger reversal on refund failed (non-blocking)', {
+              controller: 'WebhookController', action: 'LEDGER_REVERSE_FAILED',
+              severity: 'CRITICAL', orderId, paymentId: payment.id,
+              error: ledgerErr.message,
+            });
+          }
+        });
+
+        logger.info('Marketplace order refunded via Asaas', {
+          controller: 'WebhookController', paymentId: payment.id, orderId, ref,
         });
       }
       return;

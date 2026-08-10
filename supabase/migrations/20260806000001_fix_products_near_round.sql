@@ -1,56 +1,12 @@
 -- =============================================================================
--- MIGRATION: ICON-SEARCH-001 — Full-text search + products_near v5
--- Ticket: ICON-SEARCH-001
+-- HOTFIX: Fix round(double precision, integer) → round(numeric, 2)
 --
--- Habilita busca cross-seller via IconChat com full-text search (tsvector pt-BR),
--- ranking por relevância composta (geo + text + plan boost + product boost futuro),
--- e filtros de preço.
---
--- Mudanças:
---   1. ADD COLUMN search_vector (tsvector GENERATED) em marketplace_products
---   2. CREATE INDEX GIN para full-text search
---   3. DROP + CREATE products_near v5:
---      - Novos params: p_query, p_min_price, p_max_price, p_category
---      - LEFT JOIN subscription_plans para boost_multiplier
---      - Novo campo retornado: relevance (0.00–1.00), is_boosted
---      - ORDER BY relevance DESC (substitui geo_score_calc DESC)
---
--- Zero-downtime: ADD COLUMN GENERATED é non-blocking em PG14+.
--- GIN index criado CONCURRENTLY não é possível dentro de transaction,
--- então usamos CREATE INDEX (não CONCURRENTLY) — tabela pequena no MVP.
+-- PostgreSQL's 2-arg round() requires NUMERIC, not DOUBLE PRECISION.
+-- The relevance_score CTE output is DOUBLE PRECISION (from LEAST(1.0, ...)).
+-- Fix: cast to NUMERIC before ROUND.
 -- =============================================================================
 
-BEGIN;
-
--- ============================================================
--- 1. search_vector column (tsvector, generated, pt-BR)
--- ============================================================
--- Pesos: A = nome (mais relevante), B = descrição
--- Config 'portuguese' para stemming pt-BR (brigadeiro → brigadeiro, etc.)
-
-ALTER TABLE public.marketplace_products
-  ADD COLUMN IF NOT EXISTS search_vector tsvector
-  GENERATED ALWAYS AS (
-    setweight(to_tsvector('portuguese', coalesce(name, '')), 'A') ||
-    setweight(to_tsvector('portuguese', coalesce(description, '')), 'B')
-  ) STORED;
-
--- ============================================================
--- 2. GIN index para full-text search
--- ============================================================
-
-CREATE INDEX IF NOT EXISTS idx_products_search_vector
-  ON public.marketplace_products USING gin(search_vector);
-
--- ============================================================
--- 3. products_near v5 — full-text + boost + relevance
--- ============================================================
-
--- Drop all existing overloads
-DROP FUNCTION IF EXISTS public.products_near(FLOAT, FLOAT, TEXT[], FLOAT, TEXT, TEXT, INT, INT);
-DROP FUNCTION IF EXISTS public.products_near(FLOAT, FLOAT, TEXT[], FLOAT, TEXT, TEXT, TEXT, INT, INT);
-
-CREATE FUNCTION public.products_near(
+CREATE OR REPLACE FUNCTION public.products_near(
     p_lat             FLOAT    DEFAULT NULL,
     p_lng             FLOAT    DEFAULT NULL,
     p_fulfillment     TEXT[]   DEFAULT NULL,
@@ -60,7 +16,6 @@ CREATE FUNCTION public.products_near(
     p_state           TEXT     DEFAULT NULL,
     p_limit           INT      DEFAULT 20,
     p_offset          INT      DEFAULT 0,
-    -- v5: novos params
     p_query           TEXT     DEFAULT NULL,
     p_min_price       NUMERIC  DEFAULT NULL,
     p_max_price       NUMERIC  DEFAULT NULL,
@@ -89,13 +44,11 @@ RETURNS TABLE (
     distance_band               TEXT,
     geo_level                   INT,
     geo_score                   NUMERIC,
-    -- campos de imóveis
     property_details            JSONB,
     product_type                TEXT,
     property_status             TEXT,
     listing_type                TEXT,
     total_count                 BIGINT,
-    -- v5: novos campos
     relevance                   NUMERIC,
     is_boosted                  BOOLEAN
 )
@@ -110,7 +63,6 @@ DECLARE
     v_has_text    BOOLEAN;
     v_has_query   BOOLEAN;
     v_tsquery     tsquery;
-    -- Pesos do relevance score
     v_w_geo       NUMERIC;
     v_w_text      NUMERIC;
     v_w_plan      NUMERIC;
@@ -126,13 +78,11 @@ BEGIN
 
     IF v_has_query THEN
         v_tsquery := plainto_tsquery('portuguese', p_query);
-        -- Pesos com busca textual
         v_w_geo  := 0.45;
         v_w_text := 0.30;
         v_w_plan := 0.15;
         v_w_prod := 0.10;
     ELSE
-        -- Sem busca textual: redistribuir peso
         v_w_geo  := 0.60;
         v_w_text := 0.0;
         v_w_plan := 0.25;
@@ -161,20 +111,17 @@ BEGIN
             s.coins_discount_rate   AS seller_coins_discount_rate,
             s.max_coins_per_order   AS seller_max_coins_per_order,
             s.service_radius_km     AS seller_service_radius_km,
-            -- campos de imóveis
             p.property_details,
             p.product_type::TEXT    AS product_type,
             p.property_status,
             p.listing_type,
 
-            -- Distância PostGIS
             CASE
                 WHEN v_use_geo AND s.location IS NOT NULL
                 THEN ST_Distance(s.location, v_buyer_pt)
                 ELSE NULL
             END AS dist_m,
 
-            -- Sort priority (geo-based)
             CASE
                 WHEN NOT v_use_geo THEN 1
                 WHEN v_use_geo AND s.location IS NOT NULL AND (
@@ -191,7 +138,6 @@ BEGIN
                 ELSE 3
             END AS sort_priority,
 
-            -- Geo level (text location match)
             CASE
                 WHEN NOT v_has_text THEN NULL
                 ELSE public.get_location_level(
@@ -200,7 +146,6 @@ BEGIN
                 )
             END AS geo_level_calc,
 
-            -- Geo score (0.6–3.0)
             CASE
                 WHEN NOT v_has_text THEN 1.0
                 ELSE
@@ -215,50 +160,34 @@ BEGIN
                     END
             END AS geo_score_calc,
 
-            -- v5: Text search rank (0.0–1.0)
             CASE
                 WHEN v_has_query
                 THEN ts_rank(p.search_vector, v_tsquery)
                 ELSE 0.0
             END AS text_rank,
 
-            -- v5: Boost multiplier do plano (1.0–2.0)
             COALESCE(sp.boost_multiplier, 1.0) AS plan_boost
 
         FROM public.marketplace_products p
         JOIN public.seller_profiles s ON s.id = p.seller_id
-        -- PREFS-003: filtrar sellers que desativaram appear_in_searches
         LEFT JOIN public.user_preferences up ON up.user_id = s.user_id
-        -- v5: JOIN subscription_plans para boost_multiplier
         LEFT JOIN public.subscription_plans sp ON sp.slug = s.plan_slug AND sp.is_active = true
         WHERE
             p.active = true
             AND s.status = 'active'
-
-            -- PREFS-003: excluir sellers que desativaram appear_in_searches
             AND COALESCE((up.privacy_prefs->>'appear_in_searches')::boolean, true) = true
-
-            -- v5: Full-text search filter
             AND (
                 NOT v_has_query
                 OR p.search_vector @@ v_tsquery
             )
-
-            -- v5: Price range filters
             AND (p_min_price IS NULL OR p.price_brl >= p_min_price)
             AND (p_max_price IS NULL OR p.price_brl <= p_max_price)
-
-            -- v5: Category filter
             AND (p_category IS NULL OR p.category = p_category)
-
-            -- Fulfillment filter
             AND (
                 p_fulfillment IS NULL
                 OR cardinality(p_fulfillment) = 0
                 OR p.fulfillment_types && p_fulfillment
             )
-
-            -- Geo filter (idêntico v4)
             AND (
                 NOT v_use_geo
                 OR (
@@ -300,8 +229,6 @@ BEGIN
                     )
                 )
             )
-
-            -- Text location filter (idêntico v4)
             AND (
                 p_neighborhood IS NULL
                 OR s.address_neighborhood ILIKE '%' || p_neighborhood || '%'
@@ -320,19 +247,16 @@ BEGIN
     ranked AS (
         SELECT
             c.*,
-            -- v5: Relevance score composto (0.00–1.00)
             LEAST(1.0, GREATEST(0.0,
                 v_w_geo  * (c.geo_score_calc / 3.0) +
                 v_w_text * c.text_rank +
                 v_w_plan * (c.plan_boost / 2.0) +
-                v_w_prod * 0.0  -- reservado para product_boosts futuro
+                v_w_prod * 0.0
             )) AS relevance_score,
-            -- v5: Is boosted flag
             (c.plan_boost > 1.0) AS is_boosted_flag,
             COUNT(*) OVER() AS total_count
         FROM candidates c
         ORDER BY
-            -- v5: relevance como critério principal de ordenação
             LEAST(1.0, GREATEST(0.0,
                 v_w_geo  * (c.geo_score_calc / 3.0) +
                 v_w_text * c.text_rank +
@@ -379,34 +303,9 @@ BEGIN
         r.property_status,
         r.listing_type,
         r.total_count,
-        -- v5: novos campos
+        -- FIX: cast to NUMERIC before ROUND (PostgreSQL requires numeric for 2-arg round)
         ROUND(r.relevance_score::NUMERIC, 2) AS relevance,
         r.is_boosted_flag           AS is_boosted
     FROM ranked r;
 END;
 $$;
-
--- ============================================================
--- 4. Security: REVOKE from anon, GRANT to authenticated
--- ============================================================
-
-REVOKE ALL ON FUNCTION public.products_near(
-    FLOAT, FLOAT, TEXT[], FLOAT, TEXT, TEXT, TEXT, INT, INT,
-    TEXT, NUMERIC, NUMERIC, TEXT
-) FROM anon;
-
-GRANT EXECUTE ON FUNCTION public.products_near(
-    FLOAT, FLOAT, TEXT[], FLOAT, TEXT, TEXT, TEXT, INT, INT,
-    TEXT, NUMERIC, NUMERIC, TEXT
-) TO authenticated;
-
-COMMENT ON FUNCTION public.products_near(
-    FLOAT, FLOAT, TEXT[], FLOAT, TEXT, TEXT, TEXT, INT, INT,
-    TEXT, NUMERIC, NUMERIC, TEXT
-) IS
-    'RPC de busca geo/textual de produtos. v5: ICON-SEARCH-001 — full-text search (tsvector pt-BR), '
-    'relevance score composto (geo + text + plan boost + product boost futuro), '
-    'filtros de preço (min/max) e categoria, is_boosted flag. '
-    'Compatível com v4: params novos têm DEFAULT NULL (callers v4 funcionam sem mudança).';
-
-COMMIT;

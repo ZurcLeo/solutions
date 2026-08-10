@@ -75,9 +75,11 @@ async function _updateBookingPayment(bookingId, patch) {
  * @param {number} amountBrl - valor em BRL (ex: 50.00)
  * @param {string} [customerId] - ID do customer Asaas do cliente
  * @param {string} [description] - descrição do serviço
+ * @param {object} [creditCard] - dados do cartão (holderName, number, expiryMonth, expiryYear, ccv)
+ * @param {object} [creditCardHolderInfo] - dados do titular (name, email, cpfCnpj, postalCode, addressNumber, phone)
  * @returns {{ paymentId: string, status: string }}
  */
-async function authorizeBookingPayment(bookingId, amountBrl, customerId, description) {
+async function authorizeBookingPayment(bookingId, amountBrl, customerId, description, creditCard, creditCardHolderInfo) {
   const fn = 'authorizeBookingPayment';
 
   if (Number(amountBrl) < 5) {
@@ -89,6 +91,8 @@ async function authorizeBookingPayment(bookingId, amountBrl, customerId, descrip
     value: Number(amountBrl),
     description: description ?? `Agendamento ElosCloud ${bookingId}`,
     externalReference: `booking:${bookingId}`,
+    creditCard,
+    creditCardHolderInfo,
   });
 
   log(fn, 'Pagamento Asaas criado (hold pendente)', {

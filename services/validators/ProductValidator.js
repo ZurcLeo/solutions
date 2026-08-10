@@ -47,7 +47,8 @@ const TYPE_RULES = {
     forbidden: ['weight_kg', 'dimensions_cm', 'sku', 'prep_time_min', 'serves', 'allergens', 'stock'],
     optional: [
       'description', 'images', 'duration_minutes',
-      'service_mode', 'cancellation_policy', 'max_coins_discount',
+      'service_mode', 'min_capacity', 'booking_deadline_hours',
+      'cancellation_policy', 'max_coins_discount',
     ],
     defaults: {},
     validate(data) {

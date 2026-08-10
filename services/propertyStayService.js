@@ -281,6 +281,14 @@ async function confirmStayPayment(stayId, paymentIntentId) {
 
   log(fn, 'Pagamento confirmado', { stayId, paymentIntentId });
 
+  // Ledger: registrar lançamento para o host (fire-and-forget)
+  _recordLedgerForStay({
+    stayId,
+    sellerProfileId: stay.seller_id,
+    totalBrl: Number(stay.total_brl),
+    paymentId: paymentIntentId,
+  });
+
   // Notificação realtime para o host
   try {
     socketManager.emitToUser(stay.seller_id, 'stay:new_booking', {
@@ -368,6 +376,9 @@ async function cancelStay(userId, stayId, reason) {
   if (updateError) throw new Error(`Erro ao cancelar estadia: ${updateError.message}`);
 
   log(fn, 'Estadia cancelada', { stayId, newStatus, userId });
+
+  // Ledger: reverter lançamentos se existirem (fire-and-forget)
+  _reverseLedgerForStay(stayId, reason || `Cancelamento ${newStatus}`);
 
   // Notificação para a outra parte
   try {
@@ -685,6 +696,9 @@ async function completeStay(userId, stayId) {
 
   log(fn, 'Estadia concluída', { stayId, sellerProfileId });
 
+  // Ledger: promover lançamentos de pending → available (fire-and-forget)
+  _promoteLedgerForStay(stayId);
+
   // Gamificação — Lei do Time (usa userId = Firebase UID do host)
   try {
     await gamificationService.triggerEvent('stay_completed', stay.guest_id, { stayId });
@@ -960,6 +974,172 @@ async function regenerateExportToken(userId, productId) {
     token,
     url: `${process.env.BACKEND_URL || 'https://eloscloud-api.fly.dev'}/api/marketplace/imoveis/${productId}/calendar.ics?token=${token}`,
   };
+}
+
+// ──────────────────────────────────────────────────────
+// LEDGER UNIFICADO (W4 — partidas dobradas BRL)
+// ──────────────────────────────────────────────────────
+
+/**
+ * Resolve o Firebase UID (user_id) a partir de seller_profiles.id.
+ * @param {string} sellerProfileId - seller_profiles.id (UUID)
+ * @returns {Promise<string|null>} Firebase UID
+ */
+async function _resolveSellerUserId(sellerProfileId) {
+  if (!sellerProfileId) return null;
+  const { data } = await sb()
+    .from('seller_profiles')
+    .select('user_id')
+    .eq('id', sellerProfileId)
+    .single();
+  return data?.user_id ?? null;
+}
+
+/**
+ * Registra lançamentos no ledger para uma estadia de temporada.
+ * Partidas dobradas: host recebe total_brl, plataforma debita total_brl.
+ * Sem comissão visível no fluxo atual — plataforma pode adicionar depois.
+ * Fire-and-forget — erros nunca bloqueiam o fluxo principal.
+ *
+ * @param {object} params
+ * @param {string} params.stayId
+ * @param {string} params.sellerProfileId - seller_profiles.id (UUID)
+ * @param {number} params.totalBrl
+ * @param {string} [params.paymentId]
+ */
+async function _recordLedgerForStay({ stayId, sellerProfileId, totalBrl, paymentId }) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    // Idempotency check
+    const existingCheck = await sb()
+      .from('ledger_entries')
+      .select('id')
+      .eq('source_type', 'property_stay')
+      .eq('source_id', stayId)
+      .limit(1);
+
+    if (existingCheck.data && existingCheck.data.length > 0) {
+      log('_recordLedgerForStay', 'Ledger entries already exist — skipping', {
+        action: 'LEDGER_IDEMPOTENT_SKIP', stayId,
+      });
+      return;
+    }
+
+    // Resolve seller_profiles.id → Firebase UID
+    const hostUserId = await _resolveSellerUserId(sellerProfileId);
+    if (!hostUserId) {
+      logger.warn('[propertyStayService] Cannot resolve host user_id for ledger', {
+        service: SERVICE, action: 'LEDGER_NO_HOST_USER', sellerProfileId, stayId,
+      });
+      return;
+    }
+
+    const hostAccountId = await ledger.ensureAccount('user', hostUserId);
+    const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+    // Transaction: host receives total (no commission in current flow)
+    if (totalBrl > 0) {
+      await ledger.recordTransaction([
+        {
+          accountId:   hostAccountId,
+          amountBrl:   totalBrl,
+          status:      'pending',
+          sourceType:  'property_stay',
+          sourceId:    stayId,
+          description: `Temporada — estadia ${stayId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+        {
+          accountId:   platformAccountId,
+          amountBrl:   -totalBrl,
+          status:      'pending',
+          sourceType:  'property_stay',
+          sourceId:    stayId,
+          description: `Repasse host — estadia ${stayId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+      ]);
+    }
+
+    log('_recordLedgerForStay', 'Ledger recorded for property stay', {
+      action: 'LEDGER_RECORD_OK', stayId, hostUserId, totalBrl,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger recording failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_RECORD_FAILED',
+      severity: 'CRITICAL',
+      stayId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Promove lançamentos de pending → available para uma estadia.
+ * Fire-and-forget.
+ */
+async function _promoteLedgerForStay(stayId) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+    const promoted = await ledger.promoteToAvailable('property_stay', stayId);
+    if (promoted > 0) {
+      log('_promoteLedgerForStay', 'Ledger entries promoted to available', {
+        action: 'LEDGER_PROMOTE_OK', stayId, promoted,
+      });
+    }
+  } catch (ledgerErr) {
+    logger.error('Ledger promotion failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_PROMOTE_FAILED',
+      severity: 'CRITICAL',
+      stayId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Reverte lançamentos do ledger para uma estadia cancelada.
+ * Fire-and-forget.
+ */
+async function _reverseLedgerForStay(stayId, reason) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    const { data: entries, error } = await sb()
+      .from('ledger_entries')
+      .select('transaction_id')
+      .eq('source_type', 'property_stay')
+      .eq('source_id', stayId)
+      .is('reversed_by', null);
+
+    if (error) throw error;
+    if (!entries || entries.length === 0) {
+      log('_reverseLedgerForStay', 'No ledger entries to reverse', {
+        action: 'LEDGER_REVERSE_SKIP', stayId,
+      });
+      return;
+    }
+
+    const txnIds = [...new Set(entries.map(e => e.transaction_id))];
+    for (const txnId of txnIds) {
+      await ledger.reverseTransaction(txnId, reason);
+    }
+
+    log('_reverseLedgerForStay', 'Ledger entries reversed', {
+      action: 'LEDGER_REVERSE_OK', stayId, transactionsReversed: txnIds.length, reason,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger reversal failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_REVERSE_FAILED',
+      severity: 'CRITICAL',
+      stayId, reason,
+      error: ledgerErr.message,
+    });
+  }
 }
 
 // ──────────────────────────────────────────────────────

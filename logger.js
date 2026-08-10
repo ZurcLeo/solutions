@@ -25,7 +25,10 @@ const safeStringify = (obj) => {
 
 // Campos que devem ser omitidos completamente dos logs
 const LOG_MASK_FULL = new Set([
-  'password', 'senha', 'secret', 'friendname', 'friendName'
+  'password', 'senha', 'secret', 'friendname', 'friendName',
+  // PAY-CARD-001: dados de cartão — mask completo (nunca logar)
+  'ccv', 'cvc', 'cvv', 'cv2', 'cardNumber', 'card_number',
+  'creditCardToken', 'gateway_token', 'cardData', 'creditCard',
 ]);
 
 // Campos de token: manter apenas os primeiros 8 chars
