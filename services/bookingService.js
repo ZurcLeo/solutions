@@ -33,6 +33,7 @@ const socketManager         = require('../config/socket/socketManager');
 const notificationDispatcher = require('./NotificationDispatcher');
 
 const SERVICE = 'bookingService';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://eloscloud.com';
 
 // Booking expira em 2h sem confirmação do prestador (DA-SCHED-004)
 const BOOKING_EXPIRY_HOURS = 2;
@@ -455,7 +456,7 @@ async function createBooking(clientId, data) {
     'booking_new_request',
     {
       serviceName: product.name,
-      scheduledAt: new Date(booking.scheduled_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      scheduledAt: booking.scheduled_at,
       expiresAt:   new Date(booking.expires_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
       notes:       booking.notes ?? '',
       manageUrl:   'https://eloscloud.com/mercado/agendamentos',
@@ -470,7 +471,7 @@ async function createBooking(clientId, data) {
     'booking_created',
     {
       serviceName:  product.name,
-      scheduledAt:  new Date(booking.scheduled_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      scheduledAt:  booking.scheduled_at,
       providerName,
       manageUrl:    'https://eloscloud.com/mercado/agendamentos',
     },
@@ -510,15 +511,23 @@ async function confirmBooking(userId, bookingId, providerNotes) {
 
   log(fn, 'Booking confirmado', { userId, bookingId });
 
+  // Ledger: registrar lançamento para o prestador (fire-and-forget)
+  _recordLedgerForBooking({
+    bookingId,
+    providerId: userId,
+    amountBrl: Number(booking.amount_brl),
+    paymentId: booking.payment_intent_id || null,
+  });
+
   // Email ao cliente
   _sendBookingEmail(
     booking.client_id,
     'Seu agendamento foi confirmado!',
     'booking_confirmed',
     {
-      scheduledAt:   new Date(updated.scheduled_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      scheduledAt:   updated.scheduled_at,
       providerNotes: updated.provider_notes ?? '',
-      bookingUrl:    `https://eloscloud.com/agendamentos/${bookingId}`,
+      bookingUrl:    `${FRONTEND_URL}/mercado/minha-atividade`,
     },
     bookingId,
   );
@@ -565,13 +574,16 @@ async function declineBooking(userId, bookingId, reason) {
 
   log(fn, 'Booking recusado pelo prestador', { userId, bookingId });
 
+  // Ledger: reverter lançamentos se existirem (fire-and-forget, normalmente nenhum)
+  _reverseLedgerForBooking(bookingId, 'Prestador recusou o agendamento');
+
   // Email ao cliente informando a recusa
   _sendBookingEmail(
     booking.client_id,
     'Agendamento não confirmado pelo prestador',
     'booking_declined',
     {
-      scheduledAt: new Date(booking.scheduled_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      scheduledAt: booking.scheduled_at,
       reason:      updated.provider_notes ?? 'Não informado',
       searchUrl:   'https://eloscloud.com/mercado',
     },
@@ -626,6 +638,9 @@ async function completeBooking(userId, bookingId) {
   if (error) throw new Error(`Erro ao concluir booking: ${error.message}`);
 
   log(fn, 'Booking concluído', { userId, bookingId });
+
+  // Ledger: promover lançamentos de pending → available (fire-and-forget)
+  _promoteLedgerForBooking(bookingId);
 
   // Sinalizar para SCHED-2C fazer capture do Stripe
   if (updated.payment_status === 'authorized' && updated.payment_intent_id) {
@@ -739,6 +754,9 @@ async function cancelBooking(userId, bookingId, role, reason) {
 
   log(fn, 'Booking cancelado', { userId, bookingId, role, fee });
 
+  // Ledger: reverter lançamentos se existirem (fire-and-forget)
+  _reverseLedgerForBooking(bookingId, reason || `Cancelamento por ${role}`);
+
   // Se havia hold ativo, sinalizar necessidade de void ou refund (SCHED-2C processa)
   if (updated.payment_status === 'authorized' && updated.payment_intent_id) {
     logWarn(fn, 'Cancelamento com hold ativo — void/refund necessário', {
@@ -799,7 +817,61 @@ async function getMyBookings(userId, role, status) {
 
   const { data, error } = await query;
   if (error) throw new Error(`Erro ao listar bookings: ${error.message}`);
-  return data ?? [];
+
+  const bookings = data ?? [];
+  if (bookings.length === 0) return [];
+
+  // Hydrate related data (no FKs on service_bookings → separate queries)
+  const clientIds   = [...new Set(bookings.map(b => b.client_id).filter(Boolean))];
+  const providerIds = [...new Set(bookings.map(b => b.provider_id).filter(Boolean))];
+  const serviceIds  = [...new Set(bookings.map(b => b.service_id).filter(Boolean))];
+
+  const [clientMap, providerMap, serviceMap] = await Promise.all([
+    _buildUserMap(clientIds),
+    _buildUserMap(providerIds),
+    _buildServiceMap(serviceIds),
+  ]);
+
+  // Collect seller IDs from services for address hydration
+  const sellerIds = [...new Set(
+    Object.values(serviceMap).map(s => s.seller_id).filter(Boolean),
+  )];
+  const sellerMap = await _buildSellerMap(sellerIds);
+
+  return bookings.map(b => {
+    const client   = clientMap[b.client_id];
+    const provider = providerMap[b.provider_id];
+    const service  = serviceMap[b.service_id];
+    const seller   = service?.seller_id ? sellerMap[service.seller_id] : null;
+
+    // Build formatted address string
+    let sellerAddress = null;
+    if (seller) {
+      const parts = [
+        seller.address_logradouro,
+        seller.address_numero,
+        seller.address_complemento,
+      ].filter(Boolean).join(', ');
+      const cityState = [
+        seller.address_neighborhood,
+        seller.address_city,
+        seller.address_state,
+      ].filter(Boolean).join(' - ');
+      sellerAddress = [parts, cityState].filter(Boolean).join(' — ') || null;
+    }
+
+    return {
+      ...b,
+      client_name:          client?.full_name   ?? null,
+      client_avatar:        client?.avatar_url  ?? null,
+      client_username:      client?.username    ?? null,
+      provider_name:        provider?.full_name ?? null,
+      service_name:         service?.name       ?? null,
+      service_mode:         service?.service_mode ?? null,
+      seller_trading_name:  seller?.trading_name ?? null,
+      seller_address:       sellerAddress,
+    };
+  });
 }
 
 /**
@@ -904,8 +976,8 @@ async function markNoShow(userId, bookingId) {
     'Você não compareceu ao agendamento',
     'booking_no_show',
     {
-      scheduledAt: new Date(booking.scheduled_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-      bookingUrl:  `https://eloscloud.com/agendamentos/${bookingId}`,
+      scheduledAt: booking.scheduled_at,
+      bookingUrl:  `${FRONTEND_URL}/mercado/minha-atividade`,
     },
     bookingId,
   );
@@ -1106,7 +1178,7 @@ async function runGroupConfirmationJob() {
           {
             serviceName: slot.service_name,
             scheduledAt: scheduledBR,
-            bookingUrl:  `https://eloscloud.com/agendamentos/${b.id}`,
+            bookingUrl:  `${FRONTEND_URL}/mercado/minha-atividade`,
           },
           b.id,
         );
@@ -1223,8 +1295,8 @@ async function confirmSlotBookings(userId, serviceId, slotStart) {
       `Seu agendamento foi confirmado! — ${serviceName}`,
       'booking_confirmed',
       {
-        scheduledAt: new Date(b.scheduled_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-        bookingUrl:  `https://eloscloud.com/agendamentos/${b.id}`,
+        scheduledAt: b.scheduled_at,
+        bookingUrl:  `${FRONTEND_URL}/mercado/minha-atividade`,
       },
       b.id,
     );
@@ -1556,6 +1628,50 @@ async function _getBookingForProvider(userId, bookingId, fn) {
 }
 
 /**
+ * Batch-lookup de users por IDs. Retorna mapa { id → { full_name, avatar_url, username } }.
+ */
+async function _buildUserMap(ids) {
+  const map = {};
+  if (!ids || ids.length === 0) return map;
+  const { data } = await sb()
+    .from('users')
+    .select('id, full_name, avatar_url, username')
+    .in('id', ids);
+  if (data) for (const u of data) map[u.id] = u;
+  return map;
+}
+
+/**
+ * Batch-lookup de serviços (marketplace_products) por IDs.
+ * Retorna mapa { id → { name, service_mode, seller_id } }.
+ */
+async function _buildServiceMap(ids) {
+  const map = {};
+  if (!ids || ids.length === 0) return map;
+  const { data } = await sb()
+    .from('marketplace_products')
+    .select('id, name, service_mode, seller_id')
+    .in('id', ids);
+  if (data) for (const s of data) map[s.id] = s;
+  return map;
+}
+
+/**
+ * Batch-lookup de sellers (seller_profiles) por IDs.
+ * Retorna mapa { id → { trading_name, address_logradouro, address_numero, address_neighborhood, address_city, address_state } }.
+ */
+async function _buildSellerMap(ids) {
+  const map = {};
+  if (!ids || ids.length === 0) return map;
+  const { data } = await sb()
+    .from('seller_profiles')
+    .select('id, trading_name, address_logradouro, address_numero, address_complemento, address_neighborhood, address_city, address_state')
+    .in('id', ids);
+  if (data) for (const s of data) map[s.id] = s;
+  return map;
+}
+
+/**
  * Busca nome e telefone do cliente para notificações.
  * @param {string} clientId
  * @returns {{ name: string, phone: string }}
@@ -1701,8 +1817,17 @@ async function getTeamMembersForService(sellerId) {
 }
 
 // ──────────────────────────────────────────────────────
-// [SCHED-CAP-011] Check-in QR Code
+// [SCHED-CAP-011] Check-in QR Code + Fallbacks (PIN / Manual)
 // ──────────────────────────────────────────────────────
+
+/**
+ * Deriva um PIN numérico de 6 dígitos a partir do token hex de check-in.
+ * Determinístico: mesmo token → mesmo PIN sempre. Sem coluna extra no DB.
+ */
+function deriveCheckinPin(token) {
+  const hmac = crypto.createHmac('sha256', 'eloscloud-checkin-pin').update(token).digest();
+  return String(hmac.readUInt32BE(0) % 1_000_000).padStart(6, '0');
+}
 
 /**
  * Prestador gera (ou recupera existente) token de check-in para um slot.
@@ -1752,7 +1877,7 @@ async function generateCheckinCode(userId, bookingId) {
 
   if (existing?.checkin_token) {
     log(fn, 'Token de check-in existente retornado', { bookingId, token: existing.checkin_token.slice(0, 8) });
-    return { token: existing.checkin_token, expiresAt: thirtyAfterEnd.toISOString() };
+    return { token: existing.checkin_token, pin: deriveCheckinPin(existing.checkin_token), expiresAt: thirtyAfterEnd.toISOString() };
   }
 
   // 4. Gerar token único
@@ -1775,7 +1900,7 @@ async function generateCheckinCode(userId, bookingId) {
     tokenPrefix: token.slice(0, 8),
   });
 
-  return { token, expiresAt: thirtyAfterEnd.toISOString() };
+  return { token, pin: deriveCheckinPin(token), expiresAt: thirtyAfterEnd.toISOString() };
 }
 
 /**
@@ -1824,11 +1949,11 @@ async function checkinBooking(token, clientId) {
     throw new Error('Janela de check-in encerrada (30min após o término do serviço).');
   }
 
-  // 4. Marcar check-in
+  // 4. Marcar check-in (by client)
   const checkedInAt = new Date().toISOString();
   const { data: updated, error: updateErr } = await sb()
     .from('service_bookings')
-    .update({ checked_in_at: checkedInAt })
+    .update({ checked_in_at: checkedInAt, checked_in_by: 'client' })
     .eq('id', booking.id)
     .select()
     .single();
@@ -1836,7 +1961,7 @@ async function checkinBooking(token, clientId) {
   if (updateErr) throw new Error(`Erro ao registrar check-in: ${updateErr.message}`);
 
   log(fn, '[SCHED-CAP] Check-in realizado', {
-    bookingId: booking.id, clientId, checkedInAt,
+    bookingId: booking.id, clientId, checkedInAt, checkedInBy: 'client',
   });
 
   // 5. Notificar provider via Socket.IO
@@ -1845,6 +1970,7 @@ async function checkinBooking(token, clientId) {
       bookingId:   booking.id,
       clientId,
       checkedInAt,
+      checkedInBy: 'client',
     });
   } catch (e) {
     logWarn(fn, 'Falha ao notificar provider via socket (check-in)', { providerId: booking.provider_id });
@@ -1874,6 +2000,7 @@ async function getSlotCheckins(userId, serviceId, slotStart) {
       id,
       client_id,
       checked_in_at,
+      checked_in_by,
       status,
       users:client_id (full_name, avatar_url)
     `)
@@ -1886,13 +2013,261 @@ async function getSlotCheckins(userId, serviceId, slotStart) {
   log(fn, '[SCHED-CAP] Check-ins consultados', { serviceId, slotStart, count: data?.length ?? 0 });
 
   return (data ?? []).map(b => ({
-    bookingId:   b.id,
-    clientId:    b.client_id,
-    clientName:  b.users?.full_name ?? 'Cliente',
+    bookingId:    b.id,
+    clientId:     b.client_id,
+    clientName:   b.users?.full_name ?? 'Cliente',
     clientAvatar: b.users?.avatar_url ?? null,
-    checkedInAt: b.checked_in_at,
-    status:      b.status,
+    checkedInAt:  b.checked_in_at,
+    checkedInBy:  b.checked_in_by ?? 'client',
+    status:       b.status,
   }));
+}
+
+/**
+ * Cliente faz check-in digitando o PIN de 6 dígitos (fallback F1).
+ * Busca todos os tokens dos bookings confirmed do cliente, deriva o PIN de cada
+ * e compara com o informado. Se match, delega para checkinBooking.
+ *
+ * @param {string} pin      - PIN de 6 dígitos
+ * @param {string} clientId - user_id do cliente autenticado
+ * @returns {object} booking atualizado
+ */
+async function checkinByPin(pin, clientId) {
+  const fn = 'checkinByPin';
+
+  if (!pin || pin.length !== 6) throw new Error('PIN inválido ou expirado.');
+  if (!clientId) throw new Error('Não autorizado.');
+
+  // Buscar tokens dos bookings confirmed do cliente
+  const { data: rows, error } = await sb()
+    .from('service_bookings')
+    .select('checkin_token')
+    .eq('client_id', clientId)
+    .eq('status', 'confirmed')
+    .not('checkin_token', 'is', null);
+
+  if (error) throw new Error(`Erro ao buscar agendamentos: ${error.message}`);
+  if (!rows || rows.length === 0) throw new Error('PIN inválido ou expirado.');
+
+  // Deduplicar tokens e encontrar match
+  const uniqueTokens = [...new Set(rows.map(r => r.checkin_token))];
+  const matchedToken = uniqueTokens.find(t => deriveCheckinPin(t) === pin);
+
+  if (!matchedToken) throw new Error('PIN inválido ou expirado.');
+
+  log(fn, '[SCHED-CAP] Check-in via PIN', { clientId, pinPrefix: pin.slice(0, 3) });
+
+  return checkinBooking(matchedToken, clientId);
+}
+
+/**
+ * Prestador faz check-in manual de um booking (fallback F2).
+ * Usado quando o cliente não tem celular/câmera.
+ *
+ * @param {string} providerId - user_id do prestador
+ * @param {string} bookingId  - ID do booking a marcar presença
+ * @returns {object} booking atualizado
+ */
+async function manualCheckin(providerId, bookingId) {
+  const fn = 'manualCheckin';
+
+  // 1. Validar ownership
+  const booking = await _getBookingForProvider(providerId, bookingId, fn);
+
+  // 2. Validar status
+  if (booking.status !== 'confirmed') {
+    throw new Error(`Booking não está confirmado (status atual: ${booking.status}).`);
+  }
+  if (booking.checked_in_at) {
+    throw new Error('Check-in já realizado para este agendamento.');
+  }
+
+  // 3. Janela temporal: -15min → +30min após término
+  const now = new Date();
+  const scheduledAt = new Date(booking.scheduled_at);
+  const fifteenBefore = new Date(scheduledAt.getTime() - 15 * 60 * 1000);
+  const scheduledEnd = booking.scheduled_end
+    ? new Date(booking.scheduled_end)
+    : new Date(scheduledAt.getTime() + 60 * 60 * 1000);
+  const thirtyAfterEnd = new Date(scheduledEnd.getTime() + 30 * 60 * 1000);
+
+  if (now < fifteenBefore) {
+    throw new Error('Check-in abre 15 minutos antes do horário agendado.');
+  }
+  if (now > thirtyAfterEnd) {
+    throw new Error('Janela de check-in encerrada (30min após o término do serviço).');
+  }
+
+  // 4. Marcar check-in (by provider)
+  const checkedInAt = new Date().toISOString();
+  const { data: updated, error: updateErr } = await sb()
+    .from('service_bookings')
+    .update({ checked_in_at: checkedInAt, checked_in_by: 'provider' })
+    .eq('id', booking.id)
+    .select()
+    .single();
+
+  if (updateErr) throw new Error(`Erro ao registrar check-in manual: ${updateErr.message}`);
+
+  log(fn, '[SCHED-CAP] Check-in manual pelo prestador', {
+    bookingId: booking.id, providerId, checkedInAt,
+  });
+
+  // 5. Notificar via Socket.IO
+  try {
+    socketManager.emitToUser(providerId, 'booking:checkin', {
+      bookingId: booking.id,
+      clientId:  booking.client_id,
+      checkedInAt,
+      checkedInBy: 'provider',
+    });
+  } catch (e) {
+    logWarn(fn, 'Falha ao notificar via socket (check-in manual)', { bookingId: booking.id });
+  }
+
+  return updated;
+}
+
+// ──────────────────────────────────────────────────────
+// LEDGER UNIFICADO (W4 — partidas dobradas BRL)
+// ──────────────────────────────────────────────────────
+
+/**
+ * Registra lançamentos no ledger para um agendamento confirmado.
+ * Partidas dobradas: prestador recebe amount_brl, plataforma debita.
+ * Sem comissão visível no fluxo atual.
+ * Fire-and-forget — erros nunca bloqueiam o fluxo principal.
+ *
+ * @param {object} params
+ * @param {string} params.bookingId
+ * @param {string} params.providerId - Firebase UID do prestador
+ * @param {number} params.amountBrl
+ * @param {string} [params.paymentId]
+ */
+async function _recordLedgerForBooking({ bookingId, providerId, amountBrl, paymentId }) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    // Idempotency check
+    const existingCheck = await sb()
+      .from('ledger_entries')
+      .select('id')
+      .eq('source_type', 'service_booking')
+      .eq('source_id', bookingId)
+      .limit(1);
+
+    if (existingCheck.data && existingCheck.data.length > 0) {
+      log('_recordLedgerForBooking', 'Ledger entries already exist — skipping', {
+        action: 'LEDGER_IDEMPOTENT_SKIP', bookingId,
+      });
+      return;
+    }
+
+    const providerAccountId = await ledger.ensureAccount('user', providerId);
+    const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+    // Transaction: prestador recebe valor do agendamento
+    if (amountBrl > 0) {
+      await ledger.recordTransaction([
+        {
+          accountId:   providerAccountId,
+          amountBrl:   amountBrl,
+          status:      'pending',
+          sourceType:  'service_booking',
+          sourceId:    bookingId,
+          description: `Agendamento — booking ${bookingId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+        {
+          accountId:   platformAccountId,
+          amountBrl:   -amountBrl,
+          status:      'pending',
+          sourceType:  'service_booking',
+          sourceId:    bookingId,
+          description: `Repasse prestador — booking ${bookingId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+      ]);
+    }
+
+    log('_recordLedgerForBooking', 'Ledger recorded for service booking', {
+      action: 'LEDGER_RECORD_OK', bookingId, providerId, amountBrl,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger recording failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_RECORD_FAILED',
+      severity: 'CRITICAL',
+      bookingId, providerId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Promove lançamentos de pending → available para um agendamento.
+ * Fire-and-forget.
+ */
+async function _promoteLedgerForBooking(bookingId) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+    const promoted = await ledger.promoteToAvailable('service_booking', bookingId);
+    if (promoted > 0) {
+      log('_promoteLedgerForBooking', 'Ledger entries promoted to available', {
+        action: 'LEDGER_PROMOTE_OK', bookingId, promoted,
+      });
+    }
+  } catch (ledgerErr) {
+    logger.error('Ledger promotion failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_PROMOTE_FAILED',
+      severity: 'CRITICAL',
+      bookingId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Reverte lançamentos do ledger para um agendamento cancelado.
+ * Fire-and-forget.
+ */
+async function _reverseLedgerForBooking(bookingId, reason) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    const { data: entries, error } = await sb()
+      .from('ledger_entries')
+      .select('transaction_id')
+      .eq('source_type', 'service_booking')
+      .eq('source_id', bookingId)
+      .is('reversed_by', null);
+
+    if (error) throw error;
+    if (!entries || entries.length === 0) {
+      log('_reverseLedgerForBooking', 'No ledger entries to reverse', {
+        action: 'LEDGER_REVERSE_SKIP', bookingId,
+      });
+      return;
+    }
+
+    const txnIds = [...new Set(entries.map(e => e.transaction_id))];
+    for (const txnId of txnIds) {
+      await ledger.reverseTransaction(txnId, reason);
+    }
+
+    log('_reverseLedgerForBooking', 'Ledger entries reversed', {
+      action: 'LEDGER_REVERSE_OK', bookingId, transactionsReversed: txnIds.length, reason,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger reversal failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_REVERSE_FAILED',
+      severity: 'CRITICAL',
+      bookingId, reason,
+      error: ledgerErr.message,
+    });
+  }
 }
 
 // ──────────────────────────────────────────────────────
@@ -1920,8 +2295,10 @@ module.exports = {
   confirmSlotBookings,
   // [SCHED-CAP-006] Cancelamento coletivo por deadline
   runGroupDeadlineJob,
-  // [SCHED-CAP-011] Check-in QR Code
+  // [SCHED-CAP-011] Check-in QR Code + Fallbacks
   generateCheckinCode,
   checkinBooking,
+  checkinByPin,
+  manualCheckin,
   getSlotCheckins,
 };

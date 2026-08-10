@@ -20,7 +20,7 @@ const RATING_WINDOW_DAYS  = 7;
 const MAX_SEATS            = 4;
 const VALID_VEHICLE_TYPES  = ['carro', 'van', 'caminhonete'];
 const MIN_TRUST_DRIVER     = 3;     // Trust Level mínimo para motoristas
-const MIN_TRUST_PASSENGER  = 2;     // Trust Level mínimo para passageiros
+const MIN_TRUST_PASSENGER  = 1;     // Trust Level mínimo para passageiros (Novato — pode subir interagindo)
 const MAX_RECURRING_SPAWN  = 28;    // Máximo de child rides por recorrência
 const LATE_CANCEL_WINDOW_HOURS = 2; // Cancelamento tardio: < 2h antes da partida
 const LATE_CANCEL_TRUST_PENALTY = -1; // Penalidade Trust p/ cancelamento tardio de passageiro
@@ -633,7 +633,7 @@ async function searchRidesByCityName(passengerId, params) {
     .select(`
       id,
       driver_id,
-      driver:users!carona_rides_driver_id_fkey(full_name, avatar_url),
+      driver:users!carona_rides_driver_id_fkey(full_name, avatar_url, username),
       driver_profile:carona_driver_profiles!carona_rides_driver_profile_id_fkey(vehicle_type, vehicle_model, average_rating, total_rides),
       origin_city, origin_neighborhood, origin_address,
       dest_city, dest_neighborhood, dest_address,
@@ -667,6 +667,7 @@ async function searchRidesByCityName(passengerId, params) {
     driver_id:          r.driver_id,
     driver_name:        r.driver?.full_name || null,
     driver_photo:       r.driver?.avatar_url || null,
+    driver_username:    r.driver?.username || null,
     origin_city:        r.origin_city,
     origin_neighborhood:r.origin_neighborhood,
     origin_address:     r.origin_address,
@@ -747,7 +748,7 @@ async function listRecentRides({ sort = 'recent', limit: queryLimit = 10 } = {})
     .select(`
       id,
       driver_id,
-      driver:users!carona_rides_driver_id_fkey(full_name, avatar_url),
+      driver:users!carona_rides_driver_id_fkey(full_name, avatar_url, username),
       driver_profile:carona_driver_profiles!carona_rides_driver_profile_id_fkey(vehicle_type, vehicle_model, average_rating, total_rides),
       origin_city, origin_neighborhood, origin_address, origin_state, origin_lat, origin_lng,
       dest_city, dest_neighborhood, dest_address, dest_state, dest_lat, dest_lng,
@@ -825,7 +826,7 @@ async function getRideDetail(userId, rideId) {
     .from('carona_rides')
     .select(`
       *,
-      driver:users!carona_rides_driver_id_fkey(id, full_name, avatar_url),
+      driver:users!carona_rides_driver_id_fkey(id, full_name, avatar_url, username),
       driver_profile:carona_driver_profiles!carona_rides_driver_profile_id_fkey(
         vehicle_type, vehicle_model, vehicle_color, average_rating, total_rides, verification_status
       )
@@ -848,7 +849,7 @@ async function getRideDetail(userId, rideId) {
       id, passenger_id, pickup_address, pickup_city, dropoff_address, dropoff_city,
       status, amount_brl, platform_fee_brl, boarded_at, completed_at,
       seats_booked, is_pet_seat,
-      passenger:users!carona_seats_passenger_id_fkey(id, full_name, avatar_url)
+      passenger:users!carona_seats_passenger_id_fkey(id, full_name, avatar_url, username)
     `)
     .eq('ride_id', rideId)
     .not('status', 'in', '("cancelled_passenger","cancelled_driver")');
@@ -864,6 +865,7 @@ async function getRideDetail(userId, rideId) {
     ...ride,
     driver_name: ride.driver?.full_name || null,
     driver_avatar_url: ride.driver?.avatar_url || null,
+    driver_username: ride.driver?.username || null,
   };
   delete result.driver; // remove nested object
 
@@ -879,6 +881,7 @@ async function getRideDetail(userId, rideId) {
     ...s,
     passenger_name: s.passenger?.full_name || null,
     passenger_avatar_url: s.passenger?.avatar_url || null,
+    passenger_username: s.passenger?.username || null,
     passenger: undefined,
   }));
 
@@ -1150,6 +1153,8 @@ async function cancelRide(driverId, rideId, reason) {
         try {
           await asaasService.refundPayment(seat.payment_intent_id);
           await _recordBillingEvent(seat.id, rideId, seat.passenger_id, 'void', 0, 0);
+          // Ledger: reverter lançamentos se existirem (fire-and-forget)
+          _reverseLedgerForSeat(seat.id, reason || 'Motorista cancelou a viagem');
           log(fn, 'Asaas hold cancelado', { seatId: seat.id, paymentId: seat.payment_intent_id });
         } catch (voidErr) {
           logError(fn, voidErr, { seatId: seat.id, severity: 'HIGH' });
@@ -1413,6 +1418,8 @@ async function cancelSeat(passengerId, seatId) {
     try {
       await asaasService.refundPayment(seat.payment_intent_id);
       await _recordBillingEvent(seatId, seat.ride_id, passengerId, 'void', 0, 0);
+      // Ledger: reverter lançamentos se existirem (fire-and-forget)
+      _reverseLedgerForSeat(seatId, 'Passageiro cancelou reserva');
     } catch (voidErr) {
       logError(fn, voidErr, { seatId, severity: 'HIGH' });
     }
@@ -1508,6 +1515,12 @@ async function driverCheckin(driverId, rideId) {
           .update({ payment_status: 'captured' })
           .eq('id', seat.id);
         await _recordBillingEvent(seat.id, rideId, seat.passenger_id, 'capture', seat.amount_brl, seat.platform_fee_brl);
+        // Ledger: registrar lançamento para o motorista (fire-and-forget)
+        _recordLedgerForSeat({
+          seatId: seat.id, rideId, driverId,
+          amountBrl: Number(seat.amount_brl), platformFeeBrl: Number(seat.platform_fee_brl),
+          paymentId: seat.payment_intent_id,
+        });
         log(fn, 'Pagamento capturado', { seatId: seat.id });
         // Throttle para evitar rate limit
         if (confirmedSeats.indexOf(seat) < confirmedSeats.length - 1) {
@@ -1774,7 +1787,7 @@ async function getMyRidesAsPassenger(passengerId, opts = {}) {
       ride:carona_rides!carona_seats_ride_id_fkey(
         id, driver_id, origin_city, dest_city, departure_at, status, route_km,
         price_per_seat_brl, total_seats, seats_available,
-        driver:users!carona_rides_driver_id_fkey(full_name, avatar_url),
+        driver:users!carona_rides_driver_id_fkey(full_name, avatar_url, username),
         driver_profile:carona_driver_profiles!carona_rides_driver_profile_id_fkey(vehicle_type, vehicle_model, average_rating)
       )
     `)
@@ -2023,6 +2036,9 @@ async function _checkRideCompletion(rideId, driverId) {
     // Atualizar stats do motorista
     await sbService().rpc('_update_driver_carona_rating', { p_driver_id: driverId });
 
+    // Ledger: promover lançamentos de todos os seats completados (fire-and-forget)
+    _promoteAllSeatsForRide(rideId);
+
     log(fn, 'Viagem concluída', { rideId });
     return;
   }
@@ -2057,6 +2073,9 @@ async function _checkRideCompletion(rideId, driverId) {
 
     await sbService().rpc('_update_driver_carona_rating', { p_driver_id: driverId });
 
+    // Ledger: promover lançamentos de todos os seats completados (fire-and-forget)
+    _promoteAllSeatsForRide(rideId);
+
     log(fn, 'Viagem concluída (com no-shows)', { rideId, noShows: confirmedSeats.length });
   }
 }
@@ -2078,6 +2097,204 @@ async function _recordBillingEvent(seatId, rideId, passengerId, eventType, amoun
       });
   } catch (err) {
     logWarn('_recordBillingEvent', `Billing event falhou (non-blocking): ${err.message}`, { seatId });
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// LEDGER UNIFICADO (W4 — partidas dobradas BRL)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Registra lançamentos no ledger para um seat de carona após captura do pagamento.
+ * Partidas dobradas: motorista recebe (amount - platform_fee), plataforma recebe platform_fee.
+ * Fire-and-forget — erros nunca bloqueiam o fluxo principal.
+ *
+ * @param {string} seatId      - ID do seat (source_id)
+ * @param {string} rideId      - ID da corrida (para logs)
+ * @param {string} driverId    - Firebase UID do motorista (ledger account owner)
+ * @param {number} amountBrl   - Valor total do seat
+ * @param {number} platformFeeBrl - Taxa da plataforma (R$1,00 ou R$0,00)
+ * @param {string} [paymentId] - Asaas payment ID (asaas_ref)
+ */
+async function _recordLedgerForSeat({ seatId, rideId, driverId, amountBrl, platformFeeBrl, paymentId }) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    // Idempotency check
+    const existingCheck = await getSupabaseClient()
+      .from('ledger_entries')
+      .select('id')
+      .eq('source_type', 'carona_ride')
+      .eq('source_id', seatId)
+      .limit(1);
+
+    if (existingCheck.data && existingCheck.data.length > 0) {
+      log('_recordLedgerForSeat', 'Ledger entries already exist — skipping', {
+        action: 'LEDGER_IDEMPOTENT_SKIP', seatId, rideId,
+      });
+      return;
+    }
+
+    const driverAccountId = await ledger.ensureAccount('user', driverId);
+    const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+    const driverAmount = +(amountBrl - platformFeeBrl).toFixed(2);
+
+    // Transaction 1: Repasse ao motorista
+    if (driverAmount > 0) {
+      await ledger.recordTransaction([
+        {
+          accountId:   driverAccountId,
+          amountBrl:   driverAmount,
+          status:      'pending',
+          sourceType:  'carona_ride',
+          sourceId:    seatId,
+          description: `Carona — seat ${seatId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+        {
+          accountId:   platformAccountId,
+          amountBrl:   -driverAmount,
+          status:      'pending',
+          sourceType:  'carona_ride',
+          sourceId:    seatId,
+          description: `Repasse motorista — seat ${seatId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+      ]);
+    }
+
+    // Transaction 2: Comissão da plataforma (taxa fixa, se > 0)
+    if (platformFeeBrl > 0) {
+      await ledger.recordTransaction([
+        {
+          accountId:   platformAccountId,
+          amountBrl:   platformFeeBrl,
+          status:      'pending',
+          sourceType:  'carona_ride',
+          sourceId:    seatId,
+          description: `Taxa plataforma carona — seat ${seatId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+        {
+          accountId:   driverAccountId,
+          amountBrl:   -platformFeeBrl,
+          status:      'pending',
+          sourceType:  'carona_ride',
+          sourceId:    seatId,
+          description: `Desconto taxa — seat ${seatId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+      ]);
+    }
+
+    log('_recordLedgerForSeat', 'Ledger recorded for carona seat', {
+      action: 'LEDGER_RECORD_OK', seatId, rideId, driverId, amountBrl, platformFeeBrl,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger recording failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_RECORD_FAILED',
+      severity: 'CRITICAL',
+      seatId, rideId, driverId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Promove lançamentos do ledger de pending → available para um seat de carona.
+ * Fire-and-forget.
+ */
+async function _promoteLedgerForSeat(seatId) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+    const promoted = await ledger.promoteToAvailable('carona_ride', seatId);
+    if (promoted > 0) {
+      log('_promoteLedgerForSeat', 'Ledger entries promoted to available', {
+        action: 'LEDGER_PROMOTE_OK', seatId, promoted,
+      });
+    }
+  } catch (ledgerErr) {
+    logger.error('Ledger promotion failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_PROMOTE_FAILED',
+      severity: 'CRITICAL',
+      seatId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Promove lançamentos de todos os seats completados de uma viagem.
+ * Busca seats com status 'completed' e promove cada um.
+ * Fire-and-forget.
+ */
+async function _promoteAllSeatsForRide(rideId) {
+  try {
+    const { data: completedSeats } = await getSupabaseClient()
+      .from('carona_seats')
+      .select('id')
+      .eq('ride_id', rideId)
+      .eq('status', 'completed');
+
+    if (completedSeats?.length) {
+      for (const seat of completedSeats) {
+        await _promoteLedgerForSeat(seat.id);
+      }
+    }
+  } catch (err) {
+    logger.error('Ledger promote all seats failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_PROMOTE_ALL_FAILED',
+      severity: 'CRITICAL',
+      rideId,
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * Reverte lançamentos do ledger quando um seat é cancelado/reembolsado.
+ * Fire-and-forget.
+ */
+async function _reverseLedgerForSeat(seatId, reason) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    const { data: entries, error } = await getSupabaseClient()
+      .from('ledger_entries')
+      .select('transaction_id')
+      .eq('source_type', 'carona_ride')
+      .eq('source_id', seatId)
+      .is('reversed_by', null);
+
+    if (error) throw error;
+    if (!entries || entries.length === 0) {
+      log('_reverseLedgerForSeat', 'No ledger entries to reverse', {
+        action: 'LEDGER_REVERSE_SKIP', seatId,
+      });
+      return;
+    }
+
+    const txnIds = [...new Set(entries.map(e => e.transaction_id))];
+    for (const txnId of txnIds) {
+      await ledger.reverseTransaction(txnId, reason);
+    }
+
+    log('_reverseLedgerForSeat', 'Ledger entries reversed', {
+      action: 'LEDGER_REVERSE_OK', seatId, transactionsReversed: txnIds.length, reason,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger reversal failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_REVERSE_FAILED',
+      severity: 'CRITICAL',
+      seatId, reason,
+      error: ledgerErr.message,
+    });
   }
 }
 

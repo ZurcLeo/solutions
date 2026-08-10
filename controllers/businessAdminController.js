@@ -345,6 +345,90 @@ exports.revokeExemption = async (req, res) => {
   }
 };
 
+// ── Team ──────────────────────────────────────────────────────────────────────
+
+/**
+ * [EQP-BUG-001] Lista equipe de um seller para admin.
+ * Retorna membros da seller_team_members + sintetiza owner se não houver row de owner.
+ * Dedup: se owner já existe na tabela, NÃO duplica.
+ */
+exports.listSellerTeam = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+
+    // 1. Buscar seller para obter owner user_id
+    const { data: seller, error: sellerErr } = await sb()
+      .from('seller_profiles')
+      .select('id, user_id, business_name')
+      .eq('id', sellerId)
+      .single();
+
+    if (sellerErr || !seller) {
+      return res.status(404).json({ success: false, message: 'Negócio não encontrado' });
+    }
+
+    // 2. Buscar membros da equipe (ativos e pendentes)
+    const { data: members, error: membersErr } = await sb()
+      .from('seller_team_members')
+      .select(`
+        id, seller_id, user_id, role, status, active,
+        invited_by, validation_status, validated_at, joined_at,
+        permissions, created_at, updated_at,
+        users:user_id (id, full_name, email, avatar_url)
+      `)
+      .eq('seller_id', sellerId)
+      .in('status', ['active', 'pending'])
+      .order('role', { ascending: false })
+      .order('joined_at', { ascending: true });
+
+    if (membersErr) throw membersErr;
+
+    const result = members || [];
+
+    // 3. Dedup: sintetizar owner APENAS se não existe row de owner na tabela
+    const hasOwnerRow = result.some(m => m.role === 'owner' && m.user_id === seller.user_id);
+
+    if (!hasOwnerRow) {
+      // Buscar dados do user owner
+      const { data: ownerUser } = await sb()
+        .from('users')
+        .select('id, full_name, email, avatar_url')
+        .eq('id', seller.user_id)
+        .maybeSingle();
+
+      // Sintetizar entry virtual de owner
+      result.unshift({
+        id:                `synthetic-owner-${seller.id}`,
+        seller_id:         seller.id,
+        user_id:           seller.user_id,
+        role:              'owner',
+        status:            'active',
+        active:            true,
+        invited_by:        null,
+        validation_status: 'validated',
+        validated_at:      null,
+        joined_at:         null,
+        permissions:       {
+          can_manage_clients: true, can_manage_pendencias: true,
+          can_view_financials: true, can_manage_team: true,
+          can_manage_catalog: true, can_manage_orders: true,
+          can_manage_settings: true, can_manage_billing: true,
+        },
+        created_at:        null,
+        updated_at:        null,
+        users:             ownerUser || { id: seller.user_id, full_name: null, email: null, avatar_url: null },
+        _synthetic:        true,
+      });
+    }
+
+    logger.info(`[${CTRL}] Admin ${req.user.uid} listed team for seller ${sellerId} (${result.length} members)`);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    logger.error(`[${CTRL}] listSellerTeam: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // ── Plugins (Add-ons) ────────────────────────────────────────────────────────
 
 exports.listAddons = async (req, res) => {

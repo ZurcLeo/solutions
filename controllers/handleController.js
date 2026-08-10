@@ -38,27 +38,41 @@ exports.resolveHandle = async (req, res) => {
 exports.getPublicUserProfile = async (req, res) => {
   try {
     const { handle } = req.params;
+    const sb = getSupabaseClient();
+
+    // 1. Try resolving as user handle (users.username)
     const result = await handleService.resolveHandle(handle, 'user');
 
-    if (!result || !result.found) {
-      // Check for redirect (old handle)
-      if (result?.redirect) {
-        return res.status(301).json({ success: true, redirect: true, currentHandle: result.currentHandle });
-      }
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    // If it's a redirect result, return redirect info
-    if (result.redirect) {
+    if (result?.redirect) {
       return res.status(301).json({ success: true, redirect: true, currentHandle: result.currentHandle });
     }
 
+    let userId = result?.found ? result.id : null;
+
+    // 2. Fallback: try seller_profiles.username → resolve to owner user_id
+    //    Handles are unified namespace, but /u/ should also resolve seller owners
+    if (!userId) {
+      const { data: seller } = await sb
+        .from('seller_profiles')
+        .select('user_id, username')
+        .eq('username', handle.toLowerCase())
+        .maybeSingle();
+
+      if (seller?.user_id) {
+        userId = seller.user_id;
+      }
+    }
+
+    // 3. Check handle_history redirect (already done by resolveHandle, but handle seller redirects too)
+    if (!userId) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     // Fetch minimal public data
-    const sb = getSupabaseClient();
     const { data: user } = await sb
       .from('users')
-      .select('id, username, full_name, avatar_url, bio, nivel, created_at')
-      .eq('id', result.id)
+      .select('id, username, full_name, avatar_url, descricao, created_at')
+      .eq('id', userId)
       .maybeSingle();
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });

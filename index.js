@@ -42,6 +42,7 @@ const { startOpsMetricsSnapshotJob } = require('./config/jobs/opsMetricsSnapshot
 const { startFranchisePendingAlertJob } = require('./config/jobs/franchisePendingAlertJob');
 const { startStuckOrdersAlertJob } = require('./config/jobs/stuckOrdersAlertJob');
 const { startCaronaDocExpiryJob } = require('./config/jobs/caronaDocExpiryJob');
+const { startLedgerReconciliationJob } = require('./config/jobs/ledgerReconciliationJob');
 const { loadBlacklistCache, startCacheRefresh } = require('./utils/securityUtils');
 
 const app = express();
@@ -204,6 +205,8 @@ Promise.all([
       startStuckOrdersAlertJob();
       // CARONA-GAP-007: Validade de documentos de motoristas (diario 08:00 BRT)
       startCaronaDocExpiryJob();
+      // LEDGER-W2: Reconciliacao diaria do ledger unificado (05:00 BRT)
+      startLedgerReconciliationJob();
       // Poller durável de delivery: recovery + matching contínuo a cada 60s
       const { startDeliveryPoller } = require('./services/deliveryService');
       startDeliveryPoller();

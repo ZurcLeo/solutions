@@ -11,7 +11,12 @@ const PII_KEYS = [
   'phone', 'telephone', 'address', 'street', 'complement', 'neighborhood',
   'password', 'token', 'accessToken', 'refreshToken', 'idToken',
   'firebaseToken', 'customToken', 'authorization', 'secret', 'key',
-  'friendName', 'ja3Data', 'ja3'
+  'friendName', 'ja3Data', 'ja3',
+  // PAY-CARD-001: dados de cartão nunca devem aparecer em logs/audit
+  'cardNumber', 'card_number', 'ccv', 'cvc', 'cvv', 'cv2',
+  'expiryMonth', 'expiry_month', 'expiryYear', 'expiry_year',
+  'holderName', 'holder_name', 'cardData', 'creditCard',
+  'creditCardToken', 'gateway_token',
 ];
 
 /**

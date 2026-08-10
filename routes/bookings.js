@@ -79,9 +79,10 @@ router.delete('/waitlist/:id',         verifyToken, writeLimit, ctrl.leaveWaitli
 router.get('/waitlist',                verifyToken, readLimit,  ctrl.getMyWaitlistEntries);
 router.get('/waitlist/slot',           verifyToken, readLimit,  ctrl.getSlotWaitlist);
 
-// ── Check-in QR [SCHED-CAP-011] ──────────────────────
-// IMPORTANTE: /checkin e /checkins ANTES de /:id para evitar que Express os interprete como :id
+// ── Check-in QR + Fallbacks [SCHED-CAP-011] ──────────
+// IMPORTANTE: /checkin* ANTES de /:id para evitar que Express os interprete como :id
 router.post('/checkin',                 verifyToken, writeLimit, ctrl.performCheckin);
+router.post('/checkin-pin',             verifyToken, writeLimit, ctrl.performCheckinByPin);
 router.get('/checkins',                 verifyToken, readLimit,  ctrl.getCheckins);
 
 // ── Agendamentos ─────────────────────────────────────
@@ -91,6 +92,7 @@ router.get('/:id',                      verifyToken, readLimit,  ctrl.getBooking
 
 // ── Ações do prestador ───────────────────────────────
 router.post('/:id/checkin-code',        verifyToken, writeLimit, ctrl.generateCheckin);
+router.post('/:id/manual-checkin',      verifyToken, writeLimit, ctrl.manualCheckin);
 router.patch('/:id/confirm',            verifyToken, writeLimit, ctrl.confirmBooking);
 router.patch('/:id/decline',            verifyToken, writeLimit, ctrl.declineBooking);
 router.patch('/:id/complete',           verifyToken, writeLimit, ctrl.completeBooking);

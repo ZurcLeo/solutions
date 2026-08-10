@@ -61,6 +61,7 @@ module.exports = (app) => {
     { path: '/api/channel-links',    file: '../../routes/channelLinks' },
     { path: '/api/agenda',            file: '../../routes/agenda' },
     { path: '/api/emergency-contacts', file: '../../routes/emergencyContacts' },
+    { path: '/api/ledger',            file: '../../routes/ledger' },
   ];
 
   routes.forEach(({ path, file, moduleId }) => {

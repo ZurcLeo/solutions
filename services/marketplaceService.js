@@ -60,6 +60,217 @@ function logError(fn, err, extra = {}) {
 }
 
 // ──────────────────────────────────────────────────────
+// Unified Ledger — fire-and-forget integration (W3)
+// ──────────────────────────────────────────────────────
+
+/**
+ * Records ledger entries when a marketplace order payment is confirmed.
+ *
+ * Double-entry model (SUM = 0):
+ *   - Seller   +sellerAmount  (total - commission)
+ *   - Platform -sellerAmount
+ *   - Platform +commission
+ *   - Seller   -commission   ... BUT this would be 4 entries.
+ *
+ * Simplified (2 entries per txn):
+ *   Txn 1 (seller revenue):
+ *     seller   +(total - commission)  pending
+ *     platform -(total - commission)  pending
+ *   Txn 2 (platform commission):
+ *     platform +commission            pending
+ *     seller   -commission            pending
+ *
+ * Actually, we can do it all in ONE transaction with 2 entries:
+ *   seller   +(total - commission)   pending
+ *   platform -(total - commission)   pending
+ *
+ * Commission is recorded separately to keep the audit trail clear:
+ *   platform +commission             pending
+ *   seller   -commission             pending
+ *
+ * @param {Object} params
+ * @param {string} params.orderId
+ * @param {string} params.sellerUserId    - Firebase UID of the seller (ledger account owner)
+ * @param {number} params.totalBrl        - Order total (what the buyer paid)
+ * @param {number} params.commissionBrl   - Platform commission
+ * @param {string} [params.paymentId]     - Asaas payment ID (asaas_ref)
+ * @param {string} [params.paymentMethod] - 'pix' | 'credit_card' | 'offline_confirmed'
+ */
+async function _recordLedgerForOrder({
+  orderId, sellerUserId, totalBrl, commissionBrl, paymentId, paymentMethod,
+}) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    // Idempotency check: see if entries already exist for this order
+    const existingCheck = await getSupabaseClient()
+      .from('ledger_entries')
+      .select('id')
+      .eq('source_type', 'marketplace_order')
+      .eq('source_id', orderId)
+      .limit(1);
+
+    if (existingCheck.data && existingCheck.data.length > 0) {
+      logger.info(`[${SERVICE}] Ledger entries already exist for order ${orderId} — skipping`, {
+        service: SERVICE, action: 'LEDGER_IDEMPOTENT_SKIP', orderId,
+      });
+      return;
+    }
+
+    // Ensure accounts exist
+    const sellerAccountId = await ledger.ensureAccount('user', sellerUserId);
+    const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+    const sellerAmount = +(totalBrl - commissionBrl).toFixed(2);
+
+    // --- Transaction 1: Seller revenue (what the seller receives) ---
+    if (sellerAmount > 0) {
+      await ledger.recordTransaction([
+        {
+          accountId:   sellerAccountId,
+          amountBrl:   sellerAmount,
+          status:      'pending',
+          sourceType:  'marketplace_order',
+          sourceId:    orderId,
+          description: `Venda marketplace — pedido ${orderId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+        {
+          accountId:   platformAccountId,
+          amountBrl:   -sellerAmount,
+          status:      'pending',
+          sourceType:  'marketplace_order',
+          sourceId:    orderId,
+          description: `Repasse seller — pedido ${orderId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+      ]);
+    }
+
+    // --- Transaction 2: Platform commission ---
+    if (commissionBrl > 0) {
+      await ledger.recordTransaction([
+        {
+          accountId:   platformAccountId,
+          amountBrl:   commissionBrl,
+          status:      'pending',
+          sourceType:  'marketplace_order',
+          sourceId:    orderId,
+          description: `Comissao plataforma — pedido ${orderId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+        {
+          accountId:   sellerAccountId,
+          amountBrl:   -commissionBrl,
+          status:      'pending',
+          sourceType:  'marketplace_order',
+          sourceId:    orderId,
+          description: `Taxa comissao — pedido ${orderId.substring(0, 8)}`,
+          asaasRef:    paymentId || null,
+        },
+      ]);
+    }
+
+    logger.info(`[${SERVICE}] Ledger recorded for marketplace order`, {
+      service: SERVICE, action: 'LEDGER_RECORD_OK',
+      orderId, sellerUserId, totalBrl, commissionBrl, sellerAmount,
+      paymentMethod: paymentMethod || 'unknown',
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger recording failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_RECORD_FAILED',
+      severity: 'CRITICAL',
+      orderId,
+      sellerUserId,
+      totalBrl,
+      commissionBrl,
+      error: ledgerErr.message,
+    });
+    // NÃO re-throw — fluxo principal continua
+  }
+}
+
+/**
+ * Promotes ledger entries from pending → available when an order is completed.
+ * Fire-and-forget — errors are logged but never block the caller.
+ *
+ * @param {string} orderId
+ */
+async function _promoteLedgerForOrder(orderId) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+    const promoted = await ledger.promoteToAvailable('marketplace_order', orderId);
+    if (promoted > 0) {
+      logger.info(`[${SERVICE}] Ledger entries promoted to available`, {
+        service: SERVICE, action: 'LEDGER_PROMOTE_OK', orderId, promoted,
+      });
+    }
+  } catch (ledgerErr) {
+    logger.error('Ledger promotion failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_PROMOTE_FAILED',
+      severity: 'CRITICAL',
+      orderId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Reverses ledger entries when an order is cancelled/refunded.
+ * Fire-and-forget — errors are logged but never block the caller.
+ *
+ * Finds the transaction_ids associated with this order and reverses them.
+ *
+ * @param {string} orderId
+ * @param {string} reason
+ */
+async function _reverseLedgerForOrder(orderId, reason) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+    const supabase = getSupabaseClient();
+
+    // Find all distinct transaction_ids for this order
+    const { data: entries, error } = await supabase
+      .from('ledger_entries')
+      .select('transaction_id')
+      .eq('source_type', 'marketplace_order')
+      .eq('source_id', orderId)
+      .is('reversed_by', null);
+
+    if (error) throw error;
+    if (!entries || entries.length === 0) {
+      logger.info(`[${SERVICE}] No ledger entries to reverse for order ${orderId}`, {
+        service: SERVICE, action: 'LEDGER_REVERSE_SKIP', orderId,
+      });
+      return;
+    }
+
+    // Deduplicate transaction_ids
+    const txnIds = [...new Set(entries.map(e => e.transaction_id))];
+
+    for (const txnId of txnIds) {
+      await ledger.reverseTransaction(txnId, reason);
+    }
+
+    logger.info(`[${SERVICE}] Ledger entries reversed for order`, {
+      service: SERVICE, action: 'LEDGER_REVERSE_OK',
+      orderId, transactionsReversed: txnIds.length, reason,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger reversal failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_REVERSE_FAILED',
+      severity: 'CRITICAL',
+      orderId,
+      reason,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+// ──────────────────────────────────────────────────────
 // Fulfillment helpers
 // ──────────────────────────────────────────────────────
 
@@ -301,12 +512,37 @@ async function createSellerProfile(userId, data) {
 
   log('createSellerProfile', 'Perfil criado', { userId, sellerId: profile.id });
 
-  // [TEAM-001] Seed owner como team member
-  try {
-    const sellerTeamService = require('./sellerTeamService');
-    await sellerTeamService.seedOwner(profile.id, userId);
-  } catch (seedErr) {
-    logger.warn(`[${SERVICE}] Falha ao seed owner team member (não bloqueante): ${seedErr.message}`, { userId, sellerId: profile.id });
+  // [HANDLE-SYNC] Sync seller handle to users.username if user doesn't have one yet
+  if (username) {
+    try {
+      const { data: existingUser } = await sb()
+        .from('users')
+        .select('username')
+        .eq('id', userId)
+        .maybeSingle();
+      if (existingUser && !existingUser.username) {
+        await sb().from('users')
+          .update({ username: username.toLowerCase(), username_last_changed_at: new Date().toISOString() })
+          .eq('id', userId);
+        log('createSellerProfile', 'Synced seller handle to users.username', { userId, username });
+      }
+    } catch (syncErr) {
+      logger.warn(`[${SERVICE}] Failed to sync handle to users table (non-blocking): ${syncErr.message}`, { userId, username });
+    }
+  }
+
+  // [TEAM-001][EQP-BUG-001] Seed owner como team member — atômico via RPC.
+  // Se falhar, o erro PROPAGA (não é mais silencioso). O perfil já foi criado,
+  // mas o backfill (migration 20260809000001) e o endpoint admin sintetizam
+  // o owner como fallback. O erro será logado e investigado.
+  const { error: seedErr } = await sb().rpc('seed_owner_team_member', {
+    p_seller_id: profile.id,
+    p_user_id:   userId,
+  });
+  if (seedErr) {
+    logger.error(`[${SERVICE}] Falha ao seed owner team member via RPC: ${seedErr.message}`, { userId, sellerId: profile.id });
+    // Não lança — o perfil já está criado. O admin endpoint sintetiza o owner como fallback,
+    // e o backfill pode ser rodado para corrigir. Mas logamos como ERROR para investigação.
   }
 
   await fireEvent('seller_registered', userId, { seller_id: profile.id });
@@ -631,6 +867,20 @@ async function updateSellerProfile(userId, updates) {
     .single();
 
   if (error) throw new Error(`Erro ao atualizar perfil: ${error.message}`);
+
+  // [HANDLE-SYNC] Keep users.username in sync with seller handle
+  if (updates.username !== undefined) {
+    try {
+      const newUsername = updates.username?.toLowerCase() || null;
+      await sb().from('users')
+        .update({ username: newUsername, username_last_changed_at: new Date().toISOString() })
+        .eq('id', userId);
+      log('updateSellerProfile', 'Synced seller handle to users.username', { userId, username: newUsername });
+    } catch (syncErr) {
+      logger.warn(`[${SERVICE}] Failed to sync handle to users table (non-blocking): ${syncErr.message}`, { userId });
+    }
+  }
+
   return data;
 }
 
@@ -1843,6 +2093,16 @@ async function handlePixPaymentConfirmed(orderId) {
       logger.warn(`[${fn}] Auto-shipping failed`, { orderId: order.id, error: err.message })
     ));
   }
+
+  // ── Unified Ledger (W3): record payment received ───────────
+  setImmediate(() => _recordLedgerForOrder({
+    orderId:        order.id,
+    sellerUserId:   order.seller?.user_id,
+    totalBrl:       Number(order.total_brl),
+    commissionBrl:  Number(order.commission_brl) || 0,
+    paymentId:      order.payment_id || null,
+    paymentMethod:  order.payment_method || 'pix',
+  }));
 }
 
 async function createOrder(buyerId, data) {
@@ -2566,6 +2826,9 @@ async function updateOrderStatus(userId, orderId, newStatus, sellerCtx = null) {
         });
       }
     });
+
+    // ── Unified Ledger (W3): promote entries to available ───────────
+    setImmediate(() => _promoteLedgerForOrder(orderId));
   }
 
   return updated;
@@ -2718,6 +2981,9 @@ async function cancelOrderBySeller(orderId, sellerId, userId, reason) {
     });
   }
 
+  // ── 8b. Unified Ledger (W3): reverse entries on cancellation ─
+  setImmediate(() => _reverseLedgerForOrder(orderId, `Cancelamento pelo vendedor: ${reason}`));
+
   // ── 9. Fire-and-forget: notify buyer ─────────────────
   setImmediate(() => {
     if (order.buyer_id) {
@@ -2856,6 +3122,16 @@ async function confirmPaymentOffline(userId, orderId) {
     confirmedBy: userId,
     previousPaymentMethod: order.payment_method,
   });
+
+  // ── Unified Ledger (W3): record offline payment ───────────
+  setImmediate(() => _recordLedgerForOrder({
+    orderId,
+    sellerUserId:   order.seller_profiles.user_id,
+    totalBrl:       Number(order.total_brl),
+    commissionBrl:  Number(order.commission_brl) || 0,
+    paymentId:      null,
+    paymentMethod:  'offline_confirmed',
+  }));
 
   return updated;
 }
@@ -3261,15 +3537,15 @@ async function initiateOrderPayment(orderId, buyerData) {
 }
 
 /**
- * Inicia pagamento por cartão de crédito de um pedido via Asaas (CMP-014).
+ * Inicia pagamento por cartão de crédito de um pedido via Asaas (CMP-014 + PAY-CARD-003).
  * Segue o mesmo padrão de guestCheckoutService.initiateGuestPayment.
- * Dados do cartão são enviados direto ao Asaas — NÃO armazenados pela ElosCloud (PCI compliance).
+ * Aceita cartão novo OU cartão salvo (savedCardId) OU flag saveCard para tokenizar após sucesso.
  *
  * Pré-condições: order.status === 'pending' && order.total_brl > 0 && seller tem plano Brasileirinho
  *
  * @param {string} orderId
  * @param {{ uid, email, name, cpf }} buyerData
- * @param {{ holderName, number, expiryMonth, expiryYear, ccv, postalCode? }} cardData
+ * @param {{ holderName?, number?, expiryMonth?, expiryYear?, ccv?, postalCode?, savedCardId?, saveCard? }} cardData
  * @returns {{ order, payment: { paymentId, cardStatus, method } }}
  */
 async function initiateCardPayment(orderId, buyerData, cardData) {
@@ -3307,28 +3583,48 @@ async function initiateCardPayment(orderId, buyerData, cardData) {
     externalReference: buyerData.uid,
   });
 
+  const customerId = customer.customerId || customer.id;
   const externalReference = `marketplace_order_${orderId}`;
   const sellerName = order.seller?.business_name || 'ElosCloud';
+  const remoteIp = cardData.remoteIp || '127.0.0.1';
 
-  const cardCharge = await asaasService.createCardCharge({
-    customerId: customer.customerId || customer.id,
-    value: order.total_brl,
-    description: `Pedido #${orderId.substring(0, 8)} - ${sellerName}`,
-    externalReference,
-    creditCard: {
-      holderName: cardData.holderName,
-      number: cardData.number,
-      expiryMonth: cardData.expiryMonth,
-      expiryYear: cardData.expiryYear,
-      ccv: cardData.ccv,
-    },
-    creditCardHolderInfo: {
-      name: buyerData.name || buyerData.email,
-      email: buyerData.email,
-      phone: buyerData.phone || undefined,
-      postalCode: cardData.postalCode || '00000000',
-    },
-  });
+  // PAY-CARD-003: Montar payload — cartão salvo (token) ou cartão novo
+  let chargePayload;
+  if (cardData.savedCardId) {
+    const savedCardService = require('./savedCardService');
+    const saved = await savedCardService.getCardById(buyerData.uid, cardData.savedCardId);
+    log(fn, 'Usando cartão salvo', { cardId: saved.id, brand: saved.brand });
+    chargePayload = {
+      customerId: saved.gateway_customer_id,
+      value: order.total_brl,
+      description: `Pedido #${orderId.substring(0, 8)} - ${sellerName}`,
+      externalReference,
+      creditCardToken: saved.gateway_token,
+      remoteIp,
+    };
+  } else {
+    chargePayload = {
+      customerId,
+      value: order.total_brl,
+      description: `Pedido #${orderId.substring(0, 8)} - ${sellerName}`,
+      externalReference,
+      creditCard: {
+        holderName: cardData.holderName,
+        number: cardData.number,
+        expiryMonth: cardData.expiryMonth,
+        expiryYear: cardData.expiryYear,
+        ccv: cardData.ccv,
+      },
+      creditCardHolderInfo: {
+        name: buyerData.name || buyerData.email,
+        email: buyerData.email,
+        phone: buyerData.phone || undefined,
+        postalCode: cardData.postalCode || '00000000',
+      },
+    };
+  }
+
+  const cardCharge = await asaasService.createCardCharge(chargePayload);
 
   // Se confirmação imediata, marcar como pago
   const paidStatuses = ['CONFIRMED', 'RECEIVED'];
@@ -3377,6 +3673,45 @@ async function initiateCardPayment(orderId, buyerData, cardData) {
         logger.warn(`[${fn}] Auto-delivery failed`, { orderId, error: err.message })
       ));
     }
+
+    // ── Unified Ledger (W3): record instant card payment ───────────
+    setImmediate(() => _recordLedgerForOrder({
+      orderId,
+      sellerUserId:   order.seller?.user_id,
+      totalBrl:       Number(order.total_brl),
+      commissionBrl:  Number(order.commission_brl) || 0,
+      paymentId:      cardCharge.paymentId || null,
+      paymentMethod:  'credit_card',
+    }));
+  }
+
+  // PAY-CARD-003: Se saveCard=true e pagamento confirmado, tokenizar e salvar
+  if (cardData.saveCard && !cardData.savedCardId && newStatus === 'paid') {
+    setImmediate(async () => {
+      try {
+        const savedCardService = require('./savedCardService');
+        await savedCardService.tokenizeAndSave(buyerData.uid, {
+          cardData: {
+            holderName: cardData.holderName,
+            number: cardData.number,
+            expiryMonth: cardData.expiryMonth,
+            expiryYear: cardData.expiryYear,
+            ccv: cardData.ccv,
+          },
+          holderInfo: {
+            name: buyerData.name || buyerData.email,
+            email: buyerData.email,
+            cpfCnpj: buyerData.cpf || undefined,
+            phone: buyerData.phone || undefined,
+            postalCode: cardData.postalCode || '00000000',
+          },
+          remoteIp,
+        });
+        log(fn, 'Cartão salvo após pagamento confirmado', { orderId, buyerId: buyerData.uid });
+      } catch (err) {
+        logger.warn(`[${fn}] Falha ao salvar cartão (não-bloqueante)`, { orderId, error: err.message });
+      }
+    });
   }
 
   return {

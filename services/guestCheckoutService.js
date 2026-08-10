@@ -630,6 +630,82 @@ async function initiateGuestPayment(orderId, token, { payment_method, card_data 
           logger.warn(`[${fn}] Auto-delivery failed`, { orderId, error: err.message })
         ));
       }
+
+      // ── Unified Ledger (W3): record instant card payment ───────────
+      setImmediate(async () => {
+        try {
+          const ledger = require('./unifiedLedgerService');
+          const { getSupabaseClient } = require('../config/supabase');
+
+          // Idempotency check
+          const existingCheck = await getSupabaseClient()
+            .from('ledger_entries')
+            .select('id')
+            .eq('source_type', 'marketplace_order')
+            .eq('source_id', orderId)
+            .limit(1);
+
+          if (existingCheck.data && existingCheck.data.length > 0) {
+            logger.info(`[${LOG_TAG}] Ledger entries already exist for order ${orderId} — skipping`, {
+              service: LOG_TAG, action: 'LEDGER_IDEMPOTENT_SKIP', orderId,
+            });
+            return;
+          }
+
+          const sellerUserId = order.seller?.user_id;
+          if (!sellerUserId) return;
+
+          const sellerAccountId = await ledger.ensureAccount('user', sellerUserId);
+          const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+          const totalBrl = Number(order.total_brl);
+          const commissionBrl = Number(order.commission_brl) || 0;
+          const sellerAmount = +(totalBrl - commissionBrl).toFixed(2);
+
+          if (sellerAmount > 0) {
+            await ledger.recordTransaction([
+              {
+                accountId: sellerAccountId, amountBrl: sellerAmount, status: 'pending',
+                sourceType: 'marketplace_order', sourceId: orderId,
+                description: `Venda marketplace — pedido ${orderId.substring(0, 8)}`,
+                asaasRef: cardCharge.paymentId || null,
+              },
+              {
+                accountId: platformAccountId, amountBrl: -sellerAmount, status: 'pending',
+                sourceType: 'marketplace_order', sourceId: orderId,
+                description: `Repasse seller — pedido ${orderId.substring(0, 8)}`,
+                asaasRef: cardCharge.paymentId || null,
+              },
+            ]);
+          }
+
+          if (commissionBrl > 0) {
+            await ledger.recordTransaction([
+              {
+                accountId: platformAccountId, amountBrl: commissionBrl, status: 'pending',
+                sourceType: 'marketplace_order', sourceId: orderId,
+                description: `Comissao plataforma — pedido ${orderId.substring(0, 8)}`,
+                asaasRef: cardCharge.paymentId || null,
+              },
+              {
+                accountId: sellerAccountId, amountBrl: -commissionBrl, status: 'pending',
+                sourceType: 'marketplace_order', sourceId: orderId,
+                description: `Taxa comissao — pedido ${orderId.substring(0, 8)}`,
+                asaasRef: cardCharge.paymentId || null,
+              },
+            ]);
+          }
+
+          logger.info(`[${LOG_TAG}] Ledger recorded for guest card order`, {
+            service: LOG_TAG, action: 'LEDGER_RECORD_OK',
+            orderId, sellerUserId, totalBrl, commissionBrl, sellerAmount,
+          });
+        } catch (ledgerErr) {
+          logger.error('Ledger recording failed (non-blocking)', {
+            service: LOG_TAG, action: 'LEDGER_RECORD_FAILED', severity: 'CRITICAL',
+            orderId, error: ledgerErr.message,
+          });
+        }
+      });
     }
 
   } else {

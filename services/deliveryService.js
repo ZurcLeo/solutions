@@ -1035,6 +1035,17 @@ async function _onDeliveryCompleted(delivererUserId, req, requestId, { buyerId, 
       }
     }
 
+    // Ledger: registrar lançamento para o entregador (D1 — no momento da entrega)
+    // e promover imediatamente (saque quinzenal é execução, não cálculo)
+    if (req.accepted_fee && Number(req.accepted_fee) > 0) {
+      await _recordLedgerForDelivery({
+        requestId,
+        delivererUserId,
+        acceptedFee: Number(req.accepted_fee),
+      });
+      _promoteLedgerForDelivery(requestId); // fire-and-forget
+    }
+
     // Status final do marketplace_order (se todos os produtos entregues)
     // O vendedor ainda precisa confirmar 'completed' manualmente
     // Por ora apenas atualiza updated_at do pedido
@@ -2785,6 +2796,104 @@ function _pointToSegmentDistance(pLat, pLng, aLat, aLng, bLat, bLng) {
   const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
   return dAP * sinA;
 }
+
+// ──────────────────────────────────────────────────────
+// LEDGER UNIFICADO (W4 — partidas dobradas BRL)
+// ──────────────────────────────────────────────────────
+
+/**
+ * Registra lançamentos no ledger para uma entrega concluída (D1).
+ * Partidas dobradas: entregador recebe accepted_fee, plataforma debita.
+ * Fire-and-forget — erros nunca bloqueiam o fluxo principal.
+ *
+ * @param {object} params
+ * @param {string} params.requestId   - delivery_request.id (source_id)
+ * @param {string} params.delivererUserId - Firebase UID do entregador
+ * @param {number} params.acceptedFee - Valor aceito da entrega
+ */
+async function _recordLedgerForDelivery({ requestId, delivererUserId, acceptedFee }) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+
+    // Idempotency check
+    const existingCheck = await sb()
+      .from('ledger_entries')
+      .select('id')
+      .eq('source_type', 'delivery')
+      .eq('source_id', requestId)
+      .limit(1);
+
+    if (existingCheck.data && existingCheck.data.length > 0) {
+      log('_recordLedgerForDelivery', 'Ledger entries already exist — skipping', {
+        action: 'LEDGER_IDEMPOTENT_SKIP', requestId,
+      });
+      return;
+    }
+
+    const delivererAccountId = await ledger.ensureAccount('user', delivererUserId);
+    const platformAccountId = ledger.PLATFORM_ACCOUNT_ID;
+
+    // Transaction: entregador recebe taxa de entrega
+    if (acceptedFee > 0) {
+      await ledger.recordTransaction([
+        {
+          accountId:   delivererAccountId,
+          amountBrl:   acceptedFee,
+          status:      'pending',
+          sourceType:  'delivery',
+          sourceId:    requestId,
+          description: `Entrega — pedido ${requestId.substring(0, 8)}`,
+        },
+        {
+          accountId:   platformAccountId,
+          amountBrl:   -acceptedFee,
+          status:      'pending',
+          sourceType:  'delivery',
+          sourceId:    requestId,
+          description: `Repasse entregador — pedido ${requestId.substring(0, 8)}`,
+        },
+      ]);
+    }
+
+    log('_recordLedgerForDelivery', 'Ledger recorded for delivery', {
+      action: 'LEDGER_RECORD_OK', requestId, delivererUserId, acceptedFee,
+    });
+  } catch (ledgerErr) {
+    logger.error('Ledger recording failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_RECORD_FAILED',
+      severity: 'CRITICAL',
+      requestId, delivererUserId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
+/**
+ * Promove lançamentos de pending → available para uma entrega.
+ * Chamado imediatamente após a entrega (D1: entregador recebe no momento da entrega).
+ * Fire-and-forget.
+ */
+async function _promoteLedgerForDelivery(requestId) {
+  try {
+    const ledger = require('./unifiedLedgerService');
+    const promoted = await ledger.promoteToAvailable('delivery', requestId);
+    if (promoted > 0) {
+      log('_promoteLedgerForDelivery', 'Ledger entries promoted to available', {
+        action: 'LEDGER_PROMOTE_OK', requestId, promoted,
+      });
+    }
+  } catch (ledgerErr) {
+    logger.error('Ledger promotion failed (non-blocking)', {
+      service: SERVICE,
+      action: 'LEDGER_PROMOTE_FAILED',
+      severity: 'CRITICAL',
+      requestId,
+      error: ledgerErr.message,
+    });
+  }
+}
+
 
 module.exports = {
   // Loja de entrega
