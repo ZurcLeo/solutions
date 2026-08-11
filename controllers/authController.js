@@ -30,6 +30,13 @@ const mfaService = require('../services/mfaService');
 const sessionService = require('../services/sessionService');
 const accessCodeService = require('../services/accessCodeService');
 const magicLinkService = require('../services/magicLinkService');
+const {
+  consumePasswordlessIpLimit,
+  rewardPasswordlessIpLimit,
+  checkPasswordlessCooldown,
+  checkPasswordlessEmailLimit,
+  consumePasswordlessEmailLimit,
+} = require('../middlewares/rateLimiter');
 const crypto = require('crypto');
 
 /**
@@ -2351,18 +2358,71 @@ exports.sendAccessCode = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email inválido.' });
     }
 
+    // ── Rate limits (ELOS-BUG-013) ──────────────────────────────────────────
+    // 1. Per-IP: anti-enumeração (conta toda request, exceto 5xx infra)
+    const ipCheck = await consumePasswordlessIpLimit(req.ip);
+    if (!ipCheck.allowed) {
+      res.set('Retry-After', String(ipCheck.retryAfter));
+      return res.status(429).json({
+        success: false, error: 'rate_limit',
+        message: 'Aguarde antes de solicitar novo código.',
+        retryAfter: ipCheck.retryAfter,
+      });
+    }
+
+    // 2. Per-email cooldown (60s entre envios)
+    const cooldownCheck = await checkPasswordlessCooldown(email);
+    if (!cooldownCheck.allowed) {
+      res.set('Retry-After', String(cooldownCheck.retryAfter));
+      return res.status(429).json({
+        success: false, error: 'rate_limit',
+        message: 'Aguarde antes de solicitar novo código.',
+        retryAfter: cooldownCheck.retryAfter,
+      });
+    }
+
+    // 3. Per-email quota (3 envios/10min)
+    const emailCheck = await checkPasswordlessEmailLimit(email);
+    if (!emailCheck.allowed) {
+      res.set('Retry-After', String(emailCheck.retryAfter));
+      return res.status(429).json({
+        success: false, error: 'rate_limit',
+        message: 'Aguarde antes de solicitar novo código.',
+        retryAfter: emailCheck.retryAfter,
+      });
+    }
+
     const result = await accessCodeService.sendAccessCode(email);
 
     if (!result.success) {
       if (result.error === 'account_locked') {
+        const retryAfter = result.locked_until
+          ? Math.max(1, Math.ceil((new Date(result.locked_until) - Date.now()) / 1000))
+          : 900;
+        res.set('Retry-After', String(retryAfter));
         return res.status(429).json({
-          success: false,
+          success: false, error: 'account_locked',
           message: 'Conta temporariamente bloqueada por tentativas excessivas.',
           locked_until: result.locked_until,
+          retryAfter,
         });
       }
+      if (result.error === 'otp_rate_limit_exceeded') {
+        const retryAfter = result.retryAfterSeconds || 60;
+        res.set('Retry-After', String(retryAfter));
+        return res.status(429).json({
+          success: false, error: 'rate_limit',
+          message: 'Aguarde antes de solicitar novo código.',
+          retryAfter,
+        });
+      }
+      // Erro de infraestrutura — devolver ponto de IP (não é culpa do cliente)
+      await rewardPasswordlessIpLimit(req.ip);
       return res.status(500).json({ success: false, message: 'Erro ao enviar código.' });
     }
+
+    // Envio bem-sucedido — consumir limite per-email + cooldown
+    await consumePasswordlessEmailLimit(email);
 
     return res.status(200).json({
       success: true,
@@ -2371,6 +2431,7 @@ exports.sendAccessCode = async (req, res) => {
     });
   } catch (error) {
     logger.error('sendAccessCode: erro', { error: error.message });
+    await rewardPasswordlessIpLimit(req.ip);
     return res.status(500).json({ success: false, message: 'Erro interno.' });
   }
 };
@@ -2427,6 +2488,37 @@ exports.sendMagicLink = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email inválido.' });
     }
 
+    // ── Rate limits (ELOS-BUG-013) ──────────────────────────────────────────
+    const ipCheck = await consumePasswordlessIpLimit(req.ip);
+    if (!ipCheck.allowed) {
+      res.set('Retry-After', String(ipCheck.retryAfter));
+      return res.status(429).json({
+        success: false, error: 'rate_limit',
+        message: 'Aguarde antes de solicitar novo link.',
+        retryAfter: ipCheck.retryAfter,
+      });
+    }
+
+    const cooldownCheck = await checkPasswordlessCooldown(email);
+    if (!cooldownCheck.allowed) {
+      res.set('Retry-After', String(cooldownCheck.retryAfter));
+      return res.status(429).json({
+        success: false, error: 'rate_limit',
+        message: 'Aguarde antes de solicitar novo link.',
+        retryAfter: cooldownCheck.retryAfter,
+      });
+    }
+
+    const emailCheck = await checkPasswordlessEmailLimit(email);
+    if (!emailCheck.allowed) {
+      res.set('Retry-After', String(emailCheck.retryAfter));
+      return res.status(429).json({
+        success: false, error: 'rate_limit',
+        message: 'Aguarde antes de solicitar novo link.',
+        retryAfter: emailCheck.retryAfter,
+      });
+    }
+
     const result = await magicLinkService.sendMagicLink(email, {
       ip: req.ip,
       userAgent: req.headers['user-agent'],
@@ -2434,14 +2526,31 @@ exports.sendMagicLink = async (req, res) => {
 
     if (!result.success) {
       if (result.error === 'account_locked') {
+        const retryAfter = result.locked_until
+          ? Math.max(1, Math.ceil((new Date(result.locked_until) - Date.now()) / 1000))
+          : 900;
+        res.set('Retry-After', String(retryAfter));
         return res.status(429).json({
-          success: false,
+          success: false, error: 'account_locked',
           message: 'Conta temporariamente bloqueada por tentativas excessivas.',
           locked_until: result.locked_until,
+          retryAfter,
         });
       }
+      if (result.error === 'otp_rate_limit_exceeded') {
+        const retryAfter = result.retryAfterSeconds || 60;
+        res.set('Retry-After', String(retryAfter));
+        return res.status(429).json({
+          success: false, error: 'rate_limit',
+          message: 'Aguarde antes de solicitar novo link.',
+          retryAfter,
+        });
+      }
+      await rewardPasswordlessIpLimit(req.ip);
       return res.status(500).json({ success: false, message: 'Erro ao enviar link.' });
     }
+
+    await consumePasswordlessEmailLimit(email);
 
     return res.status(200).json({
       success: true,
@@ -2450,6 +2559,7 @@ exports.sendMagicLink = async (req, res) => {
     });
   } catch (error) {
     logger.error('sendMagicLink: erro', { error: error.message });
+    await rewardPasswordlessIpLimit(req.ip);
     return res.status(500).json({ success: false, message: 'Erro interno.' });
   }
 };

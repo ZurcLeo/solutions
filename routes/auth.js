@@ -548,8 +548,9 @@ router.post('/mfa/send-sms',
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Enviar código de acesso temporário (8-char, 24h) por email
+// Rate limit controlado manualmente no controller (ELOS-BUG-013):
+// per-email (sucesso) + per-IP (request) + cooldown 60s
 router.post('/passwordless/send-code',
-  authRateLimiter,
   authController.sendAccessCode
 );
 
@@ -560,8 +561,8 @@ router.post('/passwordless/verify-code',
 );
 
 // Enviar magic link por email (15min)
+// Rate limit controlado manualmente no controller (ELOS-BUG-013)
 router.post('/passwordless/send-link',
-  authRateLimiter,
   authController.sendMagicLink
 );
 

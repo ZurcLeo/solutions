@@ -486,11 +486,11 @@ const emailService = {
       });
     }
 
-    // ── Rate limit OTP: max 3 por 15min ─────────────────────────────────────
-    try {
-      await otpLimiter.consume(to);
-    } catch (rlErr) {
-      const retryAfterSeconds = rlErr.msBeforeNext ? Math.ceil(rlErr.msBeforeNext / 1000) : 900;
+    // ── Rate limit OTP: check read-only, consume AFTER success (ELOS-BUG-013) ──
+    // Falha de infra (5xx, config ausente) NÃO consome cota do destinatário.
+    const otpRl = await otpLimiter.get(to);
+    if (otpRl !== null && otpRl.remainingPoints <= 0) {
+      const retryAfterSeconds = Math.ceil(otpRl.msBeforeNext / 1000);
       logger.warn('Rate limit OTP excedido', {
         service: 'emailService', function: 'sendOTP', to, type, retryAfterSeconds,
       });
@@ -523,6 +523,9 @@ const emailService = {
         replyTo,
       });
 
+      // Consumir ponto APÓS envio bem-sucedido (ELOS-BUG-013)
+      try { await otpLimiter.consume(to); } catch { /* já contabilizado */ }
+
       logger.info('OTP email enviado', {
         service:  'emailService',
         function: 'sendOTP',
@@ -533,6 +536,7 @@ const emailService = {
 
       return { success: true, messageId: info.messageId };
     } catch (error) {
+      // Falha de infra — ponto NÃO consumido (ELOS-BUG-013)
       logger.error('Falha ao enviar OTP email', {
         service:  'emailService',
         function: 'sendOTP',
@@ -572,11 +576,10 @@ const emailService = {
       });
     }
 
-    // Rate limit: same as OTP (3 per 15min)
-    try {
-      await otpLimiter.consume(to);
-    } catch (rlErr) {
-      const retryAfterSeconds = rlErr.msBeforeNext ? Math.ceil(rlErr.msBeforeNext / 1000) : 900;
+    // Rate limit: check read-only, consume AFTER success (ELOS-BUG-013)
+    const mlRl = await otpLimiter.get(to);
+    if (mlRl !== null && mlRl.remainingPoints <= 0) {
+      const retryAfterSeconds = Math.ceil(mlRl.msBeforeNext / 1000);
       logger.warn('Rate limit magic link excedido', {
         service: 'emailService', function: 'sendMagicLink', to, retryAfterSeconds,
       });
@@ -600,12 +603,16 @@ const emailService = {
         replyTo,
       });
 
+      // Consumir ponto APÓS envio bem-sucedido (ELOS-BUG-013)
+      try { await otpLimiter.consume(to); } catch { /* já contabilizado */ }
+
       logger.info('Magic link email enviado', {
         service: 'emailService', function: 'sendMagicLink', to, messageId: info.messageId,
       });
 
       return { success: true, messageId: info.messageId };
     } catch (error) {
+      // Falha de infra — ponto NÃO consumido (ELOS-BUG-013)
       logger.error('Falha ao enviar magic link email', {
         service: 'emailService', function: 'sendMagicLink', to, error: error.message,
       });
