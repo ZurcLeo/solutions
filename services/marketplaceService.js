@@ -61,6 +61,78 @@ function logError(fn, err, extra = {}) {
 }
 
 // ──────────────────────────────────────────────────────
+// [007] Status Flows — transições legais por vertical
+// ──────────────────────────────────────────────────────
+
+/**
+ * Cada flow define a sequência de status que o SELLER pode avançar.
+ * Transições automáticas (pending→paid via webhook) e laterais (→cancelled, →disputed) são tratadas à parte.
+ * O timestamp_col indica qual coluna setar quando a transição acontece.
+ */
+const STATUS_FLOWS = {
+  food: {
+    label: 'Alimentação',
+    seller_transitions: {
+      paid:        { next: 'in_progress', label: 'Iniciar preparo',    timestamp_col: 'preparing_at' },
+      in_progress: { next: 'completed',   label: 'Marcar como pronto', timestamp_col: 'completed_at' },
+    },
+    display_sequence: ['pending', 'paid', 'in_progress', 'completed'],
+  },
+  product_shipping: {
+    label: 'Produto com envio',
+    seller_transitions: {
+      paid:       { next: 'separating', label: 'Iniciar separação',     timestamp_col: 'separating_at' },
+      separating: { next: 'posted',     label: 'Marcar como postado',   timestamp_col: 'posted_at' },
+      // posted → in_transit e in_transit → delivered são via webhook de rastreio (Melhor Envio/Correios)
+      delivered:  { next: 'completed',  label: 'Concluir pedido',       timestamp_col: 'completed_at' },
+    },
+    // Transições automáticas (webhook de rastreio → não precisam de ação do seller)
+    auto_transitions: {
+      posted:    { next: 'in_transit', timestamp_col: 'in_transit_at' },
+      in_transit:{ next: 'delivered',  timestamp_col: 'delivered_at' },
+    },
+    display_sequence: ['pending', 'paid', 'separating', 'posted', 'in_transit', 'delivered', 'completed'],
+  },
+  product_pickup: {
+    label: 'Produto com retirada',
+    seller_transitions: {
+      paid:       { next: 'separating', label: 'Iniciar separação',    timestamp_col: 'separating_at' },
+      separating: { next: 'completed',  label: 'Pronto para retirada', timestamp_col: 'completed_at' },
+    },
+    display_sequence: ['pending', 'paid', 'separating', 'completed'],
+  },
+  service: {
+    label: 'Serviço',
+    seller_transitions: {
+      paid:        { next: 'in_progress', label: 'Iniciar serviço',     timestamp_col: 'preparing_at' },
+      in_progress: { next: 'completed',   label: 'Serviço concluído',   timestamp_col: 'completed_at' },
+    },
+    display_sequence: ['pending', 'paid', 'in_progress', 'completed'],
+  },
+  // Fallback para pedidos antigos sem flow definido
+  default: {
+    label: 'Padrão',
+    seller_transitions: {
+      paid:        { next: 'in_progress', label: 'Iniciar preparo',    timestamp_col: 'preparing_at' },
+      in_progress: { next: 'completed',   label: 'Concluir',           timestamp_col: 'completed_at' },
+    },
+    display_sequence: ['pending', 'paid', 'in_progress', 'completed'],
+  },
+};
+
+/**
+ * Determina o status_flow baseado na categoria do seller + fulfillment_type.
+ */
+function resolveStatusFlow(sellerCategory, fulfillmentType) {
+  if (sellerCategory === 'alimentacao') return 'food';
+  if (sellerCategory === 'servicos')    return 'service';
+  if (sellerCategory === 'produtos') {
+    return fulfillmentType === 'shipping' ? 'product_shipping' : 'product_pickup';
+  }
+  return 'default';
+}
+
+// ──────────────────────────────────────────────────────
 // Unified Ledger — fire-and-forget integration (W3)
 // ──────────────────────────────────────────────────────
 
@@ -2077,9 +2149,11 @@ async function handlePixPaymentConfirmed(orderId) {
     return;
   }
 
+  // [007] Setar paid_at junto com status
+  const now = new Date().toISOString();
   const { error: updateErr } = await sb()
     .from('marketplace_orders')
-    .update({ status: 'paid', updated_at: new Date().toISOString() })
+    .update({ status: 'paid', paid_at: now, updated_at: now })
     .eq('id', orderId)
     .eq('status', 'pending');
 
@@ -2421,6 +2495,9 @@ async function createOrder(buyerId, data) {
   };
 
   // 4. Insere pedido com status 'pending'
+  // [007] Resolve o flow com base na vertical do seller + tipo de entrega
+  const statusFlow = resolveStatusFlow(seller.category, fulfillment_type);
+
   const { data: order, error: orderErr } = await sb()
     .from('marketplace_orders')
     .insert({
@@ -2438,6 +2515,7 @@ async function createOrder(buyerId, data) {
       commission_rate,
       payment_method: payment_method || (total_brl === 0 ? 'eloscoins' : null),
       status: 'pending',
+      status_flow: statusFlow,
       fulfillment_type,
       delivery_address,
       delivery_lat:  (delivery_lat != null && delivery_lng != null) ? Number(delivery_lat) : null,
@@ -2715,14 +2793,10 @@ async function getOrder(userId, orderId) {
 
 /**
  * Atualiza o status do pedido.
- * Transições permitidas por papel:
- *   seller: paid → in_progress, in_progress → completed
- *   buyer:  paid → disputed (via createDispute)
+ * [007] Transições validadas contra STATUS_FLOWS[order.status_flow].
  * Transições de pagamento (pending → paid) são feitas pelo payment-agent via webhook.
  */
 async function updateOrderStatus(userId, orderId, newStatus, sellerCtx = null) {
-  const SELLER_TRANSITIONS = { paid: 'in_progress', in_progress: 'completed' };
-
   const { data: order, error } = await sb()
     .from('marketplace_orders')
     .select('*, seller_profiles!inner(user_id, commission_rate, billing_mode)')
@@ -2750,14 +2824,32 @@ async function updateOrderStatus(userId, orderId, newStatus, sellerCtx = null) {
     }
   }
 
-  // Valida transição
-  if (isSeller && SELLER_TRANSITIONS[order.status] !== newStatus) {
-    throw new Error(`Transição inválida: ${order.status} → ${newStatus}`);
+  // [007] Validar transição contra o flow do pedido
+  const flowKey = order.status_flow || 'default';
+  const flow = STATUS_FLOWS[flowKey] || STATUS_FLOWS.default;
+
+  if (isSeller) {
+    const transition = flow.seller_transitions[order.status];
+    if (!transition || transition.next !== newStatus) {
+      throw new Error(`Transição inválida no flow "${flowKey}": ${order.status} → ${newStatus}`);
+    }
+  }
+
+  // [007] Montar update com timestamp da transição
+  const now = new Date().toISOString();
+  const updatePayload = { status: newStatus, updated_at: now };
+
+  // Setar timestamp da transição
+  if (isSeller) {
+    const transition = flow.seller_transitions[order.status];
+    if (transition?.timestamp_col) {
+      updatePayload[transition.timestamp_col] = now;
+    }
   }
 
   const { data: updated, error: updateErr } = await sb()
     .from('marketplace_orders')
-    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', orderId)
     .select()
     .single();
@@ -4670,4 +4762,7 @@ module.exports = {
   // Clientes por Pedido
   listOrderClients,
   listOrdersByBuyer,
+  // [007] Status flows
+  STATUS_FLOWS,
+  resolveStatusFlow,
 };

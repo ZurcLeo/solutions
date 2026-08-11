@@ -5,6 +5,7 @@ const { getSupabaseClient: sb } = require('../config/supabase');
 const { logger } = require('../logger');
 const asaasService = require('./asaasService');
 const subscriptionService = require('./subscriptionService');
+const { resolveStatusFlow } = require('./marketplaceService');
 const { geocodeAddress } = require('../utils/geocoding');
 
 const LOG_TAG = 'GuestCheckoutService';
@@ -362,7 +363,7 @@ async function createGuestOrder(sellerIdOrHandle, {
   // 1. Valida seller
   const { data: seller, error: sellerErr } = await supabase
     .from('seller_profiles')
-    .select('id, user_id, status, accepts_guest_orders, plan_slug, max_coins_per_order, coins_discount_rate, guarantee_fund_mode')
+    .select('id, user_id, status, category, accepts_guest_orders, plan_slug, max_coins_per_order, coins_discount_rate, guarantee_fund_mode')
     .eq('id', sellerId)
     .single();
 
@@ -462,6 +463,10 @@ async function createGuestOrder(sellerIdOrHandle, {
   };
 
   // 5. Insert order
+  // [007] Resolve status flow
+  const resolvedFulfillment = fulfillment_type || 'pickup';
+  const statusFlow = resolveStatusFlow(seller.category, resolvedFulfillment);
+
   const { data: order, error: orderErr } = await supabase
     .from('marketplace_orders')
     .insert({
@@ -479,7 +484,8 @@ async function createGuestOrder(sellerIdOrHandle, {
       commission_brl,
       payment_method: null,
       status: 'pending',
-      fulfillment_type: fulfillment_type || 'pickup',
+      status_flow: statusFlow,
+      fulfillment_type: resolvedFulfillment,
       ...(fulfillment_type === 'local_delivery' && delivery_address && { delivery_address }),
       ...(fulfillment_type === 'local_delivery' && delivery_lat && { delivery_lat }),
       ...(fulfillment_type === 'local_delivery' && delivery_lng && { delivery_lng }),
