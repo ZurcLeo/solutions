@@ -6,6 +6,7 @@ const { logger } = require('../logger');
 const asaasService = require('./asaasService');
 const subscriptionService = require('./subscriptionService');
 const { resolveStatusFlow } = require('./marketplaceService');
+const variantService = require('./variantService');
 const { geocodeAddress } = require('../utils/geocoding');
 
 const LOG_TAG = 'GuestCheckoutService';
@@ -106,7 +107,7 @@ async function listPublicProducts(sellerIdOrHandle, { page = 1, limit = 50, q, c
 
   let query = supabase
     .from('marketplace_products')
-    .select('id, name, description, price_brl, images, category, product_type, listing_type, duration_minutes, fulfillment_types, active, seller_id, created_at, menu_category_id', { count: 'exact' })
+    .select('id, name, description, price_brl, images, category, product_type, listing_type, duration_minutes, fulfillment_types, active, seller_id, created_at, menu_category_id, variant_attributes', { count: 'exact' })
     .eq('seller_id', sellerId)
     .eq('active', true);
 
@@ -149,7 +150,45 @@ async function listPublicProducts(sellerIdOrHandle, { page = 1, limit = 50, q, c
   const { data, error, count } = await query.range(offset, offset + limit - 1);
 
   if (error) throw new Error(`Erro ao buscar produtos: ${error.message}`);
-  return { products: data || [], total: count || 0, page, limit };
+
+  // Enriquecer com dados de variantes (ELOS-BE-014)
+  const products = data || [];
+  const productsWithVariants = products.filter(p =>
+    p.variant_attributes && Array.isArray(p.variant_attributes) && p.variant_attributes.length > 0
+  );
+
+  if (productsWithVariants.length > 0) {
+    const productIdsWithVariants = productsWithVariants.map(p => p.id);
+    const { data: allVariants } = await supabase
+      .from('product_variants')
+      .select('product_id, price_override, is_available, stock')
+      .in('product_id', productIdsWithVariants)
+      .eq('is_available', true)
+      .gt('stock', 0);
+
+    // Agrupar variantes por product_id
+    const variantsByProduct = {};
+    for (const v of allVariants || []) {
+      if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
+      variantsByProduct[v.product_id].push(v);
+    }
+
+    for (const p of products) {
+      const pVariants = variantsByProduct[p.id];
+      if (pVariants && pVariants.length > 0) {
+        const prices = pVariants.map(v =>
+          v.price_override != null ? Number(v.price_override) : Number(p.price_brl)
+        );
+        p.has_variants = true;
+        p.variant_price_range = { min: Math.min(...prices), max: Math.max(...prices) };
+      } else {
+        p.has_variants = !!p.variant_attributes?.length;
+        p.variant_price_range = null;
+      }
+    }
+  }
+
+  return { products, total: count || 0, page, limit };
 }
 
 /**
@@ -194,7 +233,21 @@ async function getPublicProduct(sellerIdOrHandle, productId) {
     .eq('active', true)
     .order('sort_order', { ascending: true });
 
-  return { ...product, modifiers: modifiers || [] };
+  // Buscar variantes disponíveis (ELOS-BE-014)
+  let variants = [];
+  const hasVariants = product.variant_attributes && Array.isArray(product.variant_attributes) && product.variant_attributes.length > 0;
+  if (hasVariants) {
+    const { data: variantData } = await supabase
+      .from('product_variants')
+      .select('id, attributes, sku, stock, price_override, image_url, is_available')
+      .eq('product_id', productId)
+      .eq('is_available', true)
+      .gt('stock', 0)
+      .order('sort_order', { ascending: true });
+    variants = variantData || [];
+  }
+
+  return { ...product, modifiers: modifiers || [], variants };
 }
 
 // ── Geocoding helpers (fallback chain) ───────────────────────────────────────
@@ -381,7 +434,7 @@ async function createGuestOrder(sellerIdOrHandle, {
   const productIds = items.map(i => i.product_id);
   const { data: products, error: prodErr } = await supabase
     .from('marketplace_products')
-    .select('id, name, price_brl, active, seller_id')
+    .select('id, name, price_brl, active, seller_id, variant_attributes')
     .in('id', productIds);
 
   if (prodErr) throw new Error(`Erro ao buscar produtos: ${prodErr.message}`);
@@ -393,11 +446,45 @@ async function createGuestOrder(sellerIdOrHandle, {
     productMap[p.id] = p;
   }
 
+  // Buscar variantes referenciadas (ELOS-BE-014)
+  const variantIds = items.map(i => i.variant_id).filter(Boolean);
+  const variantMap = {};
+  if (variantIds.length > 0) {
+    const { data: variants, error: vErr } = await supabase
+      .from('product_variants')
+      .select('id, product_id, attributes, price_override, is_available, stock')
+      .in('id', variantIds);
+    if (vErr) throw new Error(`Erro ao buscar variantes: ${vErr.message}`);
+    for (const v of variants || []) { variantMap[v.id] = v; }
+  }
+
   const orderItems = items.map(i => {
     const p = productMap[i.product_id];
     if (!p) throw new Error(`Produto ${i.product_id} não encontrado`);
     const qty = Math.max(1, parseInt(i.qty) || 1);
-    return { product_id: p.id, name: p.name, qty, unit_price_brl: Number(p.price_brl) };
+
+    // Validação de variante (ELOS-BE-014)
+    const hasVariants = p.variant_attributes && Array.isArray(p.variant_attributes) && p.variant_attributes.length > 0;
+    if (hasVariants && !i.variant_id) {
+      throw new Error(`Produto "${p.name}" possui variantes — variant_id é obrigatório`);
+    }
+    if (!hasVariants && i.variant_id) {
+      throw new Error(`Produto "${p.name}" não possui variantes — variant_id deve ser omitido`);
+    }
+
+    const item = { product_id: p.id, name: p.name, qty, unit_price_brl: Number(p.price_brl) };
+
+    if (i.variant_id) {
+      const v = variantMap[i.variant_id];
+      if (!v) throw new Error(`Variante ${i.variant_id} não encontrada`);
+      if (v.product_id !== p.id) throw new Error(`Variante ${i.variant_id} não pertence ao produto "${p.name}"`);
+      if (!v.is_available) throw new Error(`Variante ${i.variant_id} não está disponível`);
+      item.unit_price_brl = v.price_override != null ? Number(v.price_override) : Number(p.price_brl);
+      item.variant_id = v.id;
+      item.variant_attributes = v.attributes;
+    }
+
+    return item;
   });
 
   const subtotal_brl = +orderItems.reduce((sum, i) => sum + i.unit_price_brl * i.qty, 0).toFixed(2);
@@ -498,6 +585,28 @@ async function createGuestOrder(sellerIdOrHandle, {
   if (orderErr) {
     logger.error(`[${fn}] Erro ao criar pedido guest`, { error: orderErr.message });
     throw new Error('Erro ao criar pedido');
+  }
+
+  // 5b. Decrementar estoque de variantes atomicamente (ELOS-BE-014)
+  const variantStockItems = orderItems
+    .filter(i => i.variant_id)
+    .map(i => ({ variant_id: i.variant_id, qty: i.qty }));
+
+  if (variantStockItems.length > 0) {
+    try {
+      await variantService.decrementStock(variantStockItems);
+    } catch (stockErr) {
+      // Compensação: cancela pedido recém-criado
+      await supabase
+        .from('marketplace_orders')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('id', order.id);
+
+      logger.error(`[${fn}] Variant stock decrement failed`, { orderId: order.id, error: stockErr.message });
+      const err = new Error(`Estoque insuficiente: ${stockErr.message}`);
+      err.code = 'STOCK_INSUFFICIENT';
+      throw err;
+    }
   }
 
   // 6. Gerar token HMAC e salvar

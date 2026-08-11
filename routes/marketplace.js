@@ -128,6 +128,25 @@ router.delete('/products/:id', verifyToken, writeLimit, ctrl.deactivateProduct);
 router.patch('/products/:productId/toggle-active', verifyToken, writeLimit, ctrl.toggleProductActive);
 
 // ──────────────────────────────────────────────────────
+// Product Variants (ELOS-BE-014)
+// GET    /api/marketplace/products/:productId/variants              — listar variantes
+// POST   /api/marketplace/products/:productId/variants              — criar variante
+// POST   /api/marketplace/products/:productId/variants/matrix       — gerar matriz em lote
+// PUT    /api/marketplace/products/:productId/variants/:variantId   — atualizar
+// DELETE /api/marketplace/products/:productId/variants/:variantId   — remover
+// PATCH  /api/marketplace/products/:productId/variants/:variantId/toggle — toggle disponibilidade
+// PUT    /api/marketplace/products/:productId/variants/bulk         — atualização em lote
+// ──────────────────────────────────────────────────────
+
+router.get('/products/:productId/variants',                        verifyToken, readLimit,  ctrl.listVariants);
+router.post('/products/:productId/variants',                       verifyToken, writeLimit, ctrl.createVariant);
+router.post('/products/:productId/variants/matrix',                verifyToken, writeLimit, ctrl.generateVariantMatrix);
+router.put('/products/:productId/variants/bulk',                   verifyToken, writeLimit, ctrl.bulkUpdateVariants);
+router.put('/products/:productId/variants/:variantId',             verifyToken, writeLimit, ctrl.updateVariant);
+router.delete('/products/:productId/variants/:variantId',          verifyToken, writeLimit, ctrl.deleteVariant);
+router.patch('/products/:productId/variants/:variantId/toggle',    verifyToken, writeLimit, ctrl.toggleVariantAvailability);
+
+// ──────────────────────────────────────────────────────
 // Pedidos
 // POST   /api/marketplace/orders                   — criar pedido
 // GET    /api/marketplace/orders                   — listar pedidos (?role=buyer|seller)

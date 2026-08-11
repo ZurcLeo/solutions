@@ -8,6 +8,7 @@
 
 const Joi                  = require('joi');
 const marketplaceService   = require('../services/marketplaceService');
+const variantService       = require('../services/variantService');
 const googlePlacesService  = require('../services/googlePlacesService');
 const { logger }           = require('../logger');
 const { getSupabaseClient } = require('../config/supabase');
@@ -402,6 +403,14 @@ exports.createOrder = async (req, res) => {
         code: 'SHIPPING_FEE_MISMATCH',
         message: err.message,
         serverFee: err.serverFee,
+      });
+    }
+
+    if (err.code === 'STOCK_INSUFFICIENT') {
+      return res.status(409).json({
+        success: false,
+        code: 'STOCK_INSUFFICIENT',
+        message: err.message,
       });
     }
 
@@ -1256,5 +1265,129 @@ exports.getShippingTracking = async (req, res) => {
   } catch (err) {
     logger.error(`[${CTRL}] getShippingTracking: ${err.message}`, { userId: req.user?.uid, orderId: req.params.orderId });
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ──────────────────────────────────────────────────────
+// Product Variants (ELOS-BE-014)
+// ──────────────────────────────────────────────────────
+
+const variantSchemas = {
+  create: Joi.object({
+    attributes:     Joi.object().required(),
+    sku:            Joi.string().max(100).allow(null, '').optional(),
+    gtin:           Joi.string().max(50).allow(null, '').optional(),
+    stock:          Joi.number().integer().min(0).default(0),
+    price_override: Joi.number().min(0).allow(null).optional(),
+    image_url:      Joi.string().uri().allow(null, '').optional(),
+    is_available:   Joi.boolean().default(true),
+    sort_order:     Joi.number().integer().min(0).default(0),
+  }),
+  update: Joi.object({
+    attributes:     Joi.object().optional(),
+    sku:            Joi.string().max(100).allow(null, '').optional(),
+    gtin:           Joi.string().max(50).allow(null, '').optional(),
+    stock:          Joi.number().integer().min(0).optional(),
+    price_override: Joi.number().min(0).allow(null).optional(),
+    image_url:      Joi.string().uri().allow(null, '').optional(),
+    is_available:   Joi.boolean().optional(),
+    sort_order:     Joi.number().integer().min(0).optional(),
+  }).min(1),
+  matrix: Joi.object().pattern(Joi.string(), Joi.array().items(Joi.string().min(1)).min(1)).min(1),
+  bulkUpdate: Joi.array().items(Joi.object({
+    id:             Joi.string().required(),
+    stock:          Joi.number().integer().min(0).optional(),
+    price_override: Joi.number().min(0).allow(null).optional(),
+    sku:            Joi.string().max(100).allow(null, '').optional(),
+    gtin:           Joi.string().max(50).allow(null, '').optional(),
+    is_available:   Joi.boolean().optional(),
+    image_url:      Joi.string().uri().allow(null, '').optional(),
+  }).min(2)).min(1), // min(2) = id + at least one field
+};
+
+exports.listVariants = async (req, res) => {
+  try {
+    const variants = await variantService.listVariants(req.params.productId);
+    res.json({ success: true, data: variants });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.createVariant = async (req, res) => {
+  try {
+    const { error, value } = variantSchemas.create.validate(req.body, { abortEarly: false });
+    if (error) return res.status(400).json({ success: false, message: 'Dados inválidos', details: error.details.map(d => d.message) });
+
+    const sellerId = req.headers['x-seller-context'] || null;
+    const seller = await marketplaceService.getMySellerProfile(req.user.uid, sellerId);
+    const variant = await variantService.createVariant(req.params.productId, value, seller.id);
+    res.status(201).json({ success: true, data: variant });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.generateVariantMatrix = async (req, res) => {
+  try {
+    const { error, value } = variantSchemas.matrix.validate(req.body, { abortEarly: false });
+    if (error) return res.status(400).json({ success: false, message: 'Dados inválidos', details: error.details.map(d => d.message) });
+
+    const sellerId = req.headers['x-seller-context'] || null;
+    const seller = await marketplaceService.getMySellerProfile(req.user.uid, sellerId);
+    const result = await variantService.generateMatrix(req.params.productId, value, seller.id);
+    res.status(201).json({ success: true, data: result });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.updateVariant = async (req, res) => {
+  try {
+    const { error, value } = variantSchemas.update.validate(req.body, { abortEarly: false });
+    if (error) return res.status(400).json({ success: false, message: 'Dados inválidos', details: error.details.map(d => d.message) });
+
+    const sellerId = req.headers['x-seller-context'] || null;
+    const seller = await marketplaceService.getMySellerProfile(req.user.uid, sellerId);
+    const variant = await variantService.updateVariant(req.params.variantId, value, seller.id);
+    res.json({ success: true, data: variant });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.deleteVariant = async (req, res) => {
+  try {
+    const sellerId = req.headers['x-seller-context'] || null;
+    const seller = await marketplaceService.getMySellerProfile(req.user.uid, sellerId);
+    await variantService.deleteVariant(req.params.variantId, seller.id);
+    res.json({ success: true, message: 'Variante removida' });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.toggleVariantAvailability = async (req, res) => {
+  try {
+    const sellerId = req.headers['x-seller-context'] || null;
+    const seller = await marketplaceService.getMySellerProfile(req.user.uid, sellerId);
+    const variant = await variantService.toggleAvailability(req.params.variantId, seller.id);
+    res.json({ success: true, data: variant });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.bulkUpdateVariants = async (req, res) => {
+  try {
+    const { error, value } = variantSchemas.bulkUpdate.validate(req.body, { abortEarly: false });
+    if (error) return res.status(400).json({ success: false, message: 'Dados inválidos', details: error.details.map(d => d.message) });
+
+    const sellerId = req.headers['x-seller-context'] || null;
+    const seller = await marketplaceService.getMySellerProfile(req.user.uid, sellerId);
+    const result = await variantService.bulkUpdate(req.params.productId, value, seller.id);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };

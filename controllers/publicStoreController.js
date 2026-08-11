@@ -11,6 +11,7 @@ const LOG_TAG = 'PublicStoreController';
 const itemSchema = Joi.object({
   product_id: Joi.string().required(),
   qty: Joi.number().integer().min(1).required(),
+  variant_id: Joi.string().optional(), // ELOS-BE-014: variante do produto
 });
 
 const guestSchema = Joi.object({
@@ -137,7 +138,8 @@ exports.createGuestOrder = async (req, res) => {
     res.status(201).json({ success: true, data: result });
   } catch (err) {
     logger.warn(`[${LOG_TAG}] createGuestOrder error`, { error: err.message, sellerId: req.params.sellerId });
-    res.status(400).json({ success: false, message: err.message });
+    const status = err.code === 'STOCK_INSUFFICIENT' ? 409 : 400;
+    res.status(status).json({ success: false, message: err.message, code: err.code || undefined });
   }
 };
 

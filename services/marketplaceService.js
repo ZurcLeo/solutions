@@ -23,6 +23,7 @@ const { getOptedOutUserIds } = require('./userPreferencesService');
 const handleService           = require('./handleService');
 const { geocodeAddress }      = require('../utils/geocoding');
 const gtinService             = require('./gtinService');
+const variantService          = require('./variantService');
 
 const SERVICE = 'marketplaceService';
 
@@ -341,6 +342,36 @@ async function _reverseLedgerForOrder(orderId, reason) {
       error: ledgerErr.message,
     });
   }
+}
+
+/**
+ * Restaura estoque de variantes de um pedido cancelado/expirado (ELOS-BE-014).
+ * Fire-and-forget — errors are logged but never block the caller.
+ *
+ * Extrai variant_id + qty de cada item do pedido e chama restore_variant_stock RPC.
+ * Produtos SEM variantes: comportamento atual inalterado (sem decremento automático).
+ */
+function _restoreVariantStockForOrder(order) {
+  const variantItems = (order.items || [])
+    .filter(i => i.variant_id)
+    .map(i => ({ variant_id: i.variant_id, qty: i.qty }));
+
+  if (variantItems.length === 0) return;
+
+  setImmediate(async () => {
+    try {
+      await variantService.restoreStock(variantItems);
+      logger.info(`[${SERVICE}] Variant stock restored for order ${order.id}`, {
+        service: SERVICE, action: 'VARIANT_STOCK_RESTORED',
+        orderId: order.id, items: variantItems.length,
+      });
+    } catch (err) {
+      logger.error(`[${SERVICE}] Variant stock restore FAILED for order ${order.id}`, {
+        service: SERVICE, action: 'VARIANT_STOCK_RESTORE_FAILED',
+        severity: 'HIGH', orderId: order.id, error: err.message,
+      });
+    }
+  });
 }
 
 // ──────────────────────────────────────────────────────
@@ -1011,7 +1042,18 @@ async function createProduct(userId, data, sellerId = null) {
     duration_minutes, cancellation_policy, service_mode,
     min_capacity, booking_deadline_hours,
     gtin,
+    variant_attributes,
   } = validated;
+
+  // Validar variant_attributes se fornecido (ELOS-BE-014)
+  if (variant_attributes != null) {
+    if (!Array.isArray(variant_attributes) || variant_attributes.length === 0) {
+      throw new Error('variant_attributes deve ser um array não-vazio de strings (eixos de variação).');
+    }
+    if (!variant_attributes.every(a => typeof a === 'string' && a.trim().length > 0)) {
+      throw new Error('Cada eixo de variant_attributes deve ser uma string não-vazia.');
+    }
+  }
 
   // Validar que menu_category_id pertence ao seller (se fornecido)
   if (menu_category_id) {
@@ -1070,6 +1112,8 @@ async function createProduct(userId, data, sellerId = null) {
       ...(product_type === 'property' ? { property_status: property_status || 'disponivel' } : {}),
       // GTIN (código de barras — ELOS-BE-004)
       gtin:              gtin              ?? null,
+      // Variantes (ELOS-BE-014) — eixos de variação
+      variant_attributes: variant_attributes ?? null,
       active: true,
     })
     .select()
@@ -1422,6 +1466,19 @@ async function updateProduct(userId, productId, updates, sellerId = null) {
     validateFulfillmentTypes(updates.fulfillment_types);
   }
 
+  // Valida variant_attributes se fornecido (ELOS-BE-014)
+  if (updates.variant_attributes !== undefined) {
+    if (updates.variant_attributes != null) {
+      if (!Array.isArray(updates.variant_attributes) || updates.variant_attributes.length === 0) {
+        throw new Error('variant_attributes deve ser um array não-vazio de strings (eixos de variação).');
+      }
+      if (!updates.variant_attributes.every(a => typeof a === 'string' && a.trim().length > 0)) {
+        throw new Error('Cada eixo de variant_attributes deve ser uma string não-vazia.');
+      }
+    }
+    // NULL é permitido (remove eixos — mas cuidado: variantes existentes ficarão órfãs do trigger)
+  }
+
   // Valida menu_category_id pertence ao seller (se fornecido)
   if (updates.menu_category_id) {
     const { data: catRow, error: catErr } = await sb()
@@ -1567,7 +1624,7 @@ async function _calculateOrderTotals(sellerProfile, itemsInput, coinsUsed = 0, d
 
   const { data: products, error } = await sb()
     .from('marketplace_products')
-    .select('id, name, price_brl, max_coins_discount, active, seller_id')
+    .select('id, name, price_brl, max_coins_discount, active, seller_id, variant_attributes')
     .in('id', productIds);
 
   if (error) throw new Error(`Erro ao buscar produtos: ${error.message}`);
@@ -1580,12 +1637,49 @@ async function _calculateOrderTotals(sellerProfile, itemsInput, coinsUsed = 0, d
     productMap[p.id] = p;
   }
 
+  // Buscar variantes referenciadas nos itens (se houver)
+  const variantIds = itemsInput.map(i => i.variant_id).filter(Boolean);
+  const variantMap = {};
+  if (variantIds.length > 0) {
+    const { data: variants, error: vErr } = await sb()
+      .from('product_variants')
+      .select('id, product_id, attributes, price_override, is_available, stock')
+      .in('id', variantIds);
+    if (vErr) throw new Error(`Erro ao buscar variantes: ${vErr.message}`);
+    for (const v of variants || []) { variantMap[v.id] = v; }
+  }
+
   // Monta snapshot dos itens com preços do banco
   const items = itemsInput.map(i => {
     const p = productMap[i.product_id];
     if (!p) throw new Error(`Produto ${i.product_id} não encontrado`);
     const qty = Math.max(1, parseInt(i.qty) || 1);
-    return { product_id: p.id, name: p.name, qty, unit_price_brl: Number(p.price_brl) };
+
+    // Validação de variante
+    const hasVariants = p.variant_attributes && Array.isArray(p.variant_attributes) && p.variant_attributes.length > 0;
+    if (hasVariants && !i.variant_id) {
+      throw new Error(`Produto "${p.name}" possui variantes — variant_id é obrigatório`);
+    }
+    if (!hasVariants && i.variant_id) {
+      throw new Error(`Produto "${p.name}" não possui variantes — variant_id deve ser omitido`);
+    }
+
+    const item = { product_id: p.id, name: p.name, qty, unit_price_brl: Number(p.price_brl) };
+
+    if (i.variant_id) {
+      const v = variantMap[i.variant_id];
+      if (!v) throw new Error(`Variante ${i.variant_id} não encontrada`);
+      if (v.product_id !== p.id) throw new Error(`Variante ${i.variant_id} não pertence ao produto "${p.name}"`);
+      if (!v.is_available) throw new Error(`Variante ${i.variant_id} não está disponível`);
+
+      // Preço: price_override da variante ou price_brl do produto
+      item.unit_price_brl = v.price_override != null ? Number(v.price_override) : Number(p.price_brl);
+      // Snapshot da variante no item do pedido
+      item.variant_id = v.id;
+      item.variant_attributes = v.attributes;
+    }
+
+    return item;
   });
 
   const subtotal_brl = items.reduce((sum, i) => sum + i.unit_price_brl * i.qty, 0);
@@ -2550,6 +2644,29 @@ async function createOrder(buyerId, data) {
     }
   }
 
+  // 4c. Decrementar estoque de variantes atomicamente (ELOS-BE-014)
+  // All-or-nothing: se qualquer variante falhar, cancela o pedido
+  const variantItems = items
+    .filter(i => i.variant_id)
+    .map(i => ({ variant_id: i.variant_id, qty: i.qty }));
+
+  if (variantItems.length > 0) {
+    try {
+      await variantService.decrementStock(variantItems);
+    } catch (stockErr) {
+      // Compensação: cancela pedido recém-criado
+      await sb()
+        .from('marketplace_orders')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('id', order.id);
+
+      logError('createOrder', stockErr, { orderId: order.id, context: 'variant_stock_decrement' });
+      const err = new Error(`Estoque insuficiente: ${stockErr.message}`);
+      err.code = 'STOCK_INSUFFICIENT';
+      throw err;
+    }
+  }
+
   // 5. Debita ElosCoins atomicamente (se necessário)
   if (effectiveCoins > 0) {
     try {
@@ -2574,6 +2691,13 @@ async function createOrder(buyerId, data) {
         .from('marketplace_orders')
         .update({ status: 'cancelled', updated_at: new Date().toISOString() })
         .eq('id', order.id);
+
+      // Restaurar estoque de variantes se já foi decrementado (ELOS-BE-014)
+      if (variantItems.length > 0) {
+        try { await variantService.restoreStock(variantItems); } catch (restoreErr) {
+          logError('createOrder', restoreErr, { orderId: order.id, context: 'variant_stock_restore_after_coins_fail' });
+        }
+      }
 
       logError('createOrder', coinsErr, { orderId: order.id, buyerId });
       throw new Error(`Saldo de ElosCoins insuficiente ou erro no débito: ${coinsErr.message}`);
@@ -3126,6 +3250,9 @@ async function cancelOrderBySeller(orderId, sellerId, userId, reason) {
 
   // ── 8b. Unified Ledger (W3): reverse entries on cancellation ─
   setImmediate(() => _reverseLedgerForOrder(orderId, `Cancelamento pelo vendedor: ${reason}`));
+
+  // ── 8c. Restaurar estoque de variantes (ELOS-BE-014) ─
+  _restoreVariantStockForOrder(order);
 
   // ── 9. Fire-and-forget: notify buyer ─────────────────
   setImmediate(() => {
