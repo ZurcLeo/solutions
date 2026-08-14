@@ -48,12 +48,20 @@ function _allQuestions(formDef) {
 /**
  * Valida answers contra form_definition.
  * Retorna { valid: true } ou { valid: false, errors: [...] }.
+ *
+ * Supports submit_when: if a question has submit_when.equals and the answer
+ * matches, all subsequent questions (same step + later steps) are skipped.
  */
 function _validateAnswers(formDef, answers) {
-  const questions = _allQuestions(formDef);
+  const steps = formDef?.steps || [];
   const errors = [];
+  let earlySubmit = false;
 
-  for (const q of questions) {
+  for (const step of steps) {
+    if (earlySubmit) break;
+    for (const q of (step.questions || [])) {
+      if (earlySubmit) break;
+
     // Check show_when — skip validation if condition not met
     if (q.show_when) {
       const depValue = answers[q.show_when.question_id];
@@ -131,7 +139,16 @@ function _validateAnswers(formDef, answers) {
       }
       // text: no extra validation
     }
-  }
+
+    // Check submit_when — if this question triggers early submit, stop validating
+    if (q.submit_when && val !== undefined && val !== null && val !== '') {
+      const match = q.type === 'checkbox'
+        ? Array.isArray(val) && val.includes(q.submit_when.equals)
+        : String(val) === q.submit_when.equals;
+      if (match) earlySubmit = true;
+    }
+    } // end inner for (questions)
+  } // end outer for (steps)
 
   return errors.length === 0 ? { valid: true } : { valid: false, errors };
 }

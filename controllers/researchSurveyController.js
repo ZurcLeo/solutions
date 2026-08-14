@@ -30,6 +30,9 @@ const questionSchema = Joi.object({
     question_id: Joi.string().required(),
     equals: Joi.string().required(),
   }).allow(null),
+  submit_when: Joi.object({
+    equals: Joi.string().required(),
+  }).allow(null),
 });
 
 const stepSchema = Joi.object({
