@@ -296,10 +296,57 @@ async function acceptInvite(sellerId, userId) {
 }
 
 /**
- * Remove membro da equipe. Owner pode remover qualquer um. Manager pode remover employee.
+ * Retorna as atribuições de service_availability de um membro da equipe,
+ * com nome do serviço. Usado pelo frontend para avisar antes da remoção.
  */
-async function removeMember(sellerId, callerUserId, targetUserId) {
-  log('removeMember', 'Removendo membro', { sellerId, callerUserId, targetUserId });
+async function getMemberAssignments(sellerId, targetUserId) {
+  log('getMemberAssignments', 'Consultando atribuições', { sellerId, targetUserId });
+
+  // Encontrar o team member record
+  const { data: member } = await sb()
+    .from('seller_team_members')
+    .select('id')
+    .eq('seller_id', sellerId)
+    .eq('user_id', targetUserId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (!member) return [];
+
+  const { data, error } = await sb()
+    .from('service_availability')
+    .select('id, service_id, day_of_week, start_time, end_time')
+    .eq('assigned_member_id', member.id)
+    .eq('active', true);
+
+  if (error) {
+    logError('getMemberAssignments', error);
+    return [];
+  }
+
+  if (!data || data.length === 0) return [];
+
+  // Enriquecer com nomes dos serviços
+  const serviceIds = [...new Set(data.map(a => a.service_id))];
+  const { data: products } = await sb()
+    .from('marketplace_products')
+    .select('id, name')
+    .in('id', serviceIds);
+
+  const nameMap = (products || []).reduce((m, p) => { m[p.id] = p.name; return m; }, {});
+
+  return data.map(a => ({
+    ...a,
+    service_name: nameMap[a.service_id] || 'Serviço',
+  }));
+}
+
+/**
+ * Remove membro da equipe. Owner pode remover qualquer um. Manager pode remover employee.
+ * Se reassignTo for fornecido, reatribui as atribuições de disponibilidade ao novo membro.
+ */
+async function removeMember(sellerId, callerUserId, targetUserId, reassignTo = null) {
+  log('removeMember', 'Removendo membro', { sellerId, callerUserId, targetUserId, reassignTo });
 
   if (callerUserId === targetUserId) throw new Error('Não é possível remover a si mesmo');
 
@@ -334,17 +381,36 @@ async function removeMember(sellerId, callerUserId, targetUserId) {
 
   if (error) throw new Error(`Erro ao remover membro: ${error.message}`);
 
-  // [SCHED-TEAM] Limpar atribuições de disponibilidade do membro removido.
-  // A FK ON DELETE SET NULL cuida do banco, mas como o status muda para 'removed'
-  // (sem delete real), limpamos explicitamente para evitar dados órfãos.
-  await sb()
-    .from('service_availability')
-    .update({ assigned_member_id: null })
-    .eq('assigned_member_id', member.id)
-    .then(({ error: clearErr }) => {
-      if (clearErr) logError('removeMember', clearErr, { context: 'clear_availability_assignments' });
-      else log('removeMember', 'Atribuições de disponibilidade limpas', { memberId: member.id });
-    });
+  // [SCHED-TEAM] Reatribuir ou limpar atribuições de disponibilidade do membro removido.
+  if (reassignTo) {
+    // Encontrar o team member record do substituto
+    const { data: replacementMember } = await sb()
+      .from('seller_team_members')
+      .select('id')
+      .eq('seller_id', sellerId)
+      .eq('user_id', reassignTo)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    const newMemberId = replacementMember?.id || null;
+    await sb()
+      .from('service_availability')
+      .update({ assigned_member_id: newMemberId })
+      .eq('assigned_member_id', member.id)
+      .then(({ error: reassignErr }) => {
+        if (reassignErr) logError('removeMember', reassignErr, { context: 'reassign_availability' });
+        else log('removeMember', 'Atribuições reatribuídas', { from: member.id, to: newMemberId });
+      });
+  } else {
+    await sb()
+      .from('service_availability')
+      .update({ assigned_member_id: null })
+      .eq('assigned_member_id', member.id)
+      .then(({ error: clearErr }) => {
+        if (clearErr) logError('removeMember', clearErr, { context: 'clear_availability_assignments' });
+        else log('removeMember', 'Atribuições de disponibilidade limpas', { memberId: member.id });
+      });
+  }
 
   // [EQP-024] Notificar membro removido
   const { data: seller } = await sb()
@@ -647,6 +713,7 @@ module.exports = {
   updateMemberRole,
   listTeamMembers,
   getMyPendingInvites,
+  getMemberAssignments,
   checkPermission,
   defaultPermissionsFor,
   ROLE_LEVEL,

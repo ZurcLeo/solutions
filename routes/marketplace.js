@@ -264,6 +264,7 @@ router.post('/upload/seller-cover',  verifyToken, writeLimit, upload.single('ima
 // GET    /api/marketplace/seller/team              — lista membros
 // POST   /api/marketplace/seller/team/invite       — convida membro
 // POST   /api/marketplace/seller/team/accept/:sellerId — aceita convite
+// GET    /api/marketplace/seller/team/:userId/assignments — atribuições do membro
 // DELETE /api/marketplace/seller/team/:userId      — remove membro
 // PATCH  /api/marketplace/seller/team/:userId/role — altera role/permissões
 // ──────────────────────────────────────────────────────
@@ -273,6 +274,7 @@ const { requireSellerTeamAccess } = require('../middlewares/requireSellerTeamAcc
 
 router.get('/seller/team/my-invites',          verifyToken, readLimit,  teamCtrl.getMyPendingInvites);
 router.get('/seller/team',                    verifyToken, requireSellerTeamAccess('employee'), readLimit,  teamCtrl.listTeamMembers);
+router.get('/seller/team/:userId/assignments', verifyToken, requireSellerTeamAccess('manager'),  readLimit,  teamCtrl.getTeamMemberAssignments);
 router.post('/seller/team/invite',            verifyToken, requireSellerTeamAccess('manager'),  writeLimit, teamCtrl.inviteTeamMember);
 router.post('/seller/team/accept/:sellerId',  verifyToken, writeLimit, teamCtrl.acceptInvite);
 router.post('/seller/team/decline/:sellerId', verifyToken, writeLimit, teamCtrl.declineInvite);
