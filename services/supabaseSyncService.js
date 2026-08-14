@@ -1,5 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 const { logger } = require('../logger');
+const userRoleService = require('./userRoleService');
 
 // Inicializar cliente Supabase apenas se as credenciais estiverem presentes
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -50,6 +51,7 @@ class SupabaseSyncService {
       if (error) throw error;
 
       logger.info('Role sincronizada com sucesso no Supabase', { userId, roleName });
+      userRoleService.invalidateUserCache(userId);
       return data;
     } catch (error) {
       logger.error('Erro ao sincronizar role para o Supabase', {
@@ -94,6 +96,7 @@ class SupabaseSyncService {
       if (error) throw error;
 
       logger.info('Membro de caixinha sincronizado com sucesso no Supabase', { userId, caixinhaId });
+      userRoleService.invalidateUserCache(userId);
       return data;
     } catch (error) {
       logger.error('Erro ao sincronizar membro de caixinha para o Supabase', {

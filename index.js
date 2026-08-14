@@ -24,7 +24,6 @@ const setupMiddlewares = require('./config/middlewares/middlewaresConfig');
 const securityHeaders = require('./config/headers/securityHeadersConfig');
 const setupRoutes = require('./config/routes/routesConfig');
 const gracefulShutdown = require('./config/shutdown/gracefulShutdownConfig');
-const {initializeLocalStorage} = require('./config/scripts/initializeLocalData');
 const { startSreWorker, startBookingExpirationWorker, startGroupBookingWorker } = require('./sreWorker');
 const { startReconciliationJob } = require('./config/jobs/reconciliationJob');
 const { startRaffleExpirationJob } = require('./config/jobs/raffleExpirationJob');
@@ -156,7 +155,6 @@ app.use((err, req, res, next) => {
 // Inicialização do servidor
 const PORT = process.env.PORT || 9000;
 Promise.all([
-  initializeLocalStorage(),
   secretsManager.initialize(), // Adicionar inicialização do secretsManager
   encryptionService.initialized, // Aguardar inicialização do serviço de criptografia
   loadBlacklistCache(), // ADM-070: carregar blacklist do Supabase para cache in-memory

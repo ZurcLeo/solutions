@@ -4,7 +4,6 @@ const { logger } = require('../logger');
 const FirestoreService = require('../utils/firestoreService');
 const dbServiceUser = FirestoreService.collection('usuario');
 const { calculateJA3Hash } = require('../services/ja3Service');
-const { initializeFirstAdmin } = require('../config/scripts/initializeLocalData');
 const { getSupabaseClient } = require('../config/supabase');
 
 const firstAccess = async (req, res, next) => {
@@ -84,11 +83,6 @@ const firstAccess = async (req, res, next) => {
         // Usuário existente
         req.isFirstAccess = false;
 
-        // Inicializar primeiro admin se aplicável
-        if (userData && userData.email) {
-          await initializeFirstAdmin(userData.email);
-        }
-
         // Roles legadas do Firestore (transitório)
         if (userData && userData.roles) {
           req.userRoles = userData.roles;
@@ -100,74 +94,6 @@ const firstAccess = async (req, res, next) => {
         req.userRoles = {};
       }
 
-      // Adiciona funções de helpers para verificação rápida
-      req.hasRole = (roleName, contextType = 'global', resourceId = null) => {
-        const { roles } = require('../config/data/initialData');
-        
-        for (const roleId in req.userRoles) {
-          const userRole = req.userRoles[roleId];
-          const roleData = roles[roleId];
-          
-          if (!roleData || roleData.name !== roleName || userRole.validationStatus !== 'validated') {
-            continue;
-          }
-          
-          // Verificações de contexto se não for global
-          if (contextType !== 'global') {
-            if (userRole.context.type !== contextType) {
-              continue;
-            }
-            
-            if (resourceId && userRole.context.resourceId !== resourceId) {
-              continue;
-            }
-          }
-          
-          return true;
-        }
-        
-        return false;
-      };
-
-      req.hasPermission = (permissionName, contextType = 'global', resourceId = null) => {
-        const { roles, permissions, rolePermissions } = require('../config/data/initialData');
-        
-        for (const roleId in req.userRoles) {
-          const userRole = req.userRoles[roleId];
-          
-          if (userRole.validationStatus !== 'validated') {
-            continue;
-          }
-          
-          // Verificações de contexto se não for global
-          if (contextType !== 'global') {
-            if (userRole.context.type !== contextType) {
-              continue;
-            }
-            
-            if (resourceId && userRole.context.resourceId !== resourceId) {
-              continue;
-            }
-          }
-          
-          // Verifica permissões para esta role
-          const rolePerms = Object.values(rolePermissions)
-            .filter(rp => rp.roleId === roleId)
-            .map(rp => rp.permissionId);
-          
-          // Verifica se alguma das permissões corresponde
-          const hasPermission = rolePerms.some(permId => {
-            return permissions[permId]?.name === permissionName;
-          });
-          
-          if (hasPermission) {
-            return true;
-          }
-        }
-        
-        return false;
-      };
-      
       return next();
     } catch (error) {
       logger.error('Erro ao verificar usuário', {
