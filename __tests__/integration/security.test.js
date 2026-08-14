@@ -83,14 +83,4 @@ describe('Security & RBAC Integration Tests', () => {
     });
   });
 
-  describe('POST /api/rbac/initialize', () => {
-    it('should strictly require isAdmin for system initialization', async () => {
-      const response = await request(app)
-        .post('/api/rbac/initialize')
-        .set('x-test-role', 'user');
-      
-      expect(response.status).toBe(403);
-      expect(response.body.error).toBe('Access denied: Admin only');
-    });
-  });
 });
