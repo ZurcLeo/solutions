@@ -10,6 +10,7 @@ const barterController = require('../controllers/barterController');
 const { upload } = require('../middlewares/upload.cjs');
 const { requireLevel } = require('../middlewares/requireLevel');
 const { validateSellerCapability } = require('../middlewares/validateSellerCapability');
+const { requireSellerTeamAccess } = require('../middlewares/requireSellerTeamAccess');
 const { logger } = require('../logger');
 
 const ROUTE_NAME = 'marketplace';
@@ -88,10 +89,10 @@ router.post('/seller/google-place-sync',  verifyToken, writeLimit, ctrl.batchSyn
 
 const iconChatProvisioningCtrl = require('../controllers/iconChatProvisioningController');
 
-router.get('/seller/iconchat',               verifyToken, readLimit,  iconChatProvisioningCtrl.getStatus);
-router.post('/seller/iconchat/provision',     verifyToken, writeLimit, iconChatProvisioningCtrl.provision);
-router.patch('/seller/iconchat/toggle',       verifyToken, writeLimit, iconChatProvisioningCtrl.toggle);
-router.post('/seller/iconchat/rotate-secret', verifyToken, writeLimit, iconChatProvisioningCtrl.rotateSecret);
+router.get('/seller/iconchat',               verifyToken, requireSellerTeamAccess('manager'), readLimit,  iconChatProvisioningCtrl.getStatus);
+router.post('/seller/iconchat/provision',     verifyToken, requireSellerTeamAccess('owner'),   writeLimit, iconChatProvisioningCtrl.provision);
+router.patch('/seller/iconchat/toggle',       verifyToken, requireSellerTeamAccess('owner'),   writeLimit, iconChatProvisioningCtrl.toggle);
+router.post('/seller/iconchat/rotate-secret', verifyToken, requireSellerTeamAccess('owner'),   writeLimit, iconChatProvisioningCtrl.rotateSecret);
 
 // ──────────────────────────────────────────────────────
 // Shipping Quote & Tracking (SHIP-003)
@@ -270,7 +271,6 @@ router.post('/upload/seller-cover',  verifyToken, writeLimit, upload.single('ima
 // ──────────────────────────────────────────────────────
 
 const teamCtrl = require('../controllers/sellerTeamController');
-const { requireSellerTeamAccess } = require('../middlewares/requireSellerTeamAccess');
 
 router.get('/seller/team/my-invites',          verifyToken, readLimit,  teamCtrl.getMyPendingInvites);
 router.get('/seller/team',                    verifyToken, requireSellerTeamAccess('employee'), readLimit,  teamCtrl.listTeamMembers);

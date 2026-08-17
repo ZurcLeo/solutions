@@ -2,34 +2,8 @@
 
 const { logger } = require('../logger');
 const iconChatProvisioningService = require('../services/iconChatProvisioningService');
-const { getSupabaseClient } = require('../config/supabase');
 
 const CTRL = 'iconChatProvisioningCtrl';
-
-// ──────────────────────────────────────────────────────
-// Helper: resolve seller do usuário logado
-// ──────────────────────────────────────────────────────
-
-async function _requireSeller(req) {
-  const userId = req.user.uid;
-  const supabase = getSupabaseClient();
-
-  const { data, error } = await supabase
-    .from('seller_profiles')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .limit(1)
-    .single();
-
-  if (error || !data) {
-    const err = new Error('Perfil de vendedor não encontrado.');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  return data.id;
-}
 
 // ──────────────────────────────────────────────────────
 // GET /seller/iconchat — status atual
@@ -38,7 +12,7 @@ async function _requireSeller(req) {
 exports.getStatus = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const sellerId = await _requireSeller(req);
+    const sellerId = req.sellerContext.sellerId;
     const result = await iconChatProvisioningService.getIconChatStatus(userId, sellerId);
     return res.json({ success: true, data: result });
   } catch (err) {
@@ -55,7 +29,7 @@ exports.getStatus = async (req, res) => {
 exports.provision = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const sellerId = await _requireSeller(req);
+    const sellerId = req.sellerContext.sellerId;
     const result = await iconChatProvisioningService.provisionIconChat(userId, sellerId);
     return res.status(201).json({ success: true, data: result });
   } catch (err) {
@@ -79,7 +53,7 @@ exports.provision = async (req, res) => {
 
 exports.toggle = async (req, res) => {
   try {
-    const sellerId = await _requireSeller(req);
+    const sellerId = req.sellerContext.sellerId;
     const result = await iconChatProvisioningService.toggleIconChat(sellerId);
     return res.json({ success: true, data: result });
   } catch (err) {
@@ -96,7 +70,7 @@ exports.toggle = async (req, res) => {
 exports.rotateSecret = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const sellerId = await _requireSeller(req);
+    const sellerId = req.sellerContext.sellerId;
     const result = await iconChatProvisioningService.rotateSecret(userId, sellerId);
     return res.json({ success: true, data: result });
   } catch (err) {
