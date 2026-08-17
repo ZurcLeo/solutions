@@ -164,7 +164,7 @@ exports.getCatalog = async (req, res) => {
         .eq('active', true)
         .order('name', { ascending: true }),
       sb().from('seller_profiles')
-        .select('business_name, whatsapp')
+        .select('business_name, whatsapp, username, category, seller_subtype')
         .eq('id', sellerId)
         .maybeSingle(),
     ]);
@@ -177,6 +177,9 @@ exports.getCatalog = async (req, res) => {
       seller: {
         name: seller?.business_name || null,
         publicContact: seller?.whatsapp || null,
+        username: seller?.username || null,
+        category: seller?.category || null,
+        seller_subtype: seller?.seller_subtype || null,
       },
       data: (productsRes.data || []).map(p => ({
         id: p.id,
