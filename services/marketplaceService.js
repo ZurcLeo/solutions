@@ -1318,7 +1318,7 @@ async function searchMarketplace(
       distance_band:    p.distance_band,
       relevance:        p.relevance != null ? Number(p.relevance) : null,
       is_boosted:       p.is_boosted || false,
-      deep_link:        `/negocio/${p.seller_id}/produto/${p.id}`,
+      deep_link:        `/s/${p.seller_id}/produto/${p.id}`,
     };
   });
 
