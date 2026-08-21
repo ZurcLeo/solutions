@@ -436,8 +436,8 @@ class SupportTicket {
       .eq('assigned_to', agentId);
 
     if (status === 'active' || !status) {
-      // Todos os tickets "em tratativa": assigned + in_progress
-      query = query.in('status', ['assigned', 'in_progress']);
+      // Todos os tickets "em tratativa": assigned + in_progress + waiting_user_response
+      query = query.in('status', ['assigned', 'in_progress', 'waiting_user_response']);
     } else {
       query = query.eq('status', status);
     }

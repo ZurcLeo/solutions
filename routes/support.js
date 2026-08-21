@@ -153,6 +153,9 @@ router.post('/escalate', writeLimit, supportController.requestEscalation);
  */
 router.get('/tickets/my', readLimit, supportController.getUserTickets);
 
+// Resposta do usuário ao ticket (sem checkPermission — acessível ao dono do ticket)
+router.post('/tickets/:ticketId/reply', writeLimit, supportController.userReplyToTicket);
+
 /**
  * @swagger
  * /api/support/tickets/pending:
