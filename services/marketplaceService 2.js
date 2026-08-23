@@ -1043,6 +1043,8 @@ async function createProduct(userId, data, sellerId = null) {
     min_capacity, booking_deadline_hours,
     gtin,
     variant_attributes,
+    property_type_slug,
+    brand,
   } = validated;
 
   // Validar variant_attributes se fornecido (ELOS-BE-014)
@@ -1107,11 +1109,14 @@ async function createProduct(userId, data, sellerId = null) {
       sku:               sku               ?? null,
       unit_of_measure:   unit_of_measure   ?? null,
       // Imóveis
-      property_details:  property_details  ?? null,
-      listing_type:      listing_type      ?? null,
+      property_details:    property_details    ?? null,
+      listing_type:        listing_type        ?? null,
+      property_type_slug:  product_type === 'property' ? (property_type_slug ?? null) : null,
       ...(product_type === 'property' ? { property_status: property_status || 'disponivel' } : {}),
       // GTIN (código de barras — ELOS-BE-004)
       gtin:              gtin              ?? null,
+      // Marca (W3)
+      brand:             brand             ?? null,
       // Variantes (ELOS-BE-014) — eixos de variação
       variant_attributes: variant_attributes ?? null,
       active: true,
@@ -1124,7 +1129,7 @@ async function createProduct(userId, data, sellerId = null) {
 
   // Fire-and-forget: enriquece catálogo canônico com dados do merchant (ELOS-BE-004)
   if (gtin) {
-    gtinService.upsertCatalogOnSave(gtin, { name, brand: null, weight_kg, dimensions_cm }).catch(err => {
+    gtinService.upsertCatalogOnSave(gtin, { name, brand: brand || null, weight_kg, dimensions_cm }).catch(err => {
       logger.warn('[marketplaceService] upsertCatalogOnSave fire-and-forget error', { gtin, error: err.message });
     });
   }
@@ -1164,7 +1169,7 @@ async function getUserLocation(userId) {
 }
 
 async function listProductsNear(
-  { lat, lng, fulfillment, neighborhood, city, state, category, listing_type, max_browse_km = 10 } = {},
+  { lat, lng, fulfillment, neighborhood, city, state, category, listing_type, max_browse_km = 10, quartos_min, banheiros_min, area_min, property_status, price_max, property_type_slug, sort_by, is_available_now, allergen_free } = {},
   { limit = 20, page = 1 } = {}
 ) {
   const safeLimit  = Math.min(parseInt(limit)       || 20, 100);
@@ -1223,12 +1228,45 @@ async function listProductsNear(
   if (category === 'imoveis') {
     products = products.filter(p => p.product_type === 'property');
     // Aplica filtro de status no JS (o RPC não filtra por property_status)
-    products = products.filter(p => !p.property_status || p.property_status === 'disponivel');
+    if (property_status) {
+      products = products.filter(p => p.property_status === property_status);
+    } else {
+      products = products.filter(p => !p.property_status || p.property_status === 'disponivel');
+    }
     // Filtro por tipo de anúncio (aluguel_fixo | temporada | venda)
     if (listing_type) products = products.filter(p => p.listing_type === listing_type);
+    // Filtro por tipo de imóvel
+    if (property_type_slug) products = products.filter(p => p.property_type_slug === property_type_slug);
+    // Filtros JSONB em JS (RPC não filtra esses campos)
+    if (quartos_min) products = products.filter(p => (p.property_details?.quartos || 0) >= Number(quartos_min));
+    if (banheiros_min) products = products.filter(p => (p.property_details?.banheiros || 0) >= Number(banheiros_min));
+    if (area_min) products = products.filter(p => (p.property_details?.area_m2 || 0) >= Number(area_min));
+    if (price_max) products = products.filter(p => Number(p.price_brl) <= Number(price_max));
   } else {
     products = products.filter(p => p.product_type !== 'property');
   }
+
+  // W4 — filtro "aberto agora" (JS post-filter)
+  if (is_available_now === 'true' || is_available_now === true) {
+    products = products.filter(p => p.is_available_now === true);
+  }
+
+  // W4 — filtro por alérgenos ausentes
+  if (allergen_free) {
+    const exclusions = String(allergen_free).split(',').map(a => a.trim()).filter(Boolean);
+    products = products.filter(p => {
+      const prodAllergens = p.allergens || [];
+      return !exclusions.some(a => prodAllergens.includes(a));
+    });
+  }
+
+  // W4 — ordenação (geo path já ordena por distância por padrão)
+  if (sort_by === 'price_asc') {
+    products.sort((a, b) => Number(a.price_brl) - Number(b.price_brl));
+  } else if (sort_by === 'price_desc') {
+    products.sort((a, b) => Number(b.price_brl) - Number(a.price_brl));
+  }
+  // sort_by === 'distance' ou undefined → mantém ordem do RPC (por distância)
 
   return {
     products,
@@ -1348,7 +1386,7 @@ async function searchMarketplace(
  * Lista produtos com filtros opcionais.
  * Retorna apenas active=true para usuários comuns.
  */
-async function listProducts({ seller_id, category, listing_type, min_price, max_price, quartos_min, area_min, property_status, price_max } = {}, { limit = 20, page = 1 } = {}) {
+async function listProducts({ seller_id, category, listing_type, min_price, max_price, quartos_min, banheiros_min, area_min, property_status, price_max, property_type_slug, sort_by, is_available_now, allergen_free } = {}, { limit = 20, page = 1 } = {}) {
   const safeLimit = Math.min(parseInt(limit) || 20, 100);
   const offset = (Math.max(parseInt(page) || 1, 1) - 1) * safeLimit;
 
@@ -1389,8 +1427,14 @@ async function listProducts({ seller_id, category, listing_type, min_price, max_
     if (quartos_min) {
       query = query.filter('property_details->>quartos', 'gte', String(quartos_min));
     }
+    if (banheiros_min) {
+      query = query.filter('property_details->>banheiros', 'gte', String(banheiros_min));
+    }
     if (area_min) {
       query = query.filter('property_details->>area_m2', 'gte', String(area_min));
+    }
+    if (property_type_slug) {
+      query = query.eq('property_type_slug', property_type_slug);
     }
     if (property_status) {
       query = query.eq('property_status', property_status);
@@ -1398,6 +1442,28 @@ async function listProducts({ seller_id, category, listing_type, min_price, max_
       // Default: exibe apenas disponíveis ao navegar em imóveis
       query = query.eq('property_status', 'disponivel');
     }
+  }
+
+  // W4 — filtro "aberto agora" (food items com is_available_now)
+  if (is_available_now === 'true' || is_available_now === true) {
+    query = query.eq('is_available_now', true);
+  }
+
+  // W4 — filtro por alérgenos ausentes (excluir produtos que contenham esses alérgenos)
+  if (allergen_free) {
+    const exclusions = String(allergen_free).split(',').map(a => a.trim()).filter(Boolean);
+    for (const allergen of exclusions) {
+      query = query.not('allergens', 'cs', `["${allergen}"]`);
+    }
+  }
+
+  // W4 — ordenação
+  if (sort_by === 'price_asc') {
+    query = query.order('price_brl', { ascending: true });
+  } else if (sort_by === 'price_desc') {
+    query = query.order('price_brl', { ascending: false });
+  } else {
+    query = query.order('created_at', { ascending: false });
   }
 
   const { data, error, count } = await query;
@@ -1500,6 +1566,14 @@ async function updateProduct(userId, productId, updates, sellerId = null) {
     }
   }
 
+  // Valida property_type_slug se fornecido (W2)
+  if (updates.property_type_slug != null) {
+    const validSlugs = ['apartamento','casa','terreno','sala_comercial','kitnet','cobertura','sobrado','chacara','galpao','loja'];
+    if (!validSlugs.includes(updates.property_type_slug)) {
+      throw new Error(`property_type_slug inválido: ${updates.property_type_slug}`);
+    }
+  }
+
   updates.updated_at = new Date().toISOString();
 
   const { data, error } = await sb()
@@ -1516,7 +1590,7 @@ async function updateProduct(userId, productId, updates, sellerId = null) {
   if (data.gtin) {
     gtinService.upsertCatalogOnSave(data.gtin, {
       name: data.name,
-      brand: null,
+      brand: data.brand || null,
       weight_kg: data.weight_kg,
       dimensions_cm: data.dimensions_cm,
     }).catch(err => {

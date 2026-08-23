@@ -131,7 +131,7 @@ Membros extras na equipe: R$ 9,90/mês (T1/T2) ou R$ 14,90/mês (T3).
 
 VENDAS PARA VISITANTES (Guest Checkout)
 Lojistas podem permitir que clientes sem conta no ElosCloud façam pedidos pela
-loja pública. O link público da loja é eloscloud.com/negocio/{id-da-loja}.
+loja pública. O link público da loja é eloscloud.com/s/{handle-da-loja}.
 Visitantes podem navegar o catálogo e fazer pedidos com PIX sem precisar criar conta.
 Essa funcionalidade pode ser ativada/desativada em Configurações da Loja > Vendas
 para Visitantes.

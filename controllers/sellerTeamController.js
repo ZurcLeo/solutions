@@ -97,6 +97,22 @@ async function acceptInvite(req, res) {
   }
 }
 
+async function getTeamMemberAssignments(req, res) {
+  try {
+    const sellerId = req.sellerContext?.sellerId;
+    if (!sellerId) return res.status(403).json({ success: false, message: 'Seller context não encontrado' });
+
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ success: false, message: 'userId é obrigatório' });
+
+    const assignments = await sellerTeamService.getMemberAssignments(sellerId, userId);
+    res.json({ success: true, data: assignments });
+  } catch (err) {
+    logger.error(`[${CTRL}] getTeamMemberAssignments: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 async function removeTeamMember(req, res) {
   try {
     const sellerId = req.sellerContext?.sellerId;
@@ -105,7 +121,9 @@ async function removeTeamMember(req, res) {
     const { userId } = req.params;
     if (!userId) return res.status(400).json({ success: false, message: 'userId é obrigatório' });
 
-    const result = await sellerTeamService.removeMember(sellerId, req.user.uid, userId);
+    const reassignTo = req.body?.reassign_to || null;
+
+    const result = await sellerTeamService.removeMember(sellerId, req.user.uid, userId, reassignTo);
     res.json({ success: true, data: result });
   } catch (err) {
     logger.error(`[${CTRL}] removeTeamMember: ${err.message}`);
@@ -181,6 +199,7 @@ module.exports = {
   inviteTeamMember,
   acceptInvite,
   declineInvite,
+  getTeamMemberAssignments,
   removeTeamMember,
   leaveTeam,
   updateTeamMemberRole,

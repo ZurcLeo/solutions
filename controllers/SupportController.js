@@ -138,6 +138,19 @@ class SupportController {
       }
 
       const ticketData = await addAgentInfoToTicket(ticket);
+
+      // Usuários comuns não devem ver notas internas
+      const isAgent = userRoles.includes('support_agent') || userRoles.includes('admin');
+      if (!isAgent) {
+        delete ticketData.internalNotes;
+        // Filtrar mensagens internas do histórico de conversação
+        if (ticketData.conversationHistory) {
+          ticketData.conversationHistory = ticketData.conversationHistory.filter(
+            m => m.type !== 'internal_note'
+          );
+        }
+      }
+
       res.status(200).json({ success: true, data: ticketData });
     } catch (error) {
       logger.error('Error in SupportController.getTicketDetails', { error: error.message, ticketId, userId });
@@ -857,6 +870,64 @@ class SupportController {
     } catch (err) {
       logger.error('Error in SupportController.executeTicketAction', { error: err.message, ticketId, agentId });
       res.status(500).json({ success: false, message: err.message || 'Erro ao executar ação do ticket.' });
+    }
+  }
+
+  // ── Resposta do usuário ao ticket (acessível ao dono do ticket) ──────────
+  async userReplyToTicket(req, res) {
+    const { ticketId } = req.params;
+    const userId = req.user.uid;
+    const { message } = req.body;
+
+    try {
+      if (!ticketId) {
+        return res.status(400).json({ success: false, message: 'Ticket ID is required.' });
+      }
+      if (!message || !message.trim()) {
+        return res.status(400).json({ success: false, message: 'Message is required.' });
+      }
+
+      const ticket = await SupportTicket.getById(ticketId);
+      if (!ticket) {
+        return res.status(404).json({ success: false, message: 'Ticket not found.' });
+      }
+      // Apenas o dono do ticket pode responder
+      if (ticket.userId !== userId) {
+        return res.status(403).json({ success: false, message: 'You can only reply to your own tickets.' });
+      }
+      // Não pode responder a tickets fechados
+      if (['resolved', 'closed'].includes(ticket.status)) {
+        return res.status(400).json({ success: false, message: 'Cannot reply to a resolved or closed ticket.' });
+      }
+
+      const userReply = {
+        type: 'user_reply',
+        sender: 'user',
+        content: message.trim(),
+        userId,
+        timestamp: new Date().toISOString(),
+      };
+
+      const updateData = {
+        conversationHistory: [...(ticket.conversationHistory || []), userReply],
+        status: ticket.status === 'waiting_user_response' ? 'pending' : ticket.status,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const updatedTicket = await SupportTicket.update(ticketId, updateData);
+      const ticketWithAgentInfo = await addAgentInfoToTicket(updatedTicket);
+
+      _emitSupportEvent(SUPPORT_EVENTS.TICKET_UPDATED, {
+        ticketId,
+        userId,
+        timestamp: Date.now(),
+      }, ticket.assignedTo);
+
+      logger.info('User replied to ticket', { ticketId, userId, newStatus: updateData.status });
+      res.status(200).json({ success: true, data: ticketWithAgentInfo });
+    } catch (error) {
+      logger.error('Error in SupportController.userReplyToTicket', { error: error.message, ticketId, userId });
+      res.status(500).json({ success: false, message: error.message || 'Failed to reply to ticket.' });
     }
   }
 

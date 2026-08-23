@@ -49,11 +49,15 @@ describe('rateLimiter middlewares', () => {
   });
 
   describe('inicialização', () => {
-    it('deve criar 13 instâncias de RateLimiterMemory (uma por tipo)', () => {
-      // 13 limiters: standard, auth, read, write, connection, banking,
-      // icon_api, icon_api_write, pin_redeem, ml_oauth, ml_webhook,
-      // channel_link_init, channel_link_ip_breaker
-      expect(RateLimiterMemory).toHaveBeenCalledTimes(13);
+    it('deve criar todas as instâncias de RateLimiterMemory', () => {
+      // 13 do RATE_LIMIT_CONFIG (loop): standard, auth, read, write,
+      // connection, banking, icon_api, icon_api_write, pin_redeem,
+      // ml_oauth, ml_webhook, channel_link_init, channel_link_ip_breaker
+      // + 3 passwordless (BUG-013): passwordlessEmailLimiter,
+      // passwordlessCooldownLimiter, passwordlessIpLimiter
+      const configCount = 13;
+      const passwordlessCount = 3;
+      expect(RateLimiterMemory).toHaveBeenCalledTimes(configCount + passwordlessCount);
     });
 
     it('deve exportar todos os 6 middlewares', () => {

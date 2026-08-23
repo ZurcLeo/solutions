@@ -181,6 +181,10 @@ exports.listProducts = async (req, res) => {
       seller_id, category, listing_type, min_price, max_price, limit, page,
       // Parâmetros geo / fulfillment (HYPER-002 + HYPER-004)
       lat, lng, fulfillment, neighborhood, city, state, max_browse_km,
+      // W2 — filtros de imóveis
+      quartos_min, banheiros_min, area_min, property_status, price_max, property_type_slug,
+      // W4 — filtros adicionais
+      sort_by, is_available_now, allergen_free,
     } = req.query;
 
     const hasExplicitGeoFilter = lat || lng || fulfillment || neighborhood || city || state;
@@ -207,12 +211,12 @@ exports.listProducts = async (req, res) => {
     let result;
     if (useGeoPath) {
       result = await marketplaceService.listProductsNear(
-        { lat, lng, fulfillment, neighborhood: resolvedNeighborhood, city: resolvedCity, state: resolvedState, category, listing_type, max_browse_km },
+        { lat, lng, fulfillment, neighborhood: resolvedNeighborhood, city: resolvedCity, state: resolvedState, category, listing_type, max_browse_km, quartos_min, banheiros_min, area_min, property_status, price_max, property_type_slug, sort_by, is_available_now, allergen_free },
         { limit, page }
       );
     } else {
       result = await marketplaceService.listProducts(
-        { seller_id, category, listing_type, min_price, max_price },
+        { seller_id, category, listing_type, min_price, max_price, quartos_min, banheiros_min, area_min, property_status, price_max, property_type_slug, sort_by, is_available_now, allergen_free },
         { limit, page }
       );
     }

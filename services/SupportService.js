@@ -10,6 +10,7 @@
  */
 const { randomUUID } = require('crypto');
 const SupportTicket = require('../models/SupportTicket');
+const User = require('../models/User');
 const SupportContextBuilder = require('./SupportContextBuilder');
 const emailService = require('./emailService');
 const { logger } = require('../logger');
@@ -36,7 +37,6 @@ class SupportService {
    * @description Processa a criação de um novo ticket de suporte, incluindo a construção de contexto, cálculo de prioridade, criação do ticket no banco de dados e envio de notificações.
    */
   async createTicket(ticketRequest) {
-    const User = require('../models/User');
     const { userId, category, module, issueType, title, description, context = {}, deviceInfo = {}, userAgent = '', sessionData = {} } = ticketRequest;
     
     logger.info(`Creating support ticket for user ${userId}`, {
@@ -142,7 +142,6 @@ class SupportService {
    */
   async requestEscalation(conversationId, userId, reason = 'ai_cannot_help') {
     const Message = require('../models/Message');
-    const User = require('../models/User');
     logger.info(`Requesting escalation for conv ${conversationId} by user ${userId}`, {
       service: 'SupportService', method: 'requestEscalation'
     });
@@ -1003,7 +1002,6 @@ class SupportService {
    * @param {string} ticketId
    */
   async sendCsatSurveyEmail(ticketId) {
-    const User = require('../models/User');
     logger.info('SupportService.sendCsatSurveyEmail — iniciando', { ticketId });
 
     const ticket = await SupportTicket.getById(ticketId);

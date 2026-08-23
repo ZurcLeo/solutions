@@ -136,13 +136,13 @@ router.patch('/products/:productId/toggle-active', verifyToken, writeLimit, ctrl
 // PUT    /api/marketplace/products/:productId/variants/:variantId   — atualizar
 // DELETE /api/marketplace/products/:productId/variants/:variantId   — remover
 // PATCH  /api/marketplace/products/:productId/variants/:variantId/toggle — toggle disponibilidade
-// PUT    /api/marketplace/products/:productId/variants/bulk         — atualização em lote
+// PATCH  /api/marketplace/products/:productId/variants/bulk         — atualização em lote
 // ──────────────────────────────────────────────────────
 
 router.get('/products/:productId/variants',                        verifyToken, readLimit,  ctrl.listVariants);
 router.post('/products/:productId/variants',                       verifyToken, writeLimit, ctrl.createVariant);
 router.post('/products/:productId/variants/matrix',                verifyToken, writeLimit, ctrl.generateVariantMatrix);
-router.put('/products/:productId/variants/bulk',                   verifyToken, writeLimit, ctrl.bulkUpdateVariants);
+router.patch('/products/:productId/variants/bulk',                 verifyToken, writeLimit, ctrl.bulkUpdateVariants);
 router.put('/products/:productId/variants/:variantId',             verifyToken, writeLimit, ctrl.updateVariant);
 router.delete('/products/:productId/variants/:variantId',          verifyToken, writeLimit, ctrl.deleteVariant);
 router.patch('/products/:productId/variants/:variantId/toggle',    verifyToken, writeLimit, ctrl.toggleVariantAvailability);

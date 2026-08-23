@@ -14,27 +14,12 @@ function sb() {
 }
 
 // ──────────────────────────────────────────────────────
-// Pré-requisitos: Trust Level 2+ E WhatsApp cadastrado
+// Pré-requisitos: removidos — qualquer seller ativo pode provisionar
 // Plano Brasileirinho NÃO é obrigatório — sellers sem plano recebem free tier (50 msg)
 // ──────────────────────────────────────────────────────
 
-async function checkPrerequisites(userId) {
-  const trustPassportService = require('./trustPassportService');
-
-  const [passport, userRow] = await Promise.all([
-    trustPassportService.getPassport(userId).catch(() => null),
-    sb().from('users').select('telefone').eq('id', userId).single().then(r => r.data),
-  ]);
-
-  const trustLevel = passport?.trust_level ?? 0;
-  const phone = userRow?.telefone || '';
-
-  const checks = {
-    trust: { ok: trustLevel >= 2, level: trustLevel },
-    phone: { ok: phone.length > 0 },
-  };
-
-  return { ok: checks.trust.ok && checks.phone.ok, checks };
+async function checkPrerequisites() {
+  return { ok: true, checks: {} };
 }
 
 // ──────────────────────────────────────────────────────

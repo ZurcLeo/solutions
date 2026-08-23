@@ -266,7 +266,7 @@ async function resolveHandleRedirect(handle) {
 async function resolveHandle(handle, type) {
   const sb = getSupabaseClient();
   if (!sb) return null;
-  const h = handle.toLowerCase();
+  const h = handle.toLowerCase().replace(/^@/, '');
 
   // Direct lookup first
   if (type === 'user') {

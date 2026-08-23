@@ -77,6 +77,108 @@ const pinRedeemLimit = createRateLimitMiddleware(limiters.pin_redeem, 'pin_redee
 const mlOAuthLimit = createRateLimitMiddleware(limiters.ml_oauth, 'ml_oauth');
 const mlWebhookLimit = createRateLimitMiddleware(limiters.ml_webhook, 'ml_webhook');
 
+// ── Passwordless send rate limits (ELOS-BUG-013) ─────────────────────────────
+// Funções utilitárias para controle manual no controller (não middleware Express).
+//
+// Assimetria proposital:
+//   per-email → conta APENAS envios bem-sucedidos (protege usuário legítimo de falha de infra)
+//   per-IP    → conta TODA request, exceto 5xx infra (protege plataforma de enumeração)
+//
+// Trade-off: estado em memória (RateLimiterMemory) — reseta a cada deploy, não compartilha
+// entre máquinas. Aceitável na escala atual (single instance Fly.io).
+// Migrar para RateLimiterRedis quando houver 2+ máquinas.
+
+const passwordlessEmailLimiter = new RateLimiterMemory({
+  points: 3,       // max 3 envios por email por janela
+  duration: 600,   // janela de 10 minutos
+  keyPrefix: 'pwless_email',
+});
+
+const passwordlessCooldownLimiter = new RateLimiterMemory({
+  points: 1,       // 1 envio permitido por cooldown
+  duration: 60,    // 60 segundos entre envios consecutivos
+  keyPrefix: 'pwless_cooldown',
+});
+
+const passwordlessIpLimiter = new RateLimiterMemory({
+  points: 10,      // 10 requests por IP por janela
+  duration: 600,   // janela de 10 minutos
+  keyPrefix: 'pwless_ip',
+});
+
+/**
+ * Consome 1 ponto do limiter por-IP. Chamar no início do handler.
+ * @returns {{ allowed: true } | { allowed: false, retryAfter: number }}
+ */
+async function consumePasswordlessIpLimit(ip) {
+  try {
+    await passwordlessIpLimiter.consume(ip);
+    return { allowed: true };
+  } catch (err) {
+    const retryAfter = Math.ceil(err.msBeforeNext / 1000);
+    logger.warn('Passwordless IP rate limit exceeded', {
+      service: 'rateLimiter', ip, retryAfter,
+    });
+    return { allowed: false, retryAfter };
+  }
+}
+
+/**
+ * Devolve 1 ponto ao limiter por-IP. Chamar quando erro é 5xx de infraestrutura
+ * (config ausente, Resend API down) — não é culpa do cliente.
+ */
+async function rewardPasswordlessIpLimit(ip) {
+  try {
+    await passwordlessIpLimiter.reward(ip);
+  } catch { /* best effort */ }
+}
+
+/**
+ * Verifica cooldown entre envios (60s). Read-only — não consome.
+ * @returns {{ allowed: true } | { allowed: false, retryAfter: number }}
+ */
+async function checkPasswordlessCooldown(email) {
+  const key = email.toLowerCase().trim();
+  try {
+    const res = await passwordlessCooldownLimiter.get(key);
+    if (res !== null && res.remainingPoints <= 0) {
+      const retryAfter = Math.ceil(res.msBeforeNext / 1000);
+      return { allowed: false, retryAfter };
+    }
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
+  }
+}
+
+/**
+ * Verifica limite per-email (3/10min). Read-only — não consome.
+ * @returns {{ allowed: true } | { allowed: false, retryAfter: number }}
+ */
+async function checkPasswordlessEmailLimit(email) {
+  const key = email.toLowerCase().trim();
+  try {
+    const res = await passwordlessEmailLimiter.get(key);
+    if (res !== null && res.remainingPoints <= 0) {
+      const retryAfter = Math.ceil(res.msBeforeNext / 1000);
+      return { allowed: false, retryAfter };
+    }
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
+  }
+}
+
+/**
+ * Registra envio bem-sucedido: consome 1 ponto do email limiter + ativa cooldown.
+ * Chamar APENAS após envio confirmado pelo provedor.
+ */
+async function consumePasswordlessEmailLimit(email) {
+  const key = email.toLowerCase().trim();
+  try { await passwordlessEmailLimiter.consume(key); } catch { /* já rastreado */ }
+  try { await passwordlessCooldownLimiter.consume(key); } catch { /* cooldown já ativo */ }
+}
+
 // Custom middleware: rate limit D2 (init) por phone + circuit breaker por IP
 const channelLinkInitLimit = async (req, res, next) => {
   const phone = req.body?.phone;
@@ -125,4 +227,10 @@ module.exports = {
   mlOAuthLimit,
   mlWebhookLimit,
   channelLinkInitLimit,
+  // Passwordless utilities (ELOS-BUG-013)
+  consumePasswordlessIpLimit,
+  rewardPasswordlessIpLimit,
+  checkPasswordlessCooldown,
+  checkPasswordlessEmailLimit,
+  consumePasswordlessEmailLimit,
 };

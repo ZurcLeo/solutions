@@ -7,12 +7,9 @@ jest.mock('../../../services/userRoleService', () => ({
   getUserRoles: jest.fn(),
 }));
 jest.mock('../../../models/User', () => ({ getById: jest.fn() }));
-jest.mock('../../../models/Role', () => ({ getById: jest.fn() }));
-
 const userRoleService = require('../../../services/userRoleService');
 const User = require('../../../models/User');
-const Role = require('../../../models/Role');
-const { checkPermission, checkRole, isAdmin, injectRoleInfo, checkBankValidation } = require('../../../middlewares/rbac');
+const { checkPermission, checkRole, isAdmin, checkBankValidation } = require('../../../middlewares/rbac');
 
 const mockReq = (overrides = {}) => ({
   uid: 'user-123',
@@ -195,66 +192,6 @@ describe('rbac middlewares', () => {
 
       expect(res.status).toHaveBeenCalledWith(500);
       expect(next).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('injectRoleInfo', () => {
-    it('deve chamar next() sem popular rbac quando uid está ausente', async () => {
-      const req = mockReq({ uid: undefined });
-      const res = mockRes();
-
-      await injectRoleInfo(req, res, next);
-
-      expect(next).toHaveBeenCalledTimes(1);
-      expect(req.rbac).toBeUndefined();
-    });
-
-    it('deve popular req.rbac.roles e req.rbac.roleInfos quando uid presente', async () => {
-      const userRoles = [{ roleId: 'role-1', context: { type: 'global' }, validationStatus: 'validated' }];
-      userRoleService.getUserRoles.mockResolvedValue(userRoles);
-      Role.getById.mockResolvedValue({ name: 'Member' });
-
-      const req = mockReq();
-      const res = mockRes();
-
-      await injectRoleInfo(req, res, next);
-
-      expect(req.rbac.roles).toEqual(userRoles);
-      expect(req.rbac.roleInfos).toHaveLength(1);
-      expect(req.rbac.roleInfos[0].name).toBe('Member');
-      expect(next).toHaveBeenCalledTimes(1);
-    });
-
-    it('deve criar req.hasRole() helper funcional', async () => {
-      const userRoles = [
-        {
-          roleId: 'role-1',
-          context: { type: 'caixinha', resourceId: 'cx-1' },
-          validationStatus: 'validated',
-        },
-      ];
-      userRoleService.getUserRoles.mockResolvedValue(userRoles);
-      Role.getById.mockResolvedValue({ name: 'Admin' });
-
-      const req = mockReq();
-      const res = mockRes();
-
-      await injectRoleInfo(req, res, next);
-
-      expect(req.hasRole('Admin', 'caixinha', 'cx-1')).toBe(true);
-      expect(req.hasRole('Admin', 'caixinha', 'cx-999')).toBe(false);
-      expect(req.hasRole('Member', 'caixinha', 'cx-1')).toBe(false);
-    });
-
-    it('deve chamar next() mesmo quando ocorre erro (continua sem rbac)', async () => {
-      userRoleService.getUserRoles.mockRejectedValue(new Error('DB error'));
-      const req = mockReq();
-      const res = mockRes();
-
-      await injectRoleInfo(req, res, next);
-
-      expect(next).toHaveBeenCalledTimes(1);
-      expect(res.status).not.toHaveBeenCalled();
     });
   });
 

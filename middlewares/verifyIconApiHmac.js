@@ -28,13 +28,23 @@ async function verifyIconApiHmac(req, res, next) {
   const sellerId = req.headers['x-icon-seller-id'];
 
   if (!signature || !timestamp || !sellerId) {
+    logger.warn(`[${MW}] Headers ausentes`, {
+      service: MW, hasSignature: !!signature, hasTimestamp: !!timestamp, hasSellerId: !!sellerId,
+      method: req.method, originalUrl: req.originalUrl,
+    });
     return res.status(401).json({ error: 'missing_auth_headers' });
   }
 
   // Verificar timestamp window
   const tsSeconds = parseInt(timestamp, 10);
-  if (isNaN(tsSeconds) || Math.abs(Date.now() / 1000 - tsSeconds) > TIMESTAMP_WINDOW_SECONDS) {
-    return res.status(401).json({ error: 'timestamp_expired' });
+  const now = Math.floor(Date.now() / 1000);
+  const skew = now - tsSeconds;
+  if (isNaN(tsSeconds) || Math.abs(skew) > TIMESTAMP_WINDOW_SECONDS) {
+    logger.warn(`[${MW}] Timestamp rejeitado`, {
+      service: MW, sellerId, clientTs: timestamp, serverTs: now, skewSeconds: skew,
+      method: req.method, originalUrl: req.originalUrl,
+    });
+    return res.status(401).json({ error: 'timestamp_expired', skew });
   }
 
   // Buscar subscription
@@ -57,6 +67,9 @@ async function verifyIconApiHmac(req, res, next) {
   }
 
   if (!sub) {
+    logger.warn(`[${MW}] Subscription não encontrada`, {
+      service: MW, sellerId, method: req.method, originalUrl: req.originalUrl,
+    });
     return res.status(401).json({ error: 'subscription_not_found' });
   }
 
@@ -74,14 +87,26 @@ async function verifyIconApiHmac(req, res, next) {
     const sigBuffer = Buffer.from(signature);
     const expectedBuffer = Buffer.from(expected);
     if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
-      logger.warn(`[${MW}] Assinatura inválida`, { sellerId });
+      logger.warn(`[${MW}] Assinatura inválida`, {
+        service: MW, sellerId,
+        method: req.method, originalUrl: req.originalUrl, path: req.path,
+        clientTs: timestamp, serverTs: now, skewSeconds: skew,
+        message,
+        receivedSig: signature.substring(0, 20) + '...',
+        expectedSig: expected.substring(0, 20) + '...',
+        secretDigest: crypto.createHash('sha256').update(sub.hmac_secret).digest('hex').substring(0, 12),
+      });
       return res.status(401).json({ error: 'invalid_signature' });
     }
-  } catch {
+  } catch (err) {
+    logger.warn(`[${MW}] Erro na comparação`, {
+      service: MW, sellerId, error: err.message, method: req.method, originalUrl: req.originalUrl,
+    });
     return res.status(401).json({ error: 'invalid_signature' });
   }
 
-  // Autenticado — expor sellerId no request
+  // Autenticado
+  logger.info(`[${MW}] OK`, { service: MW, sellerId, method: req.method, originalUrl: req.originalUrl, skewSeconds: skew });
   req.iconSellerId = sellerId;
   req.iconSubscriptionId = sub.id;
   next();
