@@ -511,34 +511,37 @@ async function createGuestOrder(sellerIdOrHandle, {
     throw new Error('Nome, email e telefone são obrigatórios para visitante');
   }
 
-  const { data: guestBuyer, error: guestErr } = await supabase
+  const normalizedEmail = guest.email.toLowerCase().trim();
+  const normalizedPhone = guest.phone.replace(/\D/g, '');
+
+  // Busca guest_buyer existente por email (functional index lower(email))
+  const { data: existing } = await supabase
     .from('guest_buyers')
-    .upsert(
-      { full_name: guest.full_name, email: guest.email.toLowerCase().trim(), phone: guest.phone.replace(/\D/g, '') },
-      { onConflict: 'idx_guest_buyers_email', ignoreDuplicates: false }
-    )
     .select('id')
+    .ilike('email', normalizedEmail)
     .single();
 
-  if (guestErr) {
-    logger.error(`[${fn}] Erro ao upsert guest_buyer`, { error: guestErr.message });
-    // Fallback: try to find existing
-    const { data: existing } = await supabase
-      .from('guest_buyers')
-      .select('id')
-      .ilike('email', guest.email.toLowerCase().trim())
-      .single();
-
-    if (!existing) throw new Error('Erro ao registrar dados do visitante');
-    // Update name/phone
+  let guestBuyerId;
+  if (existing) {
+    // Atualiza nome/telefone do guest existente
     await supabase
       .from('guest_buyers')
-      .update({ full_name: guest.full_name, phone: guest.phone.replace(/\D/g, '') })
+      .update({ full_name: guest.full_name, phone: normalizedPhone })
       .eq('id', existing.id);
-
-    var guestBuyerId = existing.id;
+    guestBuyerId = existing.id;
   } else {
-    var guestBuyerId = guestBuyer.id;
+    // Insere novo guest_buyer
+    const { data: newGuest, error: insertErr } = await supabase
+      .from('guest_buyers')
+      .insert({ full_name: guest.full_name, email: normalizedEmail, phone: normalizedPhone })
+      .select('id')
+      .single();
+
+    if (insertErr) {
+      logger.error(`[${fn}] Erro ao inserir guest_buyer`, { error: insertErr.message });
+      throw new Error('Erro ao registrar dados do visitante');
+    }
+    guestBuyerId = newGuest.id;
   }
 
   // 4. Buyer snapshot (guest version)
