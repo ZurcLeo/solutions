@@ -1510,7 +1510,15 @@ async function updateProduct(userId, productId, updates, sellerId = null) {
     .select()
     .single();
 
-  if (error || !data) throw new Error('Produto não encontrado ou sem permissão');
+  if (error) {
+    logError('updateProduct', error, { productId, sellerId: seller.id });
+    // Diferenciar: coluna inexistente vs ownership
+    if (error.message?.includes('column') || error.code === '42703') {
+      throw new Error(`Erro ao atualizar produto: ${error.message}`);
+    }
+    throw new Error('Produto não encontrado ou sem permissão');
+  }
+  if (!data) throw new Error('Produto não encontrado ou sem permissão');
 
   // Fire-and-forget: enriquece catálogo canônico com dados do merchant (ELOS-BE-004)
   if (data.gtin) {
