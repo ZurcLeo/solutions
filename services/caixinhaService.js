@@ -184,7 +184,8 @@ async function _createAsaasSubcontaWithRetry(caixinhaId, adminId, attempt = 1) {
 const getAllCaixinhas = async (userId) => {
   if (!userId) {
     throw new Error('ID do usuário não fornecido 2');
-  } else {
+  }
+  
   try {
     // Recupera todas as caixinhas do banco de dados
     const caixinhas = await Caixinha.getAll(userId);
@@ -204,7 +205,6 @@ const getAllCaixinhas = async (userId) => {
     });
     throw error;
   }
-}
 }
 
 /**
