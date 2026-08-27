@@ -11,20 +11,40 @@ const MAX_RETRIES = 2;
 const RATE_LIMIT_BASE_DELAY_MS = 1000;
 
 // ---------------------------------------------------------------------------
+// Estado interno de tokens — seeded por env, atualizado pelo refresh
+// process.env serve apenas como seed inicial; nunca mais e sobrescrito
+// ---------------------------------------------------------------------------
+const _tokenState = {
+    accessToken: null,
+    refreshToken: null,
+    tokenExpiresAt: null,
+    _seeded: false,
+};
+
+function _seedTokenState() {
+    if (_tokenState._seeded) return;
+    _tokenState.accessToken = process.env.ME_ACCESS_TOKEN || null;
+    _tokenState.refreshToken = process.env.ME_REFRESH_TOKEN || null;
+    _tokenState.tokenExpiresAt = process.env.ME_TOKEN_EXPIRES_AT || null;
+    _tokenState._seeded = true;
+}
+
+// ---------------------------------------------------------------------------
 // Config e auth helpers (internos)
 // ---------------------------------------------------------------------------
 
 /**
- * Le env vars do Melhor Envio.
+ * Le config do Melhor Envio (env imutaveis + estado interno de tokens).
  * @returns {{ clientId: string, clientSecret: string, accessToken: string, refreshToken: string, tokenExpiresAt: string, baseUrl: string }}
  */
 function _getConfig() {
+    _seedTokenState();
+
     const clientId = process.env.ME_CLIENT_ID;
     const clientSecret = process.env.ME_CLIENT_SECRET;
-    const accessToken = process.env.ME_ACCESS_TOKEN;
-    const refreshToken = process.env.ME_REFRESH_TOKEN;
-    const tokenExpiresAt = process.env.ME_TOKEN_EXPIRES_AT;
     const baseUrl = process.env.ME_BASE_URL;
+
+    const { accessToken, refreshToken, tokenExpiresAt } = _tokenState;
 
     if (!accessToken) {
         throw new Error('ME_ACCESS_TOKEN nao configurado — token Melhor Envio obrigatorio');
@@ -56,7 +76,8 @@ function _isTokenExpired() {
 
 /**
  * Renova o access_token via OAuth refresh_token.
- * Atualiza process.env em memoria (runtime only).
+ * Atualiza _tokenState (estado interno do modulo). Nunca sobrescreve process.env.
+ * Valida a resposta antes de atualizar — se invalida, throws sem corromper token atual.
  */
 async function _refreshToken() {
     const { clientId, clientSecret, refreshToken, baseUrl } = _getConfig();
@@ -93,13 +114,26 @@ async function _refreshToken() {
     const data = await resp.json();
     // data: { token_type, expires_in (2592000 = 30d), access_token, refresh_token }
 
-    // Atualiza env vars em memoria (runtime)
-    process.env.ME_ACCESS_TOKEN = data.access_token;
-    if (data.refresh_token) {
-        process.env.ME_REFRESH_TOKEN = data.refresh_token;
+    // Valida resposta antes de atualizar estado — nunca sobrescreve com lixo
+    if (!data.access_token || typeof data.access_token !== 'string') {
+        throw new Error(
+            `Melhor Envio token refresh retornou resposta invalida — ` +
+            `access_token ausente ou tipo inesperado: ${typeof data.access_token}`
+        );
+    }
+    if (!data.expires_in || typeof data.expires_in !== 'number' || data.expires_in <= 0) {
+        throw new Error(
+            `Melhor Envio token refresh retornou expires_in invalido: ${data.expires_in}`
+        );
+    }
+
+    // Atualiza estado interno do modulo (nunca process.env)
+    _tokenState.accessToken = data.access_token;
+    if (data.refresh_token && typeof data.refresh_token === 'string') {
+        _tokenState.refreshToken = data.refresh_token;
     }
     const newExpiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
-    process.env.ME_TOKEN_EXPIRES_AT = newExpiresAt;
+    _tokenState.tokenExpiresAt = newExpiresAt;
 
     logger.warn(
         `[${SVC}] Token Melhor Envio renovado em memoria. ` +
@@ -126,15 +160,16 @@ async function _refreshToken() {
  */
 async function _apiCall(method, path, data = null, retries = 1) {
     // Auto-refresh se token esta proximo de expirar
+    // Se refresh falha, continua com o token atual — talvez ainda funcione.
+    // Se nao funcionar, o 401 handler tenta refresh de novo (e la sim falha fatalmente).
     if (_isTokenExpired()) {
         try {
             await _refreshToken();
         } catch (refreshErr) {
-            logger.error(`[${SVC}] Falha ao renovar token antes da chamada`, {
+            logger.error(`[${SVC}] Falha ao renovar token antes da chamada — prosseguindo com token atual`, {
                 path,
                 error: refreshErr.message,
             });
-            throw refreshErr;
         }
     }
 
