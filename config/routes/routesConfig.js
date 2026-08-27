@@ -58,6 +58,7 @@ module.exports = (app) => {
     { path: '/api/public/store',       file: '../../routes/publicStore' },
     { path: '/api/public/handle',      file: '../../routes/handleRoutes' },
     { path: '/api/integrations/ml',  file: '../../routes/mlIntegration' },
+    { path: '/api/integrations/shopify', file: '../../routes/shopifyIntegration' },
     { path: '/api/channel-links',    file: '../../routes/channelLinks' },
     { path: '/api/agenda',            file: '../../routes/agenda' },
     { path: '/api/emergency-contacts', file: '../../routes/emergencyContacts' },

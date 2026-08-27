@@ -26,6 +26,9 @@ router.get('/:sellerId/products',              readLimit, ctrl.listProducts);
 router.get('/:sellerId/products/:productId',   readLimit, ctrl.getProduct);
 router.post('/:sellerId/delivery-estimate',    writeLimit, ctrl.estimateDelivery);
 
+// Shipping quote (SHIP-W2 — public, no auth)
+router.post('/:sellerId/shipping-quote',       readLimit,  ctrl.getShippingQuote);
+
 // Guest order (Wave 2)
 router.post('/:sellerId/orders',               writeLimit, ctrl.createGuestOrder);
 router.post('/orders/:orderId/pay',            writeLimit, ctrl.initiateGuestPayment);

@@ -25,9 +25,9 @@ const guestSchema = Joi.object({
 const createOrderSchema = Joi.object({
   items: Joi.array().items(itemSchema).min(1).required(),
   guest: guestSchema.required(),
-  fulfillment_type: Joi.string().valid('pickup', 'local_delivery').default('pickup'),
+  fulfillment_type: Joi.string().valid('pickup', 'local_delivery', 'shipping').default('pickup'),
   delivery_address: Joi.string().max(300).when('fulfillment_type', {
-    is: 'local_delivery',
+    is: Joi.valid('local_delivery', 'shipping'),
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
@@ -35,6 +35,22 @@ const createOrderSchema = Joi.object({
   delivery_lat: Joi.number().min(-90).max(90).optional(),
   delivery_lng: Joi.number().min(-180).max(180).optional(),
   preferred_deliverer_service_id: Joi.string().optional(),
+  // Shipping nacional (SHIP-W2)
+  shipping_service_id: Joi.number().integer().when('fulfillment_type', {
+    is: 'shipping',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  shipping_fee: Joi.number().min(0).max(1000).when('fulfillment_type', {
+    is: 'shipping',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  shipping_postal_code: Joi.string().pattern(/^\d{8}$/).when('fulfillment_type', {
+    is: 'shipping',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
 });
 
 const estimateDeliverySchema = Joi.object({
@@ -179,6 +195,89 @@ exports.getGuestOrderStatus = async (req, res) => {
   } catch (err) {
     const status = err.message.includes('inválido') ? 403 : err.message.includes('não encontrado') ? 404 : 400;
     res.status(status).json({ success: false, message: err.message });
+  }
+};
+
+// ── Shipping Quote (public, no auth — SHIP-W2) ──────────────────────────────
+
+const shippingQuoteSchema = Joi.object({
+  to_postal_code: Joi.string().pattern(/^\d{8}$/).required().messages({
+    'string.pattern.base': 'CEP deve conter exatamente 8 dígitos numéricos',
+  }),
+  items: Joi.array().items(
+    Joi.object({
+      product_id: Joi.string().uuid().required(),
+      qty: Joi.number().integer().min(1).default(1),
+    })
+  ).min(1).required(),
+});
+
+exports.getShippingQuote = async (req, res) => {
+  try {
+    const { error, value } = shippingQuoteSchema.validate(req.body, { abortEarly: false });
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
+
+    const { to_postal_code, items } = value;
+    const sellerId = req.params.sellerId;
+    const { getSupabaseClient } = require('../config/supabase');
+    const supabase = getSupabaseClient();
+
+    // 1. Seller shipping config
+    const { data: shippingConfig } = await supabase
+      .from('seller_shipping_config')
+      .select('*')
+      .eq('seller_id', sellerId)
+      .maybeSingle();
+
+    if (!shippingConfig?.accepts_national_shipping) {
+      return res.status(400).json({ success: false, message: 'Vendedor não aceita envio nacional' });
+    }
+
+    // 2. Products with dimensions
+    const productIds = items.map(i => i.product_id);
+    const { data: products, error: prodErr } = await supabase
+      .from('marketplace_products')
+      .select('id, name, price_brl, weight_kg, dimensions_cm, product_type, active, seller_id')
+      .in('id', productIds);
+
+    if (prodErr) throw new Error(`Erro ao buscar produtos: ${prodErr.message}`);
+
+    for (const p of (products || [])) {
+      if (!p.active) return res.status(400).json({ success: false, message: `Produto "${p.name}" não está disponível` });
+      if (p.seller_id !== sellerId) return res.status(400).json({ success: false, message: `Produto "${p.name}" não pertence a este vendedor` });
+      if (!p.dimensions_cm?.width || !p.dimensions_cm?.height || !p.dimensions_cm?.length) {
+        return res.status(400).json({ success: false, message: `Produto "${p.name}" não tem dimensões cadastradas para envio` });
+      }
+    }
+
+    // 3. ME products
+    const meProducts = products.map(p => {
+      const item = items.find(i => i.product_id === p.id);
+      return {
+        id: p.id,
+        width: p.dimensions_cm.width,
+        height: p.dimensions_cm.height,
+        length: p.dimensions_cm.length,
+        weight: p.weight_kg || 0.5,
+        insurance_value: p.price_brl || 0,
+        quantity: item?.qty || 1,
+      };
+    });
+
+    // 4. Calculate
+    const melhorEnvioService = require('../services/melhorEnvioService');
+    const quotes = await melhorEnvioService.calculateShipping(
+      shippingConfig.origin_postal_code,
+      to_postal_code,
+      meProducts
+    );
+
+    res.status(200).json({ success: true, data: { quotes } });
+  } catch (err) {
+    logger.error(`[${LOG_TAG}] getShippingQuote: ${err.message}`, { sellerId: req.params.sellerId });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
