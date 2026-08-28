@@ -42,6 +42,8 @@ const { startFranchisePendingAlertJob } = require('./config/jobs/franchisePendin
 const { startStuckOrdersAlertJob } = require('./config/jobs/stuckOrdersAlertJob');
 const { startCaronaDocExpiryJob } = require('./config/jobs/caronaDocExpiryJob');
 const { startLedgerReconciliationJob } = require('./config/jobs/ledgerReconciliationJob');
+const { startBookingReminderJob } = require('./config/jobs/bookingReminderJob');
+const { startRecallJob } = require('./config/jobs/recallJob');
 const { loadBlacklistCache, startCacheRefresh } = require('./utils/securityUtils');
 
 const app = express();
@@ -205,6 +207,10 @@ Promise.all([
       startCaronaDocExpiryJob();
       // LEDGER-W2: Reconciliacao diaria do ledger unificado (05:00 BRT)
       startLedgerReconciliationJob();
+      // RECALL-002: Lembretes de agendamento D-1 e H-2 (a cada 30min)
+      startBookingReminderJob();
+      // RECALL-005: Motor de recall — lembretes de retorno (diario 10:00 BRT)
+      startRecallJob();
       // Poller durável de delivery: recovery + matching contínuo a cada 60s
       const { startDeliveryPoller } = require('./services/deliveryService');
       startDeliveryPoller();

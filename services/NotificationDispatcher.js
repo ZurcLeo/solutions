@@ -639,6 +639,46 @@ class NotificationDispatcher {
       baseContent.push.title = 'IconChat desativado';
       baseContent.push.body = 'Seu add-on IconChat foi desativado.';
 
+    // ── Booking Reminders (RECALL-001) ─────────────────────────
+    } else if (type === 'booking_reminder_1d') {
+      baseContent.in_app.content = `Lembrete de agendamento: ${data.serviceName || 'Serviço'} é amanhã, ${data.date || ''} às ${data.time || ''}, em ${data.sellerName || 'Prestador'}`;
+      baseContent.in_app.url = data.bookingId ? `/mercado/agendamentos` : '/mercado/agendamentos';
+      baseContent.push = { title: `Lembrete: amanhã às ${data.time || ''}`, body: `${data.serviceName || 'Serviço'} em ${data.sellerName || 'Prestador'}`, url: '/mercado/agendamentos' };
+      baseContent.email = { templateType: 'booking_reminder', subject: `Lembrete: ${data.serviceName || 'Serviço'} amanhã às ${data.time || ''}`, data: { ...data, reminderType: '1d' } };
+      if (data.sellerId) baseContent.webhook = { event_type: 'booking.reminder', sellerId: data.sellerId, payload: { bookingId: data.bookingId, reminderType: '1d', clientName: data.clientName, clientPhone: data.clientPhone } };
+
+    } else if (type === 'booking_reminder_2h') {
+      baseContent.in_app.content = `Agendamento em 2 horas: ${data.serviceName || 'Serviço'} às ${data.time || ''}. Endereço: ${data.address || ''}`;
+      baseContent.in_app.url = data.bookingId ? `/mercado/agendamentos` : '/mercado/agendamentos';
+      baseContent.push = { title: `Em 2 horas: ${data.serviceName || 'Serviço'}`, body: `${data.sellerName || 'Prestador'} — ${data.address || ''}`, url: '/mercado/agendamentos' };
+      baseContent.email = { templateType: 'booking_reminder', subject: `Em 2 horas: ${data.serviceName || 'Serviço'} às ${data.time || ''}`, data: { ...data, reminderType: '2h' } };
+      if (data.sellerId) baseContent.webhook = { event_type: 'booking.reminder', sellerId: data.sellerId, payload: { bookingId: data.bookingId, reminderType: '2h', clientName: data.clientName, clientPhone: data.clientPhone } };
+
+    // ── Recall Engine (RECALL-003) ────────────────────────────
+    } else if (type === 'recall_return') {
+      const msg = data.message || `Hora de voltar para ${data.sellerName || 'o negocio'}!`;
+      baseContent.in_app.content = msg;
+      baseContent.in_app.url = data.storeUrl || '/';
+      baseContent.push = { title: 'Hora de voltar!', body: msg, url: data.storeUrl || '/' };
+      baseContent.email = { templateType: 'recall_reminder', subject: `Hora de voltar para ${data.sellerName || 'o negocio'}!`, data: { sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'return', optoutUrl: data.optoutUrl } };
+      if (data.sellerId) baseContent.webhook = { event_type: 'recall.reminder', sellerId: data.sellerId, payload: { clientPhone: data.clientPhone, clientName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallLogId: data.recallLogId, storeUrl: data.storeUrl, optoutUrl: data.optoutUrl } };
+
+    } else if (type === 'recall_reorder') {
+      const msg = data.message || `Hora de reabastecer em ${data.sellerName || 'o negocio'}!`;
+      baseContent.in_app.content = msg;
+      baseContent.in_app.url = data.storeUrl || '/';
+      baseContent.push = { title: 'Hora de reabastecer!', body: msg, url: data.storeUrl || '/' };
+      baseContent.email = { templateType: 'recall_reminder', subject: `Hora de reabastecer em ${data.sellerName || 'o negocio'}!`, data: { sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'reorder', optoutUrl: data.optoutUrl } };
+      if (data.sellerId) baseContent.webhook = { event_type: 'recall.reminder', sellerId: data.sellerId, payload: { clientPhone: data.clientPhone, clientName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallLogId: data.recallLogId, storeUrl: data.storeUrl, optoutUrl: data.optoutUrl } };
+
+    } else if (type === 'recall_no_show_followup') {
+      const msg = data.message || `Sentimos sua falta! Agende novamente em ${data.sellerName || 'o negocio'}.`;
+      baseContent.in_app.content = msg;
+      baseContent.in_app.url = data.storeUrl || '/';
+      baseContent.push = { title: 'Sentimos sua falta!', body: msg, url: data.storeUrl || '/' };
+      baseContent.email = { templateType: 'recall_reminder', subject: `Sentimos sua falta em ${data.sellerName || 'o negocio'}!`, data: { sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'return', optoutUrl: data.optoutUrl } };
+      if (data.sellerId) baseContent.webhook = { event_type: 'recall.reminder', sellerId: data.sellerId, payload: { clientPhone: data.clientPhone, clientName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallLogId: data.recallLogId, storeUrl: data.storeUrl, optoutUrl: data.optoutUrl } };
+
     // ── Agenda ────────────────────────────────────────────────
     } else if (type === 'agenda_task_assigned') {
       const dateStr = data.scheduled_at
@@ -792,6 +832,13 @@ class NotificationDispatcher {
       booking_no_show: 'booking.no_show',
       order_problem: 'order.problem',
       delivery_stuck: 'delivery.stuck',
+      // Booking reminders (RECALL-001)
+      booking_reminder_1d: 'booking.reminder',
+      booking_reminder_2h: 'booking.reminder',
+      // Recall Engine (RECALL-003)
+      recall_return: 'recall.reminder',
+      recall_reorder: 'recall.reminder',
+      recall_no_show_followup: 'recall.reminder',
     };
     return map[type] || null;
   }

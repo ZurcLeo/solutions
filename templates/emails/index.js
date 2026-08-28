@@ -17,12 +17,14 @@ const bookingNewRequestTemplate = require('./bookingNewRequest');
 const bookingConfirmedTemplate  = require('./bookingConfirmed');
 const bookingDeclinedTemplate   = require('./bookingDeclined');
 const bookingCreatedTemplate    = require('./bookingCreated');
+const bookingReminderTemplate   = require('./bookingReminder');
 const gameInviteTemplate        = require('./gameInvite');
 const businessInviteTemplate    = require('./businessInvite');
 const waitlistMatchTemplate     = require('./waitlistMatch');
 const magicLinkTemplate         = require('./magicLink');
 const passwordTransitionTemplate = require('./passwordTransition');
 const guestOrderStatusTemplate   = require('./guestOrderStatus');
+const recallReminderTemplate     = require('./recallReminder');
 
 /**
  * Collection of email templates
@@ -61,6 +63,7 @@ module.exports = {
   booking_confirmed:   bookingConfirmedTemplate,
   booking_declined:    bookingDeclinedTemplate,
   booking_created:     bookingCreatedTemplate,
+  booking_reminder:    bookingReminderTemplate,
 
   // Jogos e Concursos
   game_invite: gameInviteTemplate,
@@ -73,6 +76,9 @@ module.exports = {
 
   // Guest checkout — status de pedido para visitantes
   guest_order_status: guestOrderStatusTemplate,
+
+  // Recall — lembrete de retorno ao cliente [RECALL-007]
+  recall_reminder: recallReminderTemplate,
 
   // Generic template
   padrao: padrao,
