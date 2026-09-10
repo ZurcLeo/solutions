@@ -1053,6 +1053,36 @@ async function runExpirationJob() {
   return { expired, count: expired.length };
 }
 
+/**
+ * [RECALL-FIX-001C] Expira bookings confirmed cujo horário já passou.
+ * Complementa runExpirationJob (que só varre pending).
+ */
+async function expireStaleConfirmed() {
+  const fn = 'expireStaleConfirmed';
+
+  const { data, error } = await sb()
+    .rpc('expire_stale_confirmed_bookings');
+
+  if (error) {
+    logError(fn, error);
+    return { expired: [], count: 0 };
+  }
+
+  const expired = data ?? [];
+  if (expired.length > 0) {
+    log(fn, `${expired.length} confirmed vencido(s) expirado(s)`);
+    for (const item of expired) {
+      if (item.client_id) {
+        socketManager.emitToUser(item.client_id, 'booking:expired', {
+          bookingId: item.booking_id,
+        });
+      }
+    }
+  }
+
+  return { expired, count: expired.length };
+}
+
 // ──────────────────────────────────────────────────────
 // 9. [SCHED-CAP-004] Confirmação automática de turmas
 // ──────────────────────────────────────────────────────
@@ -2288,6 +2318,7 @@ module.exports = {
   getMyBookings,
   getBookingById,
   runExpirationJob,
+  expireStaleConfirmed,
   checkConflicts,
   getTeamMembersForService,
   // [SCHED-CAP-004] Confirmação automática de turmas

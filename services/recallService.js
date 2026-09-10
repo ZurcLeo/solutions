@@ -24,6 +24,13 @@ const MAX_RULES_PER_SELLER = 10;
 const DAILY_CAP_PER_RULE = 50;
 const DEDUP_WINDOW_DAYS = 7;
 
+/** Vocabulário canônico — fonte única de verdade para trigger_types válidos. */
+const VALID_TRIGGER_TYPES = [
+  'days_since_last_order',
+  'days_since_last_booking',
+  'days_since_completed_booking',
+];
+
 // ──────────────────────────────────────────────────────
 // Helpers internos
 // ──────────────────────────────────────────────────────
@@ -325,21 +332,30 @@ async function findEligibleClients(rule, sellerId) {
       return [];
     }
 
-    if (clients.length === 0) return [];
+    const funnel = { candidates: clients.length };
+
+    if (clients.length === 0) {
+      log(fn, 'Funil recall', { ruleId: rule.id, sellerId, funnel });
+      return [];
+    }
 
     // Excluir opt-outs
     clients = await _excludeOptedOut(supabase, clients, sellerId);
+    funnel.afterOptout = clients.length;
 
     // Excluir clientes ja notificados recentemente (dedup 7 dias)
     clients = await _excludeRecentlyNotified(supabase, clients, rule.id);
+    funnel.afterDedup = clients.length;
 
     // Excluir clientes que atingiram max_sends
     clients = await _excludeMaxSends(supabase, clients, rule.id, rule.max_sends);
+    funnel.afterMaxSends = clients.length;
 
     // Cap diario
     clients = clients.slice(0, DAILY_CAP_PER_RULE);
+    funnel.afterCap = clients.length;
 
-    log(fn, `${clients.length} clientes elegiveis`, { ruleId: rule.id, sellerId });
+    log(fn, 'Funil recall', { ruleId: rule.id, sellerId, funnel });
     return clients;
   } catch (err) {
     logError(fn, err, { ruleId: rule.id, sellerId });
@@ -449,7 +465,7 @@ async function _findBookingClients(supabase, sellerId, rule, statuses) {
   // Buscar bookings desses servicos
   const { data: bookings, error: bookErr } = await supabase
     .from('service_bookings')
-    .select('client_id, service_id, scheduled_at, updated_at, status')
+    .select('client_id, service_id, scheduled_at, completed_at, updated_at, status')
     .in('service_id', serviceIds)
     .in('status', statuses)
     .not('client_id', 'is', null);
@@ -459,14 +475,14 @@ async function _findBookingClients(supabase, sellerId, rule, statuses) {
   }
 
   // Agrupar por client_id e pegar a ultima interacao.
-  // Para 'days_since_completed_booking', usar updated_at (data da conclusao),
-  // nao scheduled_at (data do agendamento original). M1 fix.
+  // Para 'days_since_completed_booking', usar completed_at (data real da conclusao),
+  // com fallback updated_at (legado) e scheduled_at (ultimo recurso).
   const useCompletedDate = statuses.length === 1 && statuses[0] === 'completed';
   const clientMap = {};
   for (const booking of bookings) {
     const existing = clientMap[booking.client_id];
     const referenceDate = useCompletedDate
-      ? (booking.updated_at || booking.scheduled_at)
+      ? (booking.completed_at || booking.updated_at || booking.scheduled_at)
       : booking.scheduled_at;
     const bookingDate = new Date(referenceDate);
     if (!existing || bookingDate > new Date(existing.lastInteraction)) {
@@ -489,7 +505,10 @@ async function _findBookingClients(supabase, sellerId, rule, statuses) {
     }
   }
 
-  // Excluir clientes com booking ativo
+  const bookingFunnel = { totalBookings: bookings.length, uniqueClients: Object.keys(clientMap).length, afterInterval: eligible.length };
+
+  // Excluir clientes com booking ativo FUTURO (scheduled_at > now)
+  // Confirmed vencidos não devem imunizar — só compromissos reais futuros.
   if (eligible.length > 0) {
     const userIds = eligible.map(c => c.userId);
     const { data: activeBookings } = await supabase
@@ -497,14 +516,20 @@ async function _findBookingClients(supabase, sellerId, rule, statuses) {
       .select('client_id')
       .in('service_id', serviceIds)
       .in('client_id', userIds)
-      .in('status', ['pending', 'confirmed']);
+      .in('status', ['pending', 'confirmed'])
+      .gt('scheduled_at', new Date().toISOString());
 
     if (activeBookings && activeBookings.length > 0) {
       const activeSet = new Set(activeBookings.map(b => b.client_id));
-      return eligible.filter(c => !activeSet.has(c.userId));
+      const filtered = eligible.filter(c => !activeSet.has(c.userId));
+      bookingFunnel.afterActiveExclude = filtered.length;
+      log('_findBookingClients', 'Funil booking', { ruleId: rule.id, bookingFunnel });
+      return filtered;
     }
   }
 
+  bookingFunnel.afterActiveExclude = eligible.length;
+  log('_findBookingClients', 'Funil booking', { ruleId: rule.id, bookingFunnel });
   return eligible;
 }
 
@@ -1203,4 +1228,6 @@ module.exports = {
   getRecallStats,
   getDetailedStats,
   getRecallLog,
+  // Constantes
+  VALID_TRIGGER_TYPES,
 };

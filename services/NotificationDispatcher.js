@@ -660,7 +660,7 @@ class NotificationDispatcher {
       baseContent.in_app.content = msg;
       baseContent.in_app.url = data.storeUrl || '/';
       baseContent.push = { title: 'Hora de voltar!', body: msg, url: data.storeUrl || '/' };
-      baseContent.email = { templateType: 'recall_reminder', subject: `Hora de voltar para ${data.sellerName || 'o negocio'}!`, data: { sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'return', optoutUrl: data.optoutUrl } };
+      baseContent.email = { templateType: 'recall_reminder', subject: `Hora de voltar para ${data.sellerName || 'o negocio'}!`, data: { userName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'return', optoutUrl: data.optoutUrl } };
       if (data.sellerId) baseContent.webhook = { event_type: 'recall.reminder', sellerId: data.sellerId, payload: { clientPhone: data.clientPhone, clientName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallLogId: data.recallLogId, storeUrl: data.storeUrl, optoutUrl: data.optoutUrl } };
 
     } else if (type === 'recall_reorder') {
@@ -668,7 +668,7 @@ class NotificationDispatcher {
       baseContent.in_app.content = msg;
       baseContent.in_app.url = data.storeUrl || '/';
       baseContent.push = { title: 'Hora de reabastecer!', body: msg, url: data.storeUrl || '/' };
-      baseContent.email = { templateType: 'recall_reminder', subject: `Hora de reabastecer em ${data.sellerName || 'o negocio'}!`, data: { sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'reorder', optoutUrl: data.optoutUrl } };
+      baseContent.email = { templateType: 'recall_reminder', subject: `Hora de reabastecer em ${data.sellerName || 'o negocio'}!`, data: { userName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'reorder', optoutUrl: data.optoutUrl } };
       if (data.sellerId) baseContent.webhook = { event_type: 'recall.reminder', sellerId: data.sellerId, payload: { clientPhone: data.clientPhone, clientName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallLogId: data.recallLogId, storeUrl: data.storeUrl, optoutUrl: data.optoutUrl } };
 
     } else if (type === 'recall_no_show_followup') {
@@ -676,7 +676,7 @@ class NotificationDispatcher {
       baseContent.in_app.content = msg;
       baseContent.in_app.url = data.storeUrl || '/';
       baseContent.push = { title: 'Sentimos sua falta!', body: msg, url: data.storeUrl || '/' };
-      baseContent.email = { templateType: 'recall_reminder', subject: `Sentimos sua falta em ${data.sellerName || 'o negocio'}!`, data: { sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'return', optoutUrl: data.optoutUrl } };
+      baseContent.email = { templateType: 'recall_reminder', subject: `Sentimos sua falta em ${data.sellerName || 'o negocio'}!`, data: { userName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallType: 'return', optoutUrl: data.optoutUrl } };
       if (data.sellerId) baseContent.webhook = { event_type: 'recall.reminder', sellerId: data.sellerId, payload: { clientPhone: data.clientPhone, clientName: data.clientName, sellerName: data.sellerName, serviceName: data.serviceName, daysSince: data.daysSince, message: msg, recallLogId: data.recallLogId, storeUrl: data.storeUrl, optoutUrl: data.optoutUrl } };
 
     // ── Agenda ────────────────────────────────────────────────

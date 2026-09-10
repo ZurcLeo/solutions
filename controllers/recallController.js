@@ -7,22 +7,18 @@
 
 const Joi = require('joi');
 const recallService = require('../services/recallService');
+const { VALID_TRIGGER_TYPES } = recallService;
 const { logger } = require('../logger');
 
 const CTRL = 'recallController';
 
 // ──────────────────────────────────────────────────────
-// Schemas
+// Schemas (trigger_types importados do recallService — fonte única)
 // ──────────────────────────────────────────────────────
 
 const createRuleSchema = Joi.object({
   rule_name: Joi.string().max(200).required(),
-  trigger_type: Joi.string().valid(
-    'days_since_last_order',
-    'days_since_last_booking',
-    'days_since_completed_booking',
-    'custom'
-  ).required(),
+  trigger_type: Joi.string().valid(...VALID_TRIGGER_TYPES).required(),
   interval_days: Joi.number().integer().min(1).max(365).required(),
   product_category: Joi.string().max(100).allow('', null),
   message_template: Joi.string().max(1000).required(),
@@ -34,12 +30,7 @@ const createRuleSchema = Joi.object({
 
 const updateRuleSchema = Joi.object({
   rule_name: Joi.string().max(200),
-  trigger_type: Joi.string().valid(
-    'days_since_last_order',
-    'days_since_last_booking',
-    'days_since_completed_booking',
-    'custom'
-  ),
+  trigger_type: Joi.string().valid(...VALID_TRIGGER_TYPES),
   interval_days: Joi.number().integer().min(1).max(365),
   product_category: Joi.string().max(100).allow('', null),
   message_template: Joi.string().max(1000),

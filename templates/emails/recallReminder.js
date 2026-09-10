@@ -20,10 +20,15 @@ module.exports = function recallReminderTemplate(data) {
   const BORDER = '#E9ECEF';
   const FONT   = "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif";
 
-  const ctaLabel = recallType === 'reorder' ? 'Ver produtos' : 'Agendar agora';
-  const ctaUrl = recallType === 'reorder'
+  const isReorder = recallType === 'reorder';
+  const ctaLabel = isReorder ? 'Ver produtos' : 'Agendar agora';
+  const ctaUrl = isReorder
     ? `${APP_URL}/mercado`
     : `${APP_URL}/mercado/agendamentos`;
+
+  const ACCENT   = '#E65100';
+  const ACC_SOFT  = '#FFF3E0';
+  const badgeLabel = isReorder ? 'HORA DE REABASTECER' : 'SENTIMOS SUA FALTA';
 
   const bodyContent = `
       <p style="font-family:${FONT}; text-align:center; color:${TEXT2}; margin:8px 0 32px; font-size:16px; line-height:1.6;">
@@ -31,14 +36,14 @@ module.exports = function recallReminderTemplate(data) {
       </p>
 
       ${serviceName ? `
-      <div style="background:${P_SOFT}; border:1.5px solid ${P}; border-radius:12px; padding:24px; text-align:center; margin-bottom:24px;">
-        <span style="display:inline-block; background:${P}; color:#FFFFFF; font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:12px;">LEMBRETE</span>
+      <div style="background:${ACC_SOFT}; border:1.5px solid ${ACCENT}; border-radius:12px; padding:24px; text-align:center; margin-bottom:24px;">
+        <span style="display:inline-block; background:${ACCENT}; color:#FFFFFF; font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:12px;">${badgeLabel}</span>
         <p style="font-family:${FONT}; font-size:18px; font-weight:700; color:${TEXT}; margin:0 0 4px;">${serviceName}</p>
         <p style="font-family:${FONT}; font-size:14px; color:${TEXT2}; margin:0;">${sellerName}</p>
       </div>
       ` : `
-      <div style="background:${P_SOFT}; border:1.5px solid ${P}; border-radius:12px; padding:24px; text-align:center; margin-bottom:24px;">
-        <span style="display:inline-block; background:${P}; color:#FFFFFF; font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:12px;">LEMBRETE</span>
+      <div style="background:${ACC_SOFT}; border:1.5px solid ${ACCENT}; border-radius:12px; padding:24px; text-align:center; margin-bottom:24px;">
+        <span style="display:inline-block; background:${ACCENT}; color:#FFFFFF; font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:12px;">${badgeLabel}</span>
         <p style="font-family:${FONT}; font-size:18px; font-weight:700; color:${TEXT}; margin:0;">${sellerName}</p>
       </div>
       `}
@@ -62,12 +67,12 @@ module.exports = function recallReminderTemplate(data) {
   `;
 
   const preheaderText = serviceName
-    ? `Lembrete: ${serviceName} em ${sellerName} — ha ${daysSince} dias.`
+    ? `Sentimos sua falta: ${serviceName} em ${sellerName} — ha ${daysSince} dias.`
     : `Sentimos sua falta em ${sellerName}!`;
 
   return wrapper({
-    title: `Lembrete — ${sellerName}`,
-    badgeText: 'Lembrete',
+    title: `Volte logo — ${sellerName}`,
+    badgeText: isReorder ? 'Reabasteca' : 'Volte logo',
     userName,
     bodyContent,
     preheader: preheaderText,
