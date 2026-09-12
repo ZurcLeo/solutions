@@ -12,11 +12,12 @@ const saveSchema = Joi.object({
     ccv:         Joi.string().min(3).max(4).required(),
   }).required(),
   holderInfo: Joi.object({
-    name:       Joi.string().required(),
-    email:      Joi.string().email().required(),
-    cpfCnpj:    Joi.string().allow('', null),
-    phone:      Joi.string().allow('', null),
-    postalCode: Joi.string().allow('', null),
+    name:          Joi.string().required(),
+    email:         Joi.string().email().required(),
+    cpfCnpj:       Joi.string().allow('', null),
+    phone:         Joi.string().allow('', null),
+    postalCode:    Joi.string().allow('', null),
+    addressNumber: Joi.string().allow('', null),
   }).required(),
   nickname: Joi.string().max(30).allow('', null),
 });

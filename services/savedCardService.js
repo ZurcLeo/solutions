@@ -204,8 +204,10 @@ async function tokenizeAndSave(userId, { cardData, holderInfo, remoteIp, nicknam
     creditCardHolderInfo: {
       name: holderInfo.name,
       email: holderInfo.email,
+      cpfCnpj: holderInfo.cpfCnpj || undefined,
       phone: holderInfo.phone || undefined,
       postalCode: holderInfo.postalCode || '00000000',
+      addressNumber: holderInfo.addressNumber || undefined,
     },
     remoteIp,
   });
