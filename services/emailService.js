@@ -56,6 +56,8 @@ const TEMPLATE_SECTOR_MAP = {
   booking_confirmed:         'comercial',
   booking_declined:          'comercial',
   booking_created:           'comercial',
+  booking_reminder:          'comercial',
+  recall_reminder:           'comercial',
   // Jurídico
   contract_created:          'juridico',
   contract_signed:           'juridico',

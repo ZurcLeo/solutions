@@ -2430,6 +2430,8 @@ async function createOrder(buyerId, data) {
 
   // 1c. Validação de shipping nacional (SHIP-003)
   let validatedShippingFee = 0;
+  let shippingQuoteData = null;
+  let shippingEstimatedDays = null;
   if (fulfillment_type === 'shipping') {
     const { data: shippingConfig } = await sb()
       .from('seller_shipping_config')
@@ -2506,6 +2508,8 @@ async function createOrder(buyerId, data) {
       }
 
       validatedShippingFee = serverFee;
+      shippingQuoteData = selectedQuote;
+      shippingEstimatedDays = selectedQuote.deliveryDays || null;
     } catch (meErr) {
       if (meErr.code === 'SHIPPING_FEE_MISMATCH') throw meErr;
       logError('createOrder', meErr, { context: 'ME_shipping_validation' });
@@ -2518,7 +2522,17 @@ async function createOrder(buyerId, data) {
       }
     }
 
-    validatedDeliveryFee = validatedShippingFee;
+    // Apply freight_mode (SHIP-W2 — unified policy for local + shipping)
+    const freightMode = seller.freight_mode || 'buyer_pays';
+    const splitRatio = seller.freight_split_ratio ?? 1.0;
+
+    const { data: freightCalc } = await sb().rpc('calculate_buyer_freight', {
+      p_accepted_fee: validatedShippingFee,
+      p_freight_mode: freightMode,
+      p_split_ratio: splitRatio,
+    });
+
+    validatedDeliveryFee = freightCalc?.buyer_freight ?? validatedShippingFee;
   }
 
   // 2. Validação de modificadores obrigatórios
@@ -2644,7 +2658,9 @@ async function createOrder(buyerId, data) {
         service_name: SERVICE_NAMES[shipping_service_id] || 'Desconhecido',
         status: 'quoted',
         quoted_price: validatedShippingFee,
-        shipping_fee: validatedShippingFee,
+        shipping_fee: validatedDeliveryFee, // buyer's portion after freight_mode
+        estimated_days: shippingEstimatedDays,
+        me_raw_response: shippingQuoteData,
       });
     } catch (shErr) {
       logError('createOrder', shErr, { context: 'shipping_order_insert', orderId: order.id });

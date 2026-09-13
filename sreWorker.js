@@ -30,6 +30,12 @@ function startBookingExpirationWorker() {
           }
         }
       }
+
+      // [RECALL-FIX-001C] Expirar confirmed vencidos (horário já passou)
+      const staleResult = await bookingService.expireStaleConfirmed();
+      if (staleResult.count > 0) {
+        logger.info(`Booking Expiration Worker: ${staleResult.count} confirmed vencido(s) expirado(s)`);
+      }
     } catch (error) {
       logger.error('Booking Expiration Worker: Falha no job de expiração', { error: error.message });
     }

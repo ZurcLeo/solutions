@@ -1,14 +1,14 @@
 // services/savedCardService.js — PAY-CARD-001
 // Gerencia cartões salvos via tokenização Asaas
 
-const { createClient } = require('@supabase/supabase-js');
+const { getSupabaseClient } = require('../config/supabase');
 const { logger } = require('../logger');
 const asaasService = require('./asaasService');
 
 const MAX_CARDS = 5;
 
 function sb() {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  return getSupabaseClient();
 }
 
 /**
@@ -204,8 +204,10 @@ async function tokenizeAndSave(userId, { cardData, holderInfo, remoteIp, nicknam
     creditCardHolderInfo: {
       name: holderInfo.name,
       email: holderInfo.email,
+      cpfCnpj: holderInfo.cpfCnpj || undefined,
       phone: holderInfo.phone || undefined,
       postalCode: holderInfo.postalCode || '00000000',
+      addressNumber: holderInfo.addressNumber || undefined,
     },
     remoteIp,
   });

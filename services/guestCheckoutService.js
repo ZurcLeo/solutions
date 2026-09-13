@@ -408,6 +408,8 @@ async function createGuestOrder(sellerIdOrHandle, {
   items, guest, fulfillment_type = 'pickup', delivery_address,
   delivery_fee: requestedDeliveryFee, delivery_lat, delivery_lng,
   preferred_deliverer_service_id,
+  // Shipping nacional (SHIP-W2)
+  shipping_service_id, shipping_fee, shipping_postal_code,
 }) {
   const sellerId = await _resolveSellerUuid(sellerIdOrHandle);
   const fn = 'createGuestOrder';
@@ -500,6 +502,110 @@ async function createGuestOrder(sellerIdOrHandle, {
     if (delivery_fee > 500) throw new Error('Frete acima do limite permitido');
   }
 
+  // Shipping nacional (SHIP-W2): validação + freight_mode
+  let validatedShippingFee = 0;
+  let shippingQuoteData = null;
+  let shippingEstimatedDays = null;
+  if (fulfillment_type === 'shipping') {
+    // 1. Seller shipping config
+    const { data: shippingConfig } = await supabase
+      .from('seller_shipping_config')
+      .select('*')
+      .eq('seller_id', sellerId)
+      .maybeSingle();
+
+    if (!shippingConfig?.accepts_national_shipping) {
+      throw new Error('Vendedor não aceita envio nacional por transportadora');
+    }
+    if (!shipping_service_id) throw new Error('shipping_service_id é obrigatório para envio nacional');
+    if (!shipping_postal_code) throw new Error('shipping_postal_code (CEP destino) é obrigatório para envio nacional');
+    if (!delivery_address) throw new Error('delivery_address é obrigatório para envio nacional');
+
+    // 2. Validate product dimensions
+    const shippingProductIds = items.map(i => i.product_id);
+    const { data: shippingProducts } = await supabase
+      .from('marketplace_products')
+      .select('id, name, weight_kg, dimensions_cm, product_type')
+      .in('id', shippingProductIds);
+
+    for (const p of (shippingProducts || [])) {
+      if (p.product_type !== 'physical_product') {
+        throw new Error(`Produto "${p.name}" não é elegível para envio por transportadora`);
+      }
+      if (!p.dimensions_cm?.width || !p.dimensions_cm?.height || !p.dimensions_cm?.length) {
+        throw new Error(`Produto "${p.name}" não tem dimensões cadastradas para envio`);
+      }
+    }
+
+    // 3. Validate fee via ME (±10% tolerance)
+    const meProducts = (shippingProducts || []).map(p => {
+      const item = items.find(i => i.product_id === p.id);
+      return {
+        id: p.id,
+        width: p.dimensions_cm.width,
+        height: p.dimensions_cm.height,
+        length: p.dimensions_cm.length,
+        weight: p.weight_kg,
+        insurance_value: 0,
+        quantity: item?.qty || 1,
+      };
+    });
+
+    try {
+      const melhorEnvioService = require('./melhorEnvioService');
+      const quotes = await melhorEnvioService.calculateShipping(
+        shippingConfig.origin_postal_code,
+        shipping_postal_code,
+        meProducts,
+        String(shipping_service_id)
+      );
+
+      const selectedQuote = quotes.find(q => q.serviceId === shipping_service_id);
+      if (!selectedQuote) {
+        throw new Error(`Serviço de frete ${shipping_service_id} não disponível para esta rota`);
+      }
+
+      const serverFee = parseFloat(selectedQuote.customPrice || selectedQuote.price);
+      const clientFee = Number(shipping_fee);
+      const tolerance = 0.10;
+
+      if (clientFee < serverFee * (1 - tolerance) || clientFee > serverFee * (1 + tolerance)) {
+        const err = new Error(`Valor do frete diverge do calculado (esperado: R$${serverFee.toFixed(2)}, recebido: R$${clientFee.toFixed(2)})`);
+        err.code = 'SHIPPING_FEE_MISMATCH';
+        throw err;
+      }
+      validatedShippingFee = serverFee;
+      shippingQuoteData = selectedQuote;
+      shippingEstimatedDays = selectedQuote.deliveryDays || null;
+    } catch (meErr) {
+      if (meErr.code === 'SHIPPING_FEE_MISMATCH') throw meErr;
+      logger.warn(`[${fn}] ME validation failed, degraded mode`, { error: meErr.message });
+      if (Number(shipping_fee) >= 5 && Number(shipping_fee) <= 500) {
+        validatedShippingFee = Number(shipping_fee);
+      } else {
+        throw new Error('Não foi possível validar o frete. Tente novamente.');
+      }
+    }
+
+    // 4. Apply freight_mode (unified — same policy for local + shipping)
+    const { data: sellerProfile } = await supabase
+      .from('seller_profiles')
+      .select('freight_mode, freight_split_ratio')
+      .eq('id', sellerId)
+      .single();
+
+    const freightMode = sellerProfile?.freight_mode || 'buyer_pays';
+    const splitRatio = sellerProfile?.freight_split_ratio ?? 1.0;
+
+    const { data: freightCalc } = await supabase.rpc('calculate_buyer_freight', {
+      p_accepted_fee: validatedShippingFee,
+      p_freight_mode: freightMode,
+      p_split_ratio: splitRatio,
+    });
+
+    delivery_fee = freightCalc?.buyer_freight ?? validatedShippingFee;
+  }
+
   const total_brl = +Math.max(0, subtotal_brl + delivery_fee + guarantee_fee_brl - coins_discount_brl).toFixed(2);
 
   // Comissão
@@ -576,7 +682,7 @@ async function createGuestOrder(sellerIdOrHandle, {
       status: 'pending',
       status_flow: statusFlow,
       fulfillment_type: resolvedFulfillment,
-      ...(fulfillment_type === 'local_delivery' && delivery_address && { delivery_address }),
+      ...((fulfillment_type === 'local_delivery' || fulfillment_type === 'shipping') && delivery_address && { delivery_address }),
       ...(fulfillment_type === 'local_delivery' && delivery_lat && { delivery_lat }),
       ...(fulfillment_type === 'local_delivery' && delivery_lng && { delivery_lng }),
       ...(preferred_deliverer_service_id && { preferred_deliverer_service_id }),
@@ -609,6 +715,28 @@ async function createGuestOrder(sellerIdOrHandle, {
       const err = new Error(`Estoque insuficiente: ${stockErr.message}`);
       err.code = 'STOCK_INSUFFICIENT';
       throw err;
+    }
+  }
+
+  // 5c. Create shipping_orders record for shipping orders (SHIP-W2)
+  if (fulfillment_type === 'shipping' && validatedShippingFee > 0) {
+    try {
+      const SERVICE_NAMES = { 1: 'PAC', 2: 'SEDEX', 3: '.Package', 4: '.Com', 17: 'Mini Envios' };
+      const CARRIER_NAMES = { 1: 'Correios', 2: 'Correios', 3: 'JadLog', 4: 'JadLog', 17: 'Correios' };
+
+      await supabase.from('shipping_orders').insert({
+        order_id: order.id,
+        me_service_id: shipping_service_id,
+        carrier_name: CARRIER_NAMES[shipping_service_id] || 'Desconhecido',
+        service_name: SERVICE_NAMES[shipping_service_id] || 'Desconhecido',
+        status: 'quoted',
+        quoted_price: validatedShippingFee,
+        shipping_fee: delivery_fee,
+        estimated_days: shippingEstimatedDays,
+        me_raw_response: shippingQuoteData,
+      });
+    } catch (shErr) {
+      logger.error(`[${fn}] shipping_orders insert failed`, { orderId: order.id, error: shErr.message });
     }
   }
 
@@ -763,6 +891,14 @@ async function initiateGuestPayment(orderId, token, { payment_method, card_data 
         const { autoTriggerDelivery } = require('./marketplaceService');
         setImmediate(() => autoTriggerDelivery(order, order.seller).catch(err =>
           logger.warn(`[${fn}] Auto-delivery failed`, { orderId, error: err.message })
+        ));
+      }
+
+      // Auto-trigger shipping for shipping orders (SHIP-W2)
+      if (order.fulfillment_type === 'shipping') {
+        const { autoTriggerShipping } = require('./marketplaceService');
+        setImmediate(() => autoTriggerShipping(order).catch(err =>
+          logger.warn(`[${fn}] Auto-shipping failed`, { orderId, error: err.message })
         ));
       }
 
